@@ -1,3 +1,4 @@
+// Renders the form for creating a new vehicle record.
 import { Link } from 'react-router-dom'
 import { useState } from 'react'
 
@@ -6,6 +7,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { PageHeader } from '@/shared/components/PageHeader'
+import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 
 const createVehicleFields = [
   {
@@ -49,8 +51,18 @@ const createVehicleFields = [
 ]
 
 export function VehicleCreatePage() {
+  const crud = useRouteCrudPermissions('/vehicle/list')
   const [formValues, setFormValues] = useState<Record<string, string>>({})
   const [transferredStatus, setTransferredStatus] = useState<'yes' | 'no'>('yes')
+
+  if (crud.isResolved && !crud.canCreate) {
+    return (
+      <section className="space-y-5">
+        <PageHeader title="Add New Vehicle" subtitle="Enter the details of the new vehicle." />
+        <p className="text-sm text-[var(--fms-text-subheading)]">You do not have permission to create vehicles.</p>
+      </section>
+    )
+  }
 
   return (
     <section className="space-y-5">
@@ -116,10 +128,10 @@ export function VehicleCreatePage() {
 
         <div className="flex items-center gap-3">
           <Button variant="destructive" asChild>
-            <Link to="/master/vehicle">Close</Link>
+            <Link to="/vehicle/list">Close</Link>
           </Button>
           <Button asChild>
-            <Link to="/master/vehicle">Save Vehicle</Link>
+            <Link to="/vehicle/list">Save Vehicle</Link>
           </Button>
         </div>
       </div>

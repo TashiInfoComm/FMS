@@ -1,4 +1,5 @@
-import { Eye, Plus, Search, Trash2, Pencil } from 'lucide-react'
+// Lists vehicles with search, details, and management actions.
+import { Plus, Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
@@ -7,6 +8,13 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { DeleteDialog } from '@/shared/components/DeleteDialog'
 import { PageHeader } from '@/shared/components/PageHeader'
+import {
+  DeleteRowActionButton,
+  DetailRowActionButton,
+  EditRowActionButton,
+  rowActionsContainerClassName,
+} from '@/shared/components/TableRowActionButtons'
+import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 
 type VehicleItem = {
   id: number
@@ -22,23 +30,28 @@ const initialVehicles: VehicleItem[] = [
 ]
 
 export function VehicleManagementPage() {
+  const crud = useRouteCrudPermissions('/vehicle/list')
   const [vehicles, setVehicles] = useState(initialVehicles)
   const [query, setQuery] = useState('')
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [selectedVehicleId, setSelectedVehicleId] = useState<number | null>(null)
 
+  // Client-side search across id, model, status, and movement labels.
   const filteredVehicles = useMemo(() => {
     if (!query.trim()) return vehicles
     return vehicles.filter((vehicle) => `${vehicle.id} ${vehicle.makeModel} ${vehicle.status} ${vehicle.movement}`.toLowerCase().includes(query.toLowerCase()))
   }, [query, vehicles])
 
   const askDelete = (id: number) => {
+    if (!crud.canDelete) return
     setSelectedVehicleId(id)
     setDeleteOpen(true)
   }
 
   const confirmDelete = () => {
+    if (!crud.canDelete) return
     if (selectedVehicleId === null) return
+    // Mirrors AssignVehiclePage: optimistic local delete for the mock table.
     setVehicles((prev) => prev.filter((vehicle) => vehicle.id !== selectedVehicleId))
     setSelectedVehicleId(null)
   }
@@ -47,12 +60,14 @@ export function VehicleManagementPage() {
     <section className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <PageHeader title="Vehicle" subtitle="Manage vehicle records and configurations" />
-        <Button asChild className="w-full sm:w-auto">
-          <Link to="/master/vehicle/add">
-            <Plus className="mr-1 h-4 w-4" />
-            Add New
-          </Link>
-        </Button>
+        {crud.canCreate ? (
+          <Button asChild className="w-full sm:w-auto">
+            <Link to="/vehicle/add">
+              <Plus className="mr-1 h-4 w-4" />
+              Add New
+            </Link>
+          </Button>
+        ) : null}
       </div>
 
       <Card className="rounded-xl border border-[var(--fms-strokes)] bg-white p-2 sm:p-4">
@@ -82,7 +97,14 @@ export function VehicleManagementPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredVehicles.map((vehicle) => (
+                {crud.isResolved && !crud.canRead ? (
+                  <tr className="border-t border-[var(--fms-strokes)]">
+                    <td colSpan={6} className="px-4 py-6 text-center text-[var(--fms-text-subheading)]">
+                      You do not have permission to view this data.
+                    </td>
+                  </tr>
+                ) : (
+                filteredVehicles.map((vehicle) => (
                   <tr key={vehicle.id} className="border-t border-[var(--fms-strokes)]">
                     <td className="px-4 py-3">{vehicle.id}</td>
                     <td className="px-4 py-3">{vehicle.makeModel}</td>
@@ -98,20 +120,15 @@ export function VehicleManagementPage() {
                     </td>
                     <td className="px-4 py-3">{vehicle.odometer}</td>
                     <td className="px-4 py-3">
-                      <div className="inline-flex items-center gap-2">
-                        <button type="button" className="rounded p-1 hover:bg-[var(--fms-info-fill)]">
-                          <Eye className="h-4 w-4 text-[var(--fms-text-header)]" />
-                        </button>
-                        <button type="button" className="rounded p-1 hover:bg-[var(--fms-info-fill)]">
-                          <Pencil className="h-4 w-4 text-[var(--fms-text-header)]" />
-                        </button>
-                        <button type="button" className="rounded p-1 hover:bg-[var(--fms-error-fill)]" onClick={() => askDelete(vehicle.id)}>
-                          <Trash2 className="h-4 w-4 text-[var(--fms-delete)]" />
-                        </button>
+                      <div className={rowActionsContainerClassName}>
+                        <DetailRowActionButton type="button" disabled={!crud.canRead} title="Detail" aria-label="View vehicle details" />
+                        <EditRowActionButton type="button" disabled={!crud.canUpdate} title="Edit" aria-label="Edit vehicle" />
+                        <DeleteRowActionButton type="button" disabled={!crud.canDelete} onClick={() => askDelete(vehicle.id)} />
                       </div>
                     </td>
                   </tr>
-                ))}
+                ))
+                )}
               </tbody>
             </table>
           </div>

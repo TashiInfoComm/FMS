@@ -1,26 +1,65 @@
+// Exposes permission-aware menu visibility and access helpers.
 import { useMemo, useState } from 'react'
 
+import { queryClient } from '@/lib/query-client'
 import { DEFAULT_ROLE, ROLE_PERMISSIONS, type Permission, type Role } from '@/shared/constants/access-control'
+import {
+  getMappedRolesFromUserProfile,
+  mapApiRoleValue,
+  notifyRolePreferenceChanged,
+  pickPrimaryCoarseRole,
+} from '@/shared/lib/realm-role-mapping'
+import { useUserStore } from '@/services/user-store'
+
+function readPinnedRoleFromStorage(): Role | null {
+  if (typeof window === 'undefined') return null
+  const storedRole = localStorage.getItem('fms-role')
+  if (!storedRole) return null
+  return mapApiRoleValue(storedRole.trim())
+}
 
 export function useAccessControl() {
-  const [role, setRoleState] = useState<Role>(() => (localStorage.getItem('fms-role') as Role | null) ?? DEFAULT_ROLE)
+  const user = useUserStore((state) => state.user)
+  const userRecord = user && typeof user === 'object' ? (user as Record<string, unknown>) : null
+
+  const mappedApiRoles = useMemo(() => getMappedRolesFromUserProfile(userRecord), [userRecord])
+
+  const [pinnedRole, setPinnedRole] = useState<Role | null>(() => readPinnedRoleFromStorage())
+
+  const fallbackRole = useMemo(() => pickPrimaryCoarseRole(mappedApiRoles), [mappedApiRoles])
+  const role = pinnedRole ?? fallbackRole
 
   const permissions = useMemo<Permission[]>(() => {
-    const stored = localStorage.getItem('fms-permissions')
-    if (!stored) return ROLE_PERMISSIONS[role] ?? ROLE_PERMISSIONS[DEFAULT_ROLE]
-
-    try {
-      return JSON.parse(stored) as Permission[]
-    } catch {
-      return ROLE_PERMISSIONS[role] ?? ROLE_PERMISSIONS[DEFAULT_ROLE]
+    const stored = typeof window !== 'undefined' ? localStorage.getItem('fms-permissions') : null
+    if (stored) {
+      try {
+        return JSON.parse(stored) as Permission[]
+      } catch {
+        // fall through to role-based defaults
+      }
     }
-  }, [role])
+
+    const effectiveCoarse =
+      pinnedRole ??
+      (mappedApiRoles.length > 0 ? pickPrimaryCoarseRole(mappedApiRoles) : DEFAULT_ROLE)
+
+    return ROLE_PERMISSIONS[effectiveCoarse] ?? ROLE_PERMISSIONS[DEFAULT_ROLE]
+  }, [pinnedRole, mappedApiRoles])
 
   const setRole = (nextRole: Role) => {
     localStorage.setItem('fms-role', nextRole)
     localStorage.removeItem('fms-permissions')
-    setRoleState(nextRole)
+    setPinnedRole(nextRole)
+    notifyRolePreferenceChanged()
+    void queryClient.invalidateQueries({ queryKey: ['role-permissions-detail'] })
+    void queryClient.invalidateQueries({ queryKey: ['me-menu'] })
   }
 
-  return { role, permissions, setRole }
+  return {
+    /** Realm / profile roles normalized to coarse app roles for navigation defaults. */
+    roles: mappedApiRoles,
+    role,
+    permissions,
+    setRole,
+  }
 }

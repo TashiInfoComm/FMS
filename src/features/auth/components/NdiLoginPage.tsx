@@ -1,9 +1,9 @@
+// Presents the NDI-based login entry and provider actions.
 import { Mail, Phone, PlayCircle } from 'lucide-react'
 import { Link } from 'react-router-dom'
-
-import ndiImage from '@/assets/ndi.png'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { NdiQrCodePanel } from '@/features/auth/components/NdiQrCodePanel'
 
 const GOOGLE_PLAY_URL =
   'https://play.google.com/store/search?q=bhutan%20ndi&c=apps&hl=en_IN&gl=US'
@@ -15,38 +15,27 @@ const APP_STORE_BADGE_URL =
   'https://developer.apple.com/assets/elements/badges/download-on-the-app-store.svg'
 
 export function NdiLoginPage() {
+  // Opens the official NDI tutorial resource in a new tab.
+  const handleOpenVideoGuide = () => {
+    window.open("https://www.youtube.com/@BhutanNDI", "_blank")
+  }
+
   return (
-    <main className="min-h-screen bg-[var(--fms-background)] px-4 py-8">
-      <section className="mx-auto flex w-full max-w-4xl flex-col items-center gap-6">
+    <main className="max-h-screen overflow-y-auto bg-[var(--fms-background)] px-4 py-8">
+      <section className="mx-auto max-h-screen flex w-full max-w-4xl flex-col items-center gap-6">
         <h1 className="text-center text-lg font-semibold tracking-wide text-[var(--fms-accent-purple)]">
           ROYAL GOVERNMENT OF BHUTAN - In Pursuit of Improving Public Service
           Delivery
         </h1>
 
-        <Card className="w-full max-w-3xl rounded-xl border border-[var(--fms-strokes)] bg-white py-10 shadow-sm">
-          <CardContent className="flex flex-col items-center gap-6">
+        <Card className="w-full max-w-3xl rounded-xl border border-[var(--fms-strokes)] bg-white py-6 shadow-sm">
+          <CardContent className="flex flex-col items-center gap-4">
             <p className="text-lg font-medium">
               Scan with{" "}
               <span className="text-[var(--fms-ndi-text)]">Bhutan NDI</span>{" "}
               Wallet.
             </p>
-            <div className="relative rounded-xl border-2 border-[var(--fms-ndi-text)] p-2">
-              <div className="grid h-52 w-52 grid-cols-8 gap-1 bg-white p-2">
-                {Array.from({ length: 64 }).map((_, idx) => (
-                  <div
-                    key={idx}
-                    className={
-                      idx % 2 === 0 || idx % 5 === 0 ? "bg-black" : "bg-white"
-                    }
-                  />
-                ))}
-              </div>
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="rounded-full bg-[var(--fms-ndi-button)] p-2">
-                  <img src={ndiImage} alt="NDI icon" className="h-8 w-8" />
-                </div>
-              </div>
-            </div>
+            <NdiQrCodePanel intent="login" />
             <ol className="max-w-sm list-decimal space-y-2 text-sm text-[var(--fms-text-subheading)]">
               <li>Open Bhutan NDI Wallet on your phone</li>
               <li>
@@ -56,10 +45,8 @@ export function NdiLoginPage() {
 
             <Button
               variant="secondary"
-              className="h-11 rounded-full border-[var(--fms-ndi-text)] px-8 text-[var(--fms-ndi-text)]"
-              onClick={() =>
-                window.open("https://www.youtube.com/@BhutanNDI", "_blank")
-              }
+              className="h-9 cursor-pointer rounded-full border-[var(--fms-ndi-text)] px-4 text-[var(--fms-ndi-text)]"
+              onClick={handleOpenVideoGuide}
             >
               Watch video guide
               <PlayCircle className="mr-2 h-5 w-5 text-[var(--fms-ndi-text)]" />
@@ -68,7 +55,6 @@ export function NdiLoginPage() {
             <p className="text-sm text-[var(--fms-text-subheading)]">
               Don&apos;t have the Bhutan NDI Wallet?{" "}
               <a
-                href={GOOGLE_PLAY_URL}
                 target="_blank"
                 rel="noreferrer"
                 className="font-semibold text-[var(--fms-ndi-text)]"
@@ -87,7 +73,7 @@ export function NdiLoginPage() {
                 <img
                   src={GOOGLE_PLAY_BADGE_URL}
                   alt="Get it on Google Play"
-                  className="h-12 w-auto"
+                  className="h-9 w-auto"
                 />
               </a>
               <a
@@ -99,7 +85,7 @@ export function NdiLoginPage() {
                 <img
                   src={APP_STORE_BADGE_URL}
                   alt="Download on the App Store"
-                  className="h-12 w-auto"
+                  className="h-9 w-auto"
                 />
               </a>
             </div>

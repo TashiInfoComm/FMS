@@ -51,6 +51,7 @@
 
 :root {
     --fms-background: #f8fafc;
+    --fms-icon: #0A72A5;
     --fms-button: #2563eb;
     --fms-button-hover: #1b458b;
     --fms-text-header: #1f293b;
@@ -76,6 +77,7 @@
     --fms-neutral-fill: #f1f5f9;
     --fms-neutral-border: #dce0e4;
     --fms-neutral-text: #47535f;
+   
 
     --background: oklch(1 0 0);
     --foreground: oklch(0.145 0 0);

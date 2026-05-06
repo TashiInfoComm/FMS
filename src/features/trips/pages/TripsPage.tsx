@@ -1,3 +1,4 @@
+// Shows the trips module overview and summary widgets.
 import { useState } from 'react'
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -7,6 +8,7 @@ import { AppButton } from '@/shared/components/AppButton'
 import { PageHeader } from '@/shared/components/PageHeader'
 
 export function TripsPage() {
+  // Scaffold form state; persistence and validation to be added with trips API.
   const [origin, setOrigin] = useState('')
   const [destination, setDestination] = useState('')
   const [departureDate, setDepartureDate] = useState('')

@@ -1,3 +1,4 @@
+// Provides the shared label component for form controls.
 import * as React from "react"
 import { Label as LabelPrimitive } from "radix-ui"
 

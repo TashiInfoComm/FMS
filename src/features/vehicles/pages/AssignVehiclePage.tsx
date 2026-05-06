@@ -1,4 +1,5 @@
-import { Eye, Pencil, Plus, Search, Star, Trash2 } from 'lucide-react'
+// Lists assigned vehicles with search and record actions.
+import { Plus, Search, Star } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
@@ -6,6 +7,13 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { DeleteDialog } from '@/shared/components/DeleteDialog'
 import { PageHeader } from '@/shared/components/PageHeader'
+import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
+import {
+  DeleteRowActionButton,
+  DetailRowActionButton,
+  EditRowActionButton,
+  rowActionsContainerClassName,
+} from '@/shared/components/TableRowActionButtons'
 
 type AssignVehicleRow = {
   id: number
@@ -42,6 +50,8 @@ const initialRows: AssignVehicleRow[] = [
 ]
 
 export function AssignVehiclePage() {
+  const crud = useRouteCrudPermissions('/assign-vehicle')
+  // Prototype data: replace with API-backed state when the assignment service is wired.
   const [rows, setRows] = useState(initialRows)
   const [query, setQuery] = useState('')
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -55,11 +65,14 @@ export function AssignVehiclePage() {
   }, [query, rows])
 
   const askDelete = (id: number) => {
+    if (!crud.canDelete) return
     setSelectedId(id)
     setDeleteOpen(true)
   }
 
+  // Local-only removal until delete API exists; clears selection after mutating `rows`.
   const confirmDelete = () => {
+    if (!crud.canDelete) return
     if (selectedId === null) return
     setRows((prev) => prev.filter((row) => row.id !== selectedId))
     setSelectedId(null)
@@ -69,12 +82,14 @@ export function AssignVehiclePage() {
     <section className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <PageHeader title="Assign Vehicle" subtitle="Manage driver records and assign vehicle configurations" />
-        <Button asChild className="w-full sm:w-auto">
-          <Link to="/master/assign-vehicle/add">
-            <Plus className="mr-1 h-4 w-4" />
-            Assign New
-          </Link>
-        </Button>
+        {crud.canCreate ? (
+          <Button asChild className="w-full sm:w-auto">
+            <Link to="/assign-vehicle/add">
+              <Plus className="mr-1 h-4 w-4" />
+              Assign New
+            </Link>
+          </Button>
+        ) : null}
       </div>
 
       <Card className="rounded-xl border border-[var(--fms-strokes)] bg-white p-2 sm:p-4">
@@ -105,7 +120,14 @@ export function AssignVehiclePage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredRows.map((row) => (
+                {crud.isResolved && !crud.canRead ? (
+                  <tr className="border-t border-[var(--fms-strokes)]">
+                    <td colSpan={7} className="px-4 py-6 text-center text-[var(--fms-text-subheading)]">
+                      You do not have permission to view this data.
+                    </td>
+                  </tr>
+                ) : (
+                filteredRows.map((row) => (
                   <tr key={row.id} className="border-t border-[var(--fms-strokes)]">
                     <td className="px-4 py-3">{row.id}</td>
                     <td className="px-4 py-3">
@@ -125,20 +147,25 @@ export function AssignVehiclePage() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="inline-flex items-center gap-2">
-                        <button type="button" className="rounded p-1 hover:bg-[var(--fms-info-fill)]">
-                          <Eye className="h-4 w-4 text-[var(--fms-text-header)]" />
-                        </button>
-                        <button type="button" className="rounded p-1 hover:bg-[var(--fms-info-fill)]">
-                          <Pencil className="h-4 w-4 text-[var(--fms-text-header)]" />
-                        </button>
-                        <button type="button" className="rounded p-1 hover:bg-[var(--fms-error-fill)]" onClick={() => askDelete(row.id)}>
-                          <Trash2 className="h-4 w-4 text-[var(--fms-delete)]" />
-                        </button>
+                      <div className={rowActionsContainerClassName}>
+                        <DetailRowActionButton
+                          type="button"
+                          disabled={!crud.canRead}
+                          title="Detail"
+                          aria-label="View assignment details"
+                        />
+                        <EditRowActionButton
+                          type="button"
+                          disabled={!crud.canUpdate}
+                          title="Edit"
+                          aria-label="Edit assignment"
+                        />
+                        <DeleteRowActionButton type="button" disabled={!crud.canDelete} onClick={() => askDelete(row.id)} />
                       </div>
                     </td>
                   </tr>
-                ))}
+                ))
+                )}
               </tbody>
             </table>
           </div>

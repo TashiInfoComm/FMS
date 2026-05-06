@@ -1,3 +1,4 @@
+// Displays top-level dashboard metrics and quick status cards.
 import { Activity, Building2, CarFront, Users } from 'lucide-react'
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -16,6 +17,7 @@ export function DashboardPage() {
       <PageHeader title="Dashboard" subtitle="Overview of fleet and admin operations." />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {/* Static placeholder metrics until dashboard API aggregates exist */}
         {dashboardStats.map((item) => {
           const Icon = item.icon
           return (

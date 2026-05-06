@@ -1,3 +1,4 @@
+// Renders the form for creating new vehicle assignment records.
 import { Star } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -7,6 +8,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { PageHeader } from '@/shared/components/PageHeader'
+import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 
 const formSections = [
   {
@@ -39,7 +41,17 @@ const formSections = [
 ]
 
 export function AssignVehicleCreatePage() {
+  const crud = useRouteCrudPermissions('/assign-vehicle')
   const [formValues, setFormValues] = useState<Record<string, string>>({})
+
+  if (crud.isResolved && !crud.canCreate) {
+    return (
+      <section className="space-y-5">
+        <PageHeader title="Assign Vehicle" subtitle="Enter the details of the new driver." />
+        <p className="text-sm text-[var(--fms-text-subheading)]">You do not have permission to create assignments.</p>
+      </section>
+    )
+  }
 
   return (
     <section className="space-y-5">
@@ -116,10 +128,10 @@ export function AssignVehicleCreatePage() {
 
         <div className="flex items-center gap-3">
           <Button variant="destructive" asChild>
-            <Link to="/master/assign-vehicle">Close</Link>
+            <Link to="/assign-vehicle">Close</Link>
           </Button>
           <Button asChild>
-            <Link to="/master/assign-vehicle">Save</Link>
+            <Link to="/assign-vehicle">Save</Link>
           </Button>
         </div>
       </div>

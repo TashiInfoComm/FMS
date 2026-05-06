@@ -1,3 +1,4 @@
+// Defines roles, permissions, and menu metadata for access control.
 import type { LucideIcon } from "lucide-react";
 import {
   Building2,
@@ -5,9 +6,11 @@ import {
   LogOut,
   ShieldUser,
   UserCog,
+  CarFront,
+  Settings
 } from "lucide-react";
 
-export type Role = "Admin" | "Manager" | "Operator";
+export type Role = "Super Admin" | "Agency Admin";
 
 export type Permission =
   | "dashboard:view"
@@ -43,7 +46,7 @@ export type MenuItem = {
 };
 
 export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
-  Admin: [
+  "Super Admin": [
     "dashboard:view",
     "agency:view",
     "assign-vehicle:view",
@@ -62,22 +65,23 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "role-permission:view",
     "create-user:view",
   ],
-  Manager: [
+  /** Coarse nav: operational access without global Permission / Role Permission admin screens. */
+  "Agency Admin": [
     "dashboard:view",
     "agency:view",
     "assign-vehicle:view",
+    "destination:view",
+    "dzongkhag:view",
+    "fuel-type:view",
+    "insurance-provider:view",
+    "maintenance-type:view",
+    "purpose-of-journey:view",
     "vehicle:view",
     "status:view",
+    "vehicle-type-category:view",
     "trip-type:view",
-    "dzongkhag:view",
+    "user-role:view",
     "create-user:view",
-  ],
-  Operator: [
-    "dashboard:view",
-    "agency:view",
-    "vehicle:view",
-    "status:view",
-    "dzongkhag:view",
   ],
 };
 
@@ -88,6 +92,53 @@ export const MENU_ITEMS: MenuItem[] = [
     icon: LayoutDashboard,
     href: "/dashboard",
     permissions: ["dashboard:view"],
+  },
+  {
+    id: "system-settings",
+    label: "System Settings",
+    icon: Settings,
+    permissions: ["user-role:view"],
+    children: [
+      {
+        id: "menus",
+        label: "Modules",
+        href: "/admin/modules",
+        permissions: ["user-role:view"],
+      },
+      {
+        id: "user-role",
+        label: " Roles",
+        href: "/admin/roles",
+        permissions: ["user-role:view"],
+      },
+      {
+        id: "permission",
+        label: "Permission",
+        href: "/admin/permissions",
+        permissions: ["permission:view"],
+      },
+      {
+        id: "role-permission",
+        label: "Role Permission",
+        href: "/admin/role-permission",
+        permissions: ["role-permission:view"],
+      },
+    ],
+  },
+  {
+    id: "user-management",
+    label: "User Management",
+    icon: UserCog,
+    permissions: ["user-role:view"],
+    children: [
+      
+      {
+        id: "users",
+        label: "Users",
+        href: "/users",
+        permissions: ["create-user:view"],
+      },
+    ],
   },
   {
     id: "master-management",
@@ -123,7 +174,7 @@ export const MENU_ITEMS: MenuItem[] = [
       {
         id: "dzongkhag",
         label: "Dzongkhag & Gewog",
-        href: "/master/dzongkhag-gewog",
+        href: "/master/dzongkhags",
         permissions: ["dzongkhag:view"],
       },
       {
@@ -147,18 +198,6 @@ export const MENU_ITEMS: MenuItem[] = [
       },
 
       {
-        id: "vehicle",
-        label: "Vehicle",
-        href: "/master/vehicle",
-        permissions: ["vehicle:view"],
-      },
-      {
-        id: "assign-vehicle",
-        label: "Assign Vehicle",
-        href: "/master/assign-vehicle",
-        permissions: ["assign-vehicle:view"],
-      },
-      {
         id: "purpose-journey",
         label: "Purpose of Journey",
         href: "/master/purpose-of-journey",
@@ -173,44 +212,34 @@ export const MENU_ITEMS: MenuItem[] = [
     ],
   },
   {
-    id: "user-management",
-    label: "User Management",
-    icon: UserCog,
-    permissions: ["user-role:view"],
+    id: "vehicle-management",
+    label: "Vehicle Management",
+    icon: CarFront,
+    permissions: ["agency:view"],
     children: [
       {
-        id: "user-role",
-        label: "User Role",
-        href: "/users/user-role",
-        permissions: ["user-role:view"],
+        id: "vehicle",
+        label: "Vehicle",
+        href: "/vehicle/list",
+        permissions: ["vehicle:view"],
       },
       {
-        id: "permission",
-        label: "Permission",
-        href: "/users/permission",
-        permissions: ["permission:view"],
-      },
-      {
-        id: "role-permission",
-        label: "Role Permission",
-        href: "/users/role-permission",
-        permissions: ["role-permission:view"],
-      },
-      {
-        id: "users",
-        label: "Users",
-        href: "/users",
-        permissions: ["create-user:view"],
+        id: "assign-vehicle",
+        label: "Assign Vehicle",
+        href: "/assign-vehicle",
+        permissions: ["assign-vehicle:view"],
       },
     ],
   },
+
   {
     id: "logout",
     label: "Logout",
     icon: LogOut,
+    // Route-based logout entry; session cleanup is handled elsewhere in app flow.
     href: "/login/ndi",
   },
 ];
 
-export const DEFAULT_ROLE: Role = "Admin";
+export const DEFAULT_ROLE: Role = "Agency Admin";
 export const ROLE_ICON = ShieldUser;

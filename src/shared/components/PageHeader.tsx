@@ -1,3 +1,4 @@
+// Renders a consistent page title and optional subtitle header.
 type PageHeaderProps = {
   title: string
   subtitle?: string

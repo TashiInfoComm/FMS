@@ -1,3 +1,4 @@
+// Exposes reusable card layout primitives for content sections.
 import * as React from "react"
 
 import { cn } from "@/lib/utils"

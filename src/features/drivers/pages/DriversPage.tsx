@@ -1,3 +1,4 @@
+// Shows the drivers module overview and summary widgets.
 import { useState } from 'react'
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -7,6 +8,7 @@ import { AppButton } from '@/shared/components/AppButton'
 import { PageHeader } from '@/shared/components/PageHeader'
 
 export function DriversPage() {
+  // Scaffold form state; submit handler not wired yet.
   const [name, setName] = useState('')
   const [licenseNo, setLicenseNo] = useState('')
 

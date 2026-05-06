@@ -1,3 +1,4 @@
+// Provides the shared button component with style variants.
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 import { Slot } from "radix-ui"
@@ -51,6 +52,7 @@ function Button({
   VariantProps<typeof buttonVariants> & {
     asChild?: boolean
   }) {
+  // `asChild` lets routing links and other elements inherit button styles consistently.
   const Comp = asChild ? Slot.Root : "button"
 
   return (
@@ -64,4 +66,4 @@ function Button({
   )
 }
 
-export { Button, buttonVariants }
+export { Button }
