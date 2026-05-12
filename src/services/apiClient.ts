@@ -1,4 +1,5 @@
 // Centralizes authenticated HTTP requests to the backend API.
+import { clearCurrentProfileQueryCache } from "@/lib/query-client";
 import { useUserStore } from "@/services/user-store";
 import { notifyRolePreferenceChanged } from "@/shared/lib/realm-role-mapping";
 
@@ -138,6 +139,8 @@ async function handleUnauthorized() {
   } catch {
     /* zustand unavailable in rare test/ssr cases */
   }
+  clearCurrentProfileQueryCache();
+  localStorage.removeItem("fms-current-profile");
   localStorage.removeItem("fms-role");
   localStorage.removeItem("fms-permissions");
   notifyRolePreferenceChanged();

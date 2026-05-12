@@ -1,5 +1,5 @@
 /**
- * Users list at `/users`: loads `GET /admin/users` with search + pagination,
+ * Users list at `/users`: loads `GET /admin/users` with search, optional `status`, and pagination,
  * maps flexible API shapes to table rows, respects CRUD flags from `useRouteCrudPermissions('/users')`,
  * and wires Detail / Edit / Delete navigation (links avoid Radix `asChild` + Router issues).
  */
@@ -11,6 +11,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { apiDelete, apiGet } from "@/services/apiClient";
 import { cn } from "@/lib/utils";
 import { DeleteDialog } from "@/shared/components/DeleteDialog";
@@ -215,12 +222,29 @@ function mapUserRows(records: ApiRecord[]): UserRow[] {
   });
 }
 
-/** Builds the list query path; omits `search` when empty so strict backends do not error. */
-function usersListPath(search: string, page: number, pageSize: number) {
-  const base = `/admin/users?page=${page}&page_size=${pageSize}`;
+/** Registration status values sent to `GET /admin/users` (aligned with table display casing). */
+const USER_STATUS_FILTER_OPTIONS = [
+  { apiValue: "APPROVED", label: "Approved" },
+  { apiValue: "PENDING", label: "Pending" },
+  { apiValue: "REJECTED", label: "Rejected" },
+] as const;
+
+/** Sentinel for Radix Select (no empty `value` on items); maps to omitted `status` query param. */
+const USER_STATUS_FILTER_ALL = "__all__";
+
+/** Builds the list query path; omits `search` / `status` when empty so strict backends do not error. */
+function usersListPath(
+  search: string,
+  status: string,
+  page: number,
+  pageSize: number,
+) {
+  let path = `/admin/users?page=${page}&page_size=${pageSize}`;
   const q = search.trim();
-  if (!q) return base;
-  return `${base}&search=${encodeURIComponent(q)}`;
+  if (q) path += `&search=${encodeURIComponent(q)}`;
+  const st = status.trim();
+  if (st) path += `&status=${encodeURIComponent(st)}`;
+  return path;
 }
 
 /** Styles for the “Detail” router link (same look as `DetailRowActionButton`, no `asChild`). */
@@ -235,11 +259,47 @@ const editLinkClassName = cn(
   "inline-flex items-center justify-center px-2.5 text-sm font-medium no-underline",
 );
 
+type UserStatusFilterSelectProps = {
+  value: string;
+  onValueChange: (apiValue: string) => void;
+};
+
+/** Status filter dropdown (`Approved` / `Pending` / `Rejected`, or all). */
+function UserStatusFilterSelect({
+  value,
+  onValueChange,
+}: UserStatusFilterSelectProps) {
+  const selectValue =
+    value.trim() === "" ? USER_STATUS_FILTER_ALL : value.trim();
+
+  return (
+    <Select
+      value={selectValue}
+      onValueChange={(next) =>
+        onValueChange(next === USER_STATUS_FILTER_ALL ? "" : next)
+      }
+    >
+      <SelectTrigger className="w-full max-w-[220px]">
+        <SelectValue placeholder="Filter by status…" />
+      </SelectTrigger>
+      <SelectContent align="end">
+        <SelectItem value={USER_STATUS_FILTER_ALL}>All statuses</SelectItem>
+        {USER_STATUS_FILTER_OPTIONS.map((o) => (
+          <SelectItem key={o.apiValue} value={o.apiValue}>
+            {o.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
 /**
  * Route: `/users`. Fetches user list, applies server/client pagination metadata, gates UI by `canRead`/`canCreate`/`canDelete`.
  */
 export function CreateUserListPage() {
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -248,10 +308,10 @@ export function CreateUserListPage() {
   const crud = useRouteCrudPermissions("/users");
 
   const listQuery = useQuery({
-    queryKey: ["admin-users", search, page, pageSize],
+    queryKey: ["admin-users", search, statusFilter, page, pageSize],
     queryFn: async () => {
       const payload = await apiGet<unknown>(
-        usersListPath(search, page, pageSize),
+        usersListPath(search, statusFilter, page, pageSize),
       );
       const records = mapUserRows(toArray(payload));
       const paged = applyPagination(payload, records, page, pageSize, {
@@ -343,7 +403,14 @@ export function CreateUserListPage() {
 
       <Card className="rounded-xl border border-[var(--fms-strokes)] bg-white p-2 sm:p-4">
         <CardContent className="space-y-4 p-0">
-          <div className="flex justify-end">
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end sm:gap-3">
+            <UserStatusFilterSelect
+              value={statusFilter}
+              onValueChange={(next) => {
+                setStatusFilter(next);
+                setPage(1);
+              }}
+            />
             <div className="relative w-full max-w-sm">
               <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-[var(--fms-text-subheading)]" />
               <Input

@@ -128,22 +128,23 @@ export function pickOrganogramHints(r: ApiRecord): DirectoryOrganogramHints | un
 }
 
 /**
- * True when employee lookup returned plain agency/dept/div/sub-division labels (not only EMS organogram keys).
+ * True when lookup/NDI returned agency, department, and division labels (not only EMS organogram keys).
  * Used to auto-resolve `/public/groups` tiers by name when `pickOrganogramHints` produced nothing.
+ * Sub division / section is optional — many payloads omit it but the first three tiers are still enough to match.
  * Does not require `employeeId` so CID-only directory rows with organogram labels still resolve.
  */
 export function hasEmployeeDirectoryOrgLabels(profile: FetchedPerson): boolean {
   return (
     isDirectoryProvided(profile.agency) &&
     isDirectoryProvided(profile.department) &&
-    isDirectoryProvided(profile.division) &&
-    isDirectoryProvided(profile.subDivision)
+    isDirectoryProvided(profile.division)
   )
 }
 
 /**
  * Merges EMS-style `organogramHints` with tier names from `agency` / `department` / `division` / `subDivision`
- * when the directory supplies all of those label tiers. API organogram fields override labels.
+ * when the directory supplies those label tiers (first three required; fourth only if sub division / section is present).
+ * API organogram fields override labels.
  */
 export function mergedOrganogramHintsForProfile(profile: FetchedPerson): DirectoryOrganogramHints | undefined {
   const fromApi = profile.organogramHints
@@ -152,7 +153,7 @@ export function mergedOrganogramHintsForProfile(profile: FetchedPerson): Directo
         level1Name: profile.agency.trim(),
         level2Name: profile.department.trim(),
         level3Name: profile.division.trim(),
-        level4Name: profile.subDivision.trim(),
+        ...(isDirectoryProvided(profile.subDivision) ? { level4Name: profile.subDivision.trim() } : {}),
       }
     : undefined
   if (!fromApi && !fromLabels) return undefined
@@ -214,6 +215,7 @@ export function apiRecordToFetchedPerson(r: ApiRecord): FetchedPerson {
     toText(r.employeeNumber) ||
     toText(r.empid) ||
     toText(r.eid) ||
+    toText(r.accessToken) ||
     ''
   const cid = pickCid(r)
   const lookupId =
@@ -256,7 +258,10 @@ export function apiRecordToFetchedPerson(r: ApiRecord): FetchedPerson {
  */
 export function recordHasDirectoryIdentity(r: ApiRecord): boolean {
   const p = apiRecordToFetchedPerson(r)
-  return isDirectoryProvided(p.cid) || isDirectoryProvided(p.employeeId)
+  return (
+    isDirectoryProvided(p.cid) ||
+    isDirectoryProvided(p.employeeId) 
+  )
 }
 
 /**
@@ -339,6 +344,8 @@ function mapRecordToPerson(r: ApiRecord, lookupId: string): FetchedPerson {
       toText(r.subDivision) ||
       toText(r.subdivision) ||
       toText(r.sub_division_name) ||
+      toText(r.section) ||
+      toText(r.Section) ||
       '-',
     designation,
     designationFromDirectory: isDirectoryProvided(designation),

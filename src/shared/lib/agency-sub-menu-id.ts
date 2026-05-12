@@ -1,4 +1,4 @@
-// Maps Agency page tabs to sidebar sub-menu ids (GET `/admin/me/menu`) for role permission lookups.
+// Maps Agency page tabs to sidebar sub-menu ids (GET `/admin/roles/{role}/permissions`) for role permission lookups.
 import type { MenuRecord } from '@/features/modules/lib/menus-api'
 import { normalizeFrontendRoute } from '@/features/modules/lib/menus-api'
 

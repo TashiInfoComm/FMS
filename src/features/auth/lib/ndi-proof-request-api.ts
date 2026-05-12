@@ -9,8 +9,9 @@ import { apiPost } from "@/services/apiClient";
 
 export type NdiProofIntent = "login" | "registration";
 
-const PROOF_REQUEST_PATH = "/auth/ndi/proof_request";
-const CHECK_CALLBACK_PATH = "/admin/ndi/check_callback_response";
+const PROOF_REQUEST_PATH = "/ndi/proof_request";
+const CHECK_CALLBACK_PATH = "/ndi/check_callback_response";
+const CHECK_LOGIN_PATH = "/ndi/login_callback_response";
 
 export type NdiProofRequestResult = {
   qrValue: string;
@@ -87,10 +88,16 @@ export function extractThreadIdFromProofResponse(payload: unknown): string | nul
  * Notifies the backend to check the NDI callback for this proof session (`thread_id`
  * in the JSON body per API contract).
  */
-export async function postNdiCheckCallbackResponse(threadId: string): Promise<unknown> {
-  return apiPost<unknown, { thread_id: string }>(CHECK_CALLBACK_PATH, {
-    thread_id: threadId,
-  });
+export async function postNdiCheckCallbackResponse(
+  threadId: string,
+  intent: NdiProofIntent,
+  init?: RequestInit,
+): Promise<unknown> {
+  return apiPost<unknown, { thread_id: string, intent: NdiProofIntent }>(
+    intent === "login" ? CHECK_LOGIN_PATH : CHECK_CALLBACK_PATH,
+    { thread_id: threadId, intent: intent },
+    init, 
+  );
 }
 
 function readRootMessage(root: ApiRecord): string | null {
@@ -109,10 +116,54 @@ function getNdiCallbackDataRecord(raw: unknown): ApiRecord | null {
   return null
 }
 
+/** Present on `complete` when the backend completes an NDI login session (JWT / refresh). */
+export type NdiCallbackAuthTokens = {
+  accessToken: string
+  refreshToken: string | null
+}
+
 export type ParsedNdiCallback =
-  | { kind: "complete"; person: FetchedPerson }
+  | { kind: "complete"; person: FetchedPerson; auth: NdiCallbackAuthTokens | null }
   | { kind: "pending" }
-  | { kind: "error"; message: string };
+  | { kind: "error"; message: string }
+
+function pickCbString(obj: ApiRecord, keys: readonly string[]): string | null {
+  for (const k of keys) {
+    const v = obj[k]
+    if (typeof v === "string" && v.trim()) return v.trim()
+  }
+  return null
+}
+
+/**
+ * Pulls Bearer tokens from the callback envelope (`data`, entity, root) — login flows often nest them beside identity.
+ */
+export function extractNdiCallbackAuth(raw: unknown, entity: ApiRecord | null): NdiCallbackAuthTokens | null {
+  if (!raw || typeof raw !== "object") return null
+  const root = raw as ApiRecord
+  const nested = root.data ?? root.result
+  const sources: ApiRecord[] = []
+  if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+    sources.push(nested as ApiRecord)
+  }
+  if (entity) sources.push(entity)
+  sources.push(root)
+
+  const seen = new Set<unknown>()
+  for (const obj of sources) {
+    if (!obj || seen.has(obj)) continue
+    seen.add(obj)
+    const accessToken =
+      pickCbString(obj, ["accessToken", "access_token", "token"]) ??
+      null
+    if (!accessToken) continue
+    const refreshToken =
+      pickCbString(obj, ["refreshToken", "refresh_token"]) ?? null
+    return { accessToken, refreshToken }
+  }
+
+  return null
+}
 
 /**
  * Interprets POST `/admin/ndi/check_callback_response` JSON: complete when `data` (or `result`) contains
@@ -131,8 +182,23 @@ export function parseNdiCheckCallbackResponse(raw: unknown): ParsedNdiCallback {
   }
 
   const entity = getNdiCallbackDataRecord(raw)
+  const auth = extractNdiCallbackAuth(raw, entity)
+
   if (entity && recordHasDirectoryIdentity(entity)) {
-    return { kind: "complete", person: fetchedPersonFromDirectoryLikeRecord(entity) }
+    return {
+      kind: "complete",
+      person: fetchedPersonFromDirectoryLikeRecord(entity),
+      auth,
+    }
+  }
+
+  // Login callback often returns only JWTs under `data` (no CID / employee id). Still a completed session.
+  if (auth?.accessToken) {
+    return {
+      kind: "complete",
+      person: fetchedPersonFromDirectoryLikeRecord(entity ?? {}),
+      auth,
+    }
   }
 
   if (success === true) {

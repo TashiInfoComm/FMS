@@ -605,11 +605,12 @@ export function RolePermissionManagement() {
               <table className="min-w-full text-sm">
                 <thead className="bg-[#f6f6f7] text-[var(--fms-text-header)]">
                   <tr>
-                    {['#', 'Role', 'Action'].map((column) => (
+                    {['#', 'Role',].map((column) => (
                       <th key={column} className="px-8 py-3 text-left text-xs font-bold uppercase tracking-wide">
                         {column}
                       </th>
                     ))}
+                    <th className="px-8 py-3 text-center text-xs font-bold uppercase">Action</th>
                   </tr>
                 </thead>
                 <tbody>

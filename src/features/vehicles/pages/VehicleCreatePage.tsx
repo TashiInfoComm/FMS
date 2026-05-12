@@ -1,4 +1,5 @@
 // Renders the form for creating a new vehicle record.
+import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { useState } from 'react'
 
@@ -6,6 +7,11 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { MasterDataSelect } from '@/features/vehicles/components/MasterDataSelect'
+import {
+  fetchVehicleCreateMasterLists,
+  type VehicleCreateMasterLists,
+} from '@/features/vehicles/lib/vehicle-create-master-data'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 
@@ -48,12 +54,39 @@ const createVehicleFields = [
       { key: 'insurancePolicy', label: 'Insurance Policy', placeholder: 'Select insurance policy' },
     ],
   },
-]
+] as const
+
+const MASTER_OPTIONS_KEY: Record<string, keyof VehicleCreateMasterLists> = {
+  vehicleType: 'vehicleTypes',
+  vehicleCategory: 'vehicleCategories',
+  fuelType: 'fuelTypes',
+  vehicleStatus: 'vehicleStatuses',
+  vehicleMovementStatus: 'vehicleMovementStatuses',
+  originalAgency: 'agencies',
+  currentAgency: 'agencies',
+  insurancePolicy: 'insuranceProviders',
+}
+
+function isMasterSelectField(
+  section: string,
+  fieldKey: string,
+): fieldKey is keyof typeof MASTER_OPTIONS_KEY {
+  return (
+    (section === 'Classification' || section === 'Agency & Insurance') &&
+    fieldKey in MASTER_OPTIONS_KEY
+  )
+}
 
 export function VehicleCreatePage() {
   const crud = useRouteCrudPermissions('/vehicle/list')
   const [formValues, setFormValues] = useState<Record<string, string>>({})
   const [transferredStatus, setTransferredStatus] = useState<'yes' | 'no'>('yes')
+
+  const mastersQuery = useQuery({
+    queryKey: ['vehicle-create', 'master-lists'],
+    queryFn: fetchVehicleCreateMasterLists,
+    staleTime: 60_000,
+  })
 
   if (crud.isResolved && !crud.canCreate) {
     return (
@@ -77,19 +110,42 @@ export function VehicleCreatePage() {
                 <p className="text-xs text-[var(--fms-text-subheading)]">{group.subtitle}</p>
               </div>
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {group.fields.map((field) => (
-                  <div key={field.key} className="space-y-2">
-                    <Label htmlFor={field.key}>
-                      {field.label} <span className="text-[var(--fms-delete)]">*</span>
-                    </Label>
-                    <Input
+                {group.fields.map((field: { key: string; label: string; placeholder: string }) =>
+                  isMasterSelectField(group.section, field.key) ? (
+                    <MasterDataSelect
+                      key={field.key}
                       id={field.key}
-                      value={formValues[field.key] ?? ''}
-                      onChange={(event) => setFormValues((prev) => ({ ...prev, [field.key]: event.target.value }))}
+                      label={
+                        <>
+                          {field.label} <span className="text-[var(--fms-delete)]">*</span>
+                        </>
+                      }
                       placeholder={field.placeholder}
+                      options={
+                        mastersQuery.data ? mastersQuery.data[MASTER_OPTIONS_KEY[field.key]] ?? [] : []
+                      }
+                      value={formValues[field.key] ?? ''}
+                      loading={mastersQuery.isLoading}
+                      onValueChange={(next) =>
+                        setFormValues((prev) => ({ ...prev, [field.key]: next }))
+                      }
                     />
-                  </div>
-                ))}
+                  ) : (
+                    <div key={field.key} className="space-y-2">
+                      <Label htmlFor={field.key}>
+                        {field.label} <span className="text-[var(--fms-delete)]">*</span>
+                      </Label>
+                      <Input
+                        id={field.key}
+                        value={formValues[field.key] ?? ''}
+                        onChange={(event) =>
+                          setFormValues((prev) => ({ ...prev, [field.key]: event.target.value }))
+                        }
+                        placeholder={field.placeholder}
+                      />
+                    </div>
+                  ),
+                )}
                 {group.section === 'Agency & Insurance' ? (
                   <div className="space-y-2">
                     <Label>

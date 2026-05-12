@@ -10,3 +10,8 @@ export const queryClient = new QueryClient({
     },
   },
 })
+
+/** Drop cached `/auth/me` so the next fetch matches the active session (avoid stale user in localStorage). */
+export function clearCurrentProfileQueryCache() {
+  queryClient.removeQueries({ queryKey: ['current-profile'] })
+}

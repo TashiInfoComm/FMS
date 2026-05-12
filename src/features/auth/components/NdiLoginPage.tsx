@@ -22,7 +22,7 @@ export function NdiLoginPage() {
 
   return (
     <main className="max-h-screen overflow-y-auto bg-[var(--fms-background)] px-4 py-8">
-      <section className="mx-auto max-h-screen flex w-full max-w-4xl flex-col items-center gap-6">
+      <section className="mx-auto flex max-h-screen w-full max-w-4xl flex-col items-center gap-6">
         <h1 className="text-center text-lg font-semibold tracking-wide text-[var(--fms-accent-purple)]">
           ROYAL GOVERNMENT OF BHUTAN - In Pursuit of Improving Public Service
           Delivery

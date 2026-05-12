@@ -1,190 +1,243 @@
 // Defines the main application layout, navigation, and user menu.
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { ChevronDown, LogOut, Menu, User, X } from 'lucide-react'
-import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { ChevronDown, LogOut, Menu, User, X } from "lucide-react";
+import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 
-import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { cn } from '@/lib/utils'
-import { useUserStore } from '@/services/user-store'
-import layoutLogoImage from '@/assets/layout_logo.png'
-import { MenuLucideIcon } from '@/features/modules/components/MenuLucideIcon'
-import { fetchUserSidebarMenus, normalizeFrontendRoute } from '@/features/modules/lib/menus-api'
-import { DEFAULT_ROLE, ROLE_ICON, type Role } from '@/shared/constants/access-control'
-import { Loader } from '@/shared/components/Loader'
-import { useAccessControl } from '@/shared/hooks/useAccessControl'
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
+import { clearCurrentProfileQueryCache } from "@/lib/query-client";
+import { useUserStore } from "@/services/user-store";
+import layoutLogoImage from "@/assets/layout_logo.png";
+import { MenuLucideIcon } from "@/features/modules/components/MenuLucideIcon";
+import {
+  fetchUserSidebarMenus,
+  normalizeFrontendRoute,
+} from "@/features/modules/lib/menus-api";
+import {
+  DEFAULT_ROLE,
+  ROLE_ICON,
+  type Role,
+} from "@/shared/constants/access-control";
+import { Loader } from "@/shared/components/Loader";
+import { useAccessControl } from "@/shared/hooks/useAccessControl";
 import {
   canReadSubMenuRow,
   canShowDirectRouteMenu,
   shouldApplySubMenuPermissionFilter,
   useRolePermissionsDetail,
-} from '@/shared/hooks/useRolePermissionsDetail'
-import { notifyRolePreferenceChanged } from '@/shared/lib/realm-role-mapping'
-import { showSuccessToast } from '@/shared/lib/toast'
+} from "@/shared/hooks/useRolePermissionsDetail";
+import { notifyRolePreferenceChanged } from "@/shared/lib/realm-role-mapping";
+import { showSuccessToast } from "@/shared/lib/toast";
 
 function hasMenuRoute(route: string | undefined) {
-  return (route?.trim() ?? '') !== ''
+  return (route?.trim() ?? "") !== "";
 }
 
 export function MainLayout() {
-  const location = useLocation()
-  const navigate = useNavigate()
-  const authenticated = useUserStore((state) => state.authenticated)
-  const { role, roles: profileRoles, setRole, permissions } = useAccessControl()
-  const rolePermDetail = useRolePermissionsDetail()
-  const currentProfile = useUserStore((state) => state.user)
-  const clearSession = useUserStore((state) => state.clearSession)
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false)
-  const [expandedSection, setExpandedSection] = useState<string | null>(null)
-  const [isLogoutDialogOpen, setIsLogoutDialogOpen] = useState(false)
-  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false)
-  const profileMenuRef = useRef<HTMLDivElement>(null)
-  const RoleIcon = ROLE_ICON
+  const location = useLocation();
+  const navigate = useNavigate();
+  const authenticated = useUserStore((state) => state.authenticated);
+  const {
+    role,
+    roles: profileRoles,
+    setRole,
+
+    apiRoleName,
+  } = useAccessControl();
+  const currentProfile = useUserStore((state) => state.user);
+  const clearSession = useUserStore((state) => state.clearSession);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [expandedSection, setExpandedSection] = useState<string | null>(null);
+  const [isLogoutDialogOpen, setIsLogoutDialogOpen] = useState(false);
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const profileMenuRef = useRef<HTMLDivElement>(null);
+  const RoleIcon = ROLE_ICON;
 
   const menuQuery = useQuery({
-    queryKey: ['me-menu'],
-    queryFn: fetchUserSidebarMenus,
+    queryKey: ["role-sidebar-menus", apiRoleName],
+    queryFn: () => fetchUserSidebarMenus(apiRoleName),
     staleTime: 60_000,
-  })
+    enabled: authenticated && Boolean(apiRoleName),
+  });
 
-  const sidebarPermWaiting =
-    authenticated &&
-    Boolean(rolePermDetail.apiRoleName) &&
-    rolePermDetail.isLoading &&
-    !rolePermDetail.isError
+  const { permissionsBySubMenu, data: rolePermDetail } =
+    useRolePermissionsDetail();
 
   const navMenus = useMemo(() => {
-    const raw = menuQuery.data
-    const rows = Array.isArray(raw) ? raw : []
+    const raw = menuQuery.data;
+    const rows = Array.isArray(raw) ? raw : [];
     const routeReady = rows.filter((menu) => {
-      if (menu.direct_route && hasMenuRoute(menu.direct_route)) return true
-      return (menu.sub_menus ?? []).some((s) => hasMenuRoute(s.route))
-    })
+      if (menu.direct_route && hasMenuRoute(menu.direct_route)) return true;
+      return (menu.sub_menus ?? []).some((s) => hasMenuRoute(s.route));
+    });
 
-    const permMap = rolePermDetail.permissionsBySubMenu
     const filterActive =
       authenticated &&
-      Boolean(rolePermDetail.apiRoleName) &&
-      rolePermDetail.isSuccess &&
-      shouldApplySubMenuPermissionFilter(rolePermDetail.data)
+      shouldApplySubMenuPermissionFilter(rolePermDetail, menuQuery.data);
 
-    const visible: typeof routeReady = []
+    const visible: typeof routeReady = [];
     for (const menu of routeReady) {
       if (menu.direct_route && hasMenuRoute(menu.direct_route)) {
-        if (!canShowDirectRouteMenu(permMap, menu.id, filterActive)) continue
-        visible.push(menu)
-        continue
+        if (
+          !canShowDirectRouteMenu(
+            permissionsBySubMenu,
+            menu.id,
+            filterActive,
+            menu.direct_route_actions,
+          )
+        )
+          continue;
+        visible.push(menu);
+        continue;
       }
       const subs = (menu.sub_menus ?? []).filter(
         (s) =>
-          hasMenuRoute(s.route) && canReadSubMenuRow(permMap, s.id, filterActive),
-      )
-      if (subs.length === 0) continue
-      visible.push({ ...menu, sub_menus: subs })
+          hasMenuRoute(s.route) &&
+          canReadSubMenuRow(permissionsBySubMenu, s, filterActive),
+      );
+      if (subs.length === 0) continue;
+      visible.push({ ...menu, sub_menus: subs });
     }
-    return visible
-  }, [
-    menuQuery.data,
-    authenticated,
-    rolePermDetail.apiRoleName,
-    rolePermDetail.isSuccess,
-    rolePermDetail.data,
-    rolePermDetail.permissionsBySubMenu,
-  ])
+    return visible;
+  }, [menuQuery.data, authenticated, permissionsBySubMenu, rolePermDetail]);
 
   useEffect(() => {
-    const path = location.pathname
+    const path = location.pathname;
     for (const menu of navMenus) {
-      if (menu.direct_route && normalizeFrontendRoute(menu.direct_route) === path) {
-        break
+      if (
+        menu.direct_route &&
+        normalizeFrontendRoute(menu.direct_route) === path
+      ) {
+        break;
       }
-      const subs = menu.sub_menus ?? []
-      if (!subs.some((s) => normalizeFrontendRoute(s.route) === path)) continue
-      setExpandedSection((prev) => (prev === menu.id ? prev : menu.id))
-      break
+      const subs = menu.sub_menus ?? [];
+      if (!subs.some((s) => normalizeFrontendRoute(s.route) === path)) continue;
+      setExpandedSection((prev) => (prev === menu.id ? prev : menu.id));
+      break;
     }
-  }, [location.pathname, navMenus])
+  }, [location.pathname, navMenus]);
 
   useEffect(() => {
-    if (!isProfileMenuOpen) return
+    if (!isProfileMenuOpen) return;
     const onPointerDown = (event: PointerEvent) => {
-      const el = profileMenuRef.current
+      const el = profileMenuRef.current;
       if (el && !el.contains(event.target as Node)) {
-        setIsProfileMenuOpen(false)
+        setIsProfileMenuOpen(false);
       }
-    }
-    document.addEventListener('pointerdown', onPointerDown)
-    return () => document.removeEventListener('pointerdown', onPointerDown)
-  }, [isProfileMenuOpen])
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [isProfileMenuOpen]);
 
   const currentProfileName = useMemo(() => {
-    if (!currentProfile || typeof currentProfile !== 'object') return 'User'
-    const name = (currentProfile as { name?: unknown }).name
-    return typeof name === 'string' && name.trim() ? name.trim() : 'User'
-  }, [currentProfile])
+    if (!currentProfile || typeof currentProfile !== "object") return "User";
+    const first = String(
+      (currentProfile as { first_name?: string }).first_name ?? "",
+    ).trim();
+    const last = String(
+      (currentProfile as { last_name?: string }).last_name ?? "",
+    ).trim();
+    const parts = [first, last].filter(Boolean);
+    return parts.length ? parts.join(" ") : "User";
+  }, [currentProfile]);
 
-  const profileInitials = currentProfileName.slice(0, 2).toUpperCase()
+  const profileInitials = useMemo(() => {
+    if (!currentProfile || typeof currentProfile !== "object") return "U";
+    const first = String(
+      (currentProfile as { first_name?: string }).first_name ?? "",
+    ).trim();
+    const last = String(
+      (currentProfile as { last_name?: string }).last_name ?? "",
+    ).trim();
+    const a = first.charAt(0).toUpperCase();
+    const b = last.charAt(0).toUpperCase();
+    if (a && b) return a + b;
+    if (a) return a + (first.charAt(1).toUpperCase() || a);
+    if (b) return b + (last.charAt(1).toUpperCase() || b);
+    return "U";
+  }, [currentProfile]);
 
   const toggleSection = (id: string) => {
-    setExpandedSection((prev) => (prev === id ? null : id))
-  }
+    setExpandedSection((prev) => (prev === id ? null : id));
+  };
 
   const logout = () => {
-    clearSession()
-    localStorage.removeItem('fms-role')
-    localStorage.removeItem('fms-permissions')
-    notifyRolePreferenceChanged()
-    showSuccessToast('You have been logged out successfully')
-    navigate('/login/ndi')
-  }
+    clearSession();
+    clearCurrentProfileQueryCache();
+    localStorage.removeItem("fms-current-profile");
+    localStorage.removeItem("fms-role");
+    localStorage.removeItem("fms-permissions");
+    notifyRolePreferenceChanged();
+    showSuccessToast("You have been logged out successfully");
+    navigate("/login/ndi");
+  };
 
   const renderNavigation = () => {
     if (menuQuery.isLoading) {
-      return <Loader />
-    }
-    if (sidebarPermWaiting) {
-      return <Loader />
+      return <Loader />;
     }
     if (menuQuery.isError) {
       return (
         <p className="px-2 text-sm text-[var(--fms-delete)]">
           Could not load navigation.
         </p>
-      )
+      );
     }
 
     const navLinkClass =
-      'flex w-full cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-left text-sm font-medium text-[var(--fms-text-header)] hover:bg-[var(--fms-background)]'
-    const navLinkActiveClass = 'bg-[var(--fms-info-fill)] text-[var(--fms-text-header)]'
+      "flex w-full cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-left text-sm font-medium text-[var(--fms-text-header)] hover:bg-[var(--fms-background)]";
+    const navLinkActiveClass =
+      "bg-[var(--fms-info-fill)] text-[var(--fms-text-header)]";
 
     return (
       <nav className="space-y-2">
-        {permissions.includes('dashboard:view') ? (
-          <Link
-            to="/dashboard"
-            onClick={() => setIsSidebarOpen(false)}
-            className={cn(navLinkClass, location.pathname === '/dashboard' && navLinkActiveClass)}
-          >
-            <MenuLucideIcon iconName="LayoutDashboard" className="h-5 w-5 shrink-0 text-[var(--fms-text-subheading)]" aria-hidden />
-            Dashboard
-          </Link>
-        ) : null}
+        <Link
+          to="/dashboard"
+          onClick={() => setIsSidebarOpen(false)}
+          className={cn(
+            navLinkClass,
+            location.pathname === "/dashboard" && navLinkActiveClass,
+          )}
+        >
+          <MenuLucideIcon
+            iconName="LayoutDashboard"
+            className="h-5 w-5 shrink-0 text-[var(--fms-text-subheading)]"
+            aria-hidden
+          />
+          Dashboard
+        </Link>
 
         {navMenus.map((item) => {
           if (item.direct_route) {
-            const href = normalizeFrontendRoute(item.direct_route)
+            const href = normalizeFrontendRoute(item.direct_route);
             return (
               <Link
                 key={item.id}
                 to={href}
                 onClick={() => setIsSidebarOpen(false)}
-                className={cn(navLinkClass, location.pathname === href && navLinkActiveClass)}
+                className={cn(
+                  navLinkClass,
+                  location.pathname === href && navLinkActiveClass,
+                )}
               >
-                <MenuLucideIcon iconName={item.icon} className="h-5 w-5 shrink-0" style={{ color: item.icon_color }} aria-hidden />
+                <MenuLucideIcon
+                  iconName={item.icon}
+                  className="h-5 w-5 shrink-0"
+                  style={{ color: item.icon_color }}
+                  aria-hidden
+                />
                 {item.name}
               </Link>
-            )
+            );
           }
 
           const subLinks = (item.sub_menus ?? [])
@@ -192,7 +245,7 @@ export function MainLayout() {
             .map((child) => ({
               ...child,
               href: normalizeFrontendRoute(child.route),
-            }))
+            }));
 
           return (
             <div key={item.id} className="space-y-1">
@@ -202,13 +255,18 @@ export function MainLayout() {
                 className="flex w-full cursor-pointer items-center justify-between rounded-md px-2 py-2 text-left text-sm font-medium text-[var(--fms-text-header)] hover:bg-[var(--fms-background)]"
               >
                 <span className="inline-flex items-center gap-3">
-                  <MenuLucideIcon iconName={item.icon} className="h-5 w-5 shrink-0" style={{ color: item.icon_color }} aria-hidden />
+                  <MenuLucideIcon
+                    iconName={item.icon}
+                    className="h-5 w-5 shrink-0"
+                    style={{ color: item.icon_color }}
+                    aria-hidden
+                  />
                   {item.name}
                 </span>
                 <ChevronDown
                   className={cn(
-                    'h-4 w-4 shrink-0 text-[var(--fms-text-subheading)] transition-transform',
-                    expandedSection === item.id && 'rotate-180',
+                    "h-4 w-4 shrink-0 text-[var(--fms-text-subheading)] transition-transform",
+                    expandedSection === item.id && "rotate-180",
                   )}
                 />
               </button>
@@ -220,7 +278,7 @@ export function MainLayout() {
                       to={child.href}
                       onClick={() => setIsSidebarOpen(false)}
                       className={cn(
-                        'block cursor-pointer rounded-md px-2 py-1.5 text-sm text-[var(--fms-text-subheading)] hover:bg-[var(--fms-background)]',
+                        "block cursor-pointer rounded-md px-2 py-1.5 text-sm text-[var(--fms-text-subheading)] hover:bg-[var(--fms-background)]",
                         location.pathname === child.href && navLinkActiveClass,
                       )}
                     >
@@ -230,23 +288,27 @@ export function MainLayout() {
                 </div>
               ) : null}
             </div>
-          )
+          );
         })}
 
         <button
           type="button"
           onClick={() => {
-            setIsSidebarOpen(false)
-            setIsLogoutDialogOpen(true)
+            setIsSidebarOpen(false);
+            setIsLogoutDialogOpen(true);
           }}
           className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-left text-sm font-medium text-[var(--fms-text-header)] hover:bg-[var(--fms-background)]"
         >
-          <MenuLucideIcon iconName="LogOut" className="h-5 w-5 shrink-0 text-[var(--fms-delete)]" aria-hidden />
+          <MenuLucideIcon
+            iconName="LogOut"
+            className="h-5 w-5 shrink-0 text-[var(--fms-delete)]"
+            aria-hidden
+          />
           Logout
         </button>
       </nav>
-    )
-  }
+    );
+  };
 
   return (
     <div className="min-h-screen w-full bg-[#f4f4f5]">
@@ -288,11 +350,17 @@ export function MainLayout() {
             </label>
           ) : profileRoles.length === 1 ? (
             <span className="rounded-md border border-[var(--fms-strokes)] px-2 py-1 text-[var(--fms-text-subheading)]">
-              Role: <span className="text-[var(--fms-text-header)]">{profileRoles[0]}</span>
+              Role:{" "}
+              <span className="text-[var(--fms-text-header)]">
+                {profileRoles[0]}
+              </span>
             </span>
           ) : (
             <span className="rounded-md border border-[var(--fms-strokes)] px-2 py-1 text-[var(--fms-text-subheading)]">
-              Role: <span className="text-[var(--fms-text-header)]">{DEFAULT_ROLE}</span>
+              Role:{" "}
+              <span className="text-[var(--fms-text-header)]">
+                {DEFAULT_ROLE}
+              </span>
             </span>
           )}
           <div ref={profileMenuRef} className="relative">
@@ -311,8 +379,8 @@ export function MainLayout() {
               </span>
               <ChevronDown
                 className={cn(
-                  'h-4 w-4 shrink-0 text-[var(--fms-text-subheading)] transition-transform',
-                  isProfileMenuOpen && 'rotate-180',
+                  "h-4 w-4 shrink-0 text-[var(--fms-text-subheading)] transition-transform",
+                  isProfileMenuOpen && "rotate-180",
                 )}
               />
             </button>
@@ -327,7 +395,10 @@ export function MainLayout() {
                   className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--fms-text-header)] hover:bg-[var(--fms-background)]"
                   onClick={() => setIsProfileMenuOpen(false)}
                 >
-                  <User className="h-4 w-4 shrink-0 text-[var(--fms-text-subheading)]" aria-hidden />
+                  <User
+                    className="h-4 w-4 shrink-0 text-[var(--fms-text-subheading)]"
+                    aria-hidden
+                  />
                   Profile
                 </Link>
                 <button
@@ -335,11 +406,14 @@ export function MainLayout() {
                   role="menuitem"
                   className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-sm text-[var(--fms-text-header)] hover:bg-[var(--fms-background)]"
                   onClick={() => {
-                    setIsProfileMenuOpen(false)
-                    setIsLogoutDialogOpen(true)
+                    setIsProfileMenuOpen(false);
+                    setIsLogoutDialogOpen(true);
                   }}
                 >
-                  <LogOut className="h-4 w-4 shrink-0 text-[var(--fms-delete)]" aria-hidden />
+                  <LogOut
+                    className="h-4 w-4 shrink-0 text-[var(--fms-delete)]"
+                    aria-hidden
+                  />
                   Logout
                 </button>
               </div>
@@ -351,8 +425,8 @@ export function MainLayout() {
       <div className="grid min-h-[72vh] grid-cols-1 lg:grid-cols-[240px_1fr]">
         <aside
           className={cn(
-            'border-r border-[var(--fms-strokes)] bg-white p-4 lg:block',
-            isSidebarOpen ? 'block' : 'hidden',
+            "border-r border-[var(--fms-strokes)] bg-white p-4 lg:block",
+            isSidebarOpen ? "block" : "hidden",
           )}
         >
           {renderNavigation()}
@@ -376,13 +450,16 @@ export function MainLayout() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="border-t-0 bg-transparent p-2 pt-2">
-            <Button variant="outline" onClick={() => setIsLogoutDialogOpen(false)}>
+            <Button
+              variant="outline"
+              onClick={() => setIsLogoutDialogOpen(false)}
+            >
               Cancel
             </Button>
             <Button
               onClick={() => {
-                setIsLogoutDialogOpen(false)
-                logout()
+                setIsLogoutDialogOpen(false);
+                logout();
               }}
             >
               Logout
@@ -391,5 +468,5 @@ export function MainLayout() {
         </DialogContent>
       </Dialog>
     </div>
-  )
+  );
 }

@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { clearCurrentProfileQueryCache } from "@/lib/query-client";
 import { apiGet, apiPost } from "@/services/apiClient";
 import { useUserStore } from "@/services/user-store";
 import { showErrorToast, showSuccessToast } from "@/shared/lib/toast";
@@ -49,6 +50,21 @@ type ProfileResponse = {
   user?: Record<string, unknown>;
   [key: string]: unknown;
 };
+
+function pickProfileFromMeResponse(
+  response: ProfileResponse,
+): Record<string, unknown> | null {
+  const raw =
+    response.user ??
+    response.data ??
+    (response as unknown as Record<string, unknown>);
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const rec = raw as Record<string, unknown>;
+  const inner = rec.user ?? rec.profile ?? rec.person;
+  if (inner && typeof inner === "object" && !Array.isArray(inner))
+    return inner as Record<string, unknown>;
+  return rec;
+}
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -117,15 +133,15 @@ export function LoginPage() {
 
       let profile: Record<string, unknown> | null = null;
       try {
+        // Must not reuse another user's cached `/auth/me` (same key, no token in queryKey).
+        clearCurrentProfileQueryCache();
         // Warm the current-profile cache right after login for role/permission-driven UI.
         const profileResponse = await queryClient.fetchQuery({
           queryKey: ["current-profile"],
           queryFn: () => apiGet<ProfileResponse>("/auth/me"),
           staleTime: 5 * 60 * 1000,
         });
-        profile = (profileResponse.data ??
-          profileResponse.user ??
-          profileResponse) as Record<string, unknown>;
+        profile = pickProfileFromMeResponse(profileResponse);
         if (profile) {
           setUser(profile);
         }
@@ -217,7 +233,7 @@ export function LoginPage() {
                 </div>
               </div>
 
-              <div className="flex items-center justify-between text-sm">
+              {/* <div className="flex items-center justify-between text-sm">
                 <label className="inline-flex items-center gap-2 text-[var(--fms-text-subheading)]">
                   <input
                     type="checkbox"
@@ -232,7 +248,7 @@ export function LoginPage() {
                 >
                   Forgot password?
                 </button>
-              </div>
+              </div> */}
 
               {errors.password ? (
                 <p className="text-sm text-red-600">

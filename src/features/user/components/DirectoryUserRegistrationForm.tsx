@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { OrgGroupAutocomplete } from '@/features/user/components/OrgGroupAutocomplete'
+import { OrgGroupSelect } from '@/features/user/components/OrgGroupSelect'
 import {
   buildCreateUserPayload,
   fetchEmployeeByCid,
@@ -339,7 +339,7 @@ export function DirectoryUserRegistrationForm({
           isAdmin
             ? 'Look up by Citizen ID (CID). Agency hierarchy comes from GET /public/groups: values matched from directory organogram fields are read-only; otherwise search each tier.'
             : isNdiSignupBootstrap
-              ? 'Details were loaded from Bhutan NDI. Agency hierarchy uses /public/groups: matched organogram tiers may be read-only; otherwise choose each tier from the autocomplete fields.'
+              ? 'Details were loaded from Bhutan NDI. Agency hierarchy uses /public/groups: matched organogram tiers may be read-only; otherwise choose each tier from the select lists.'
               : 'Look up by Citizen ID (CID). Agency hierarchy comes from the group directory: values matched from directory organogram fields are read-only; otherwise search each tier.'
         }
       />
@@ -384,16 +384,47 @@ export function DirectoryUserRegistrationForm({
               {!profile.organogramHints && !hasEmployeeDirectoryOrgLabels(profile) ? (
                 <p className="text-xs text-[var(--fms-text-subheading)]">
                   {isNdiSignupBootstrap
-                    ? 'No organogram fields were returned from NDI. Use the autocomplete fields below to select agency, department, division, and sub division.'
+                    ? 'No organogram fields were returned from NDI. Use the select lists below to choose agency, department, division, and sub division.'
                     : 'No organogram fields were returned for this CID. Use the search fields below to pick agency, department, division, and sub division from the group directory.'}
                 </p>
               ) : (
                 <p className="text-xs text-[var(--fms-text-subheading)]">
                   Directory organogram IDs and names (or agency, department, division, and sub division from the employee
-                  record) were matched to /public/groups where possible. Read-only tiers were resolved from{' '}
+                  record). Read-only tiers were resolved from{' '}
                   {isNdiSignupBootstrap ? 'your NDI verification payload' : 'your EMS/directory payload'}.
                 </p>
               )}
+              {/* {isNdiSignupBootstrap && profile ? (
+                <div className="rounded-lg border border-[var(--fms-strokes)] bg-[#fafafa] px-3 py-3 text-sm">
+                  <p className="font-medium text-[var(--fms-text-heading)]">From Bhutan NDI (directory)</p>
+                  <dl className="mt-2 grid gap-2 sm:grid-cols-2">
+                    <div>
+                      <dt className="text-xs text-[var(--fms-text-subheading)]">Agency</dt>
+                      <dd className="text-[var(--fms-text-heading)]">
+                        {isDirectoryProvided(profile.agency) ? profile.agency : '—'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-[var(--fms-text-subheading)]">Department</dt>
+                      <dd className="text-[var(--fms-text-heading)]">
+                        {isDirectoryProvided(profile.department) ? profile.department : '—'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-[var(--fms-text-subheading)]">Division</dt>
+                      <dd className="text-[var(--fms-text-heading)]">
+                        {isDirectoryProvided(profile.division) ? profile.division : '—'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-[var(--fms-text-subheading)]">Section</dt>
+                      <dd className="text-[var(--fms-text-heading)]">
+                        {isDirectoryProvided(profile.subDivision) ? profile.subDivision : '—'}
+                      </dd>
+                    </div>
+                  </dl>
+                </div>
+              ) : null} */}
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 <div className="space-y-2">
                   <Label>CID</Label>
@@ -434,7 +465,7 @@ export function DirectoryUserRegistrationForm({
                   )}
                 </div>
                 <div className="space-y-2 md:col-span-2 lg:col-span-3">
-                  <OrgGroupAutocomplete
+                  <OrgGroupSelect
                     label={
                       <>
                         Agency <span className="text-[var(--fms-delete)]">*</span>
@@ -450,7 +481,7 @@ export function DirectoryUserRegistrationForm({
                   />
                 </div>
                 <div className="space-y-2 md:col-span-2 lg:col-span-3">
-                  <OrgGroupAutocomplete
+                  <OrgGroupSelect
                     label={
                       <>
                         Department <span className="text-[var(--fms-delete)]">*</span>
@@ -473,7 +504,7 @@ export function DirectoryUserRegistrationForm({
                   />
                 </div>
                 <div className="space-y-2 md:col-span-2 lg:col-span-3">
-                  <OrgGroupAutocomplete
+                  <OrgGroupSelect
                     label={
                       <>
                         Division <span className="text-[var(--fms-delete)]">*</span>
@@ -496,7 +527,7 @@ export function DirectoryUserRegistrationForm({
                   />
                 </div>
                 <div className="space-y-2 md:col-span-2 lg:col-span-3">
-                  <OrgGroupAutocomplete
+                  <OrgGroupSelect
                     label={
                       <>
                         Sub division
@@ -527,7 +558,7 @@ export function DirectoryUserRegistrationForm({
                   />
                   {orgSelection.divisionId && subDivisionOptions.length === 0 ? (
                     <p className="text-xs text-[var(--fms-text-subheading)]">
-                      No sub-divisions are listed under this division—saving without a sub division is allowed.
+                      No sub-divisions are listed under this division
                     </p>
                   ) : null}
                 </div>

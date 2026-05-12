@@ -1,15 +1,25 @@
-// Maps Keycloak/API realm role strings to coarse app roles and picks the active realm role for permission APIs.
-import { DEFAULT_ROLE, type Role } from '@/shared/constants/access-control'
+// Maps Keycloak/API realm role strings to FMS realm slugs and picks the active realm role for permission APIs.
+import {
+  DEFAULT_ROLE,
+  FMS_REALM_ROLES,
+  REALM_ROLE_PRIORITY,
+  type FmsRealmRole,
+  type Role,
+} from '@/shared/constants/access-control'
 
-const ROLE_RANK: Record<Role, number> = {
-  'Super Admin': 4,
-  'Agency Admin': 3,
+const FMS_SLUG_SET = new Set<string>(FMS_REALM_ROLES.map((r) => r.toLowerCase()))
+
+function rolePriority(slug: string): number {
+  return REALM_ROLE_PRIORITY[slug] ?? REALM_ROLE_PRIORITY[slug.toLowerCase()] ?? 0
 }
 
-export function pickPrimaryCoarseRole(mappedRoles: Role[]): Role {
+export function pickPrimaryRealmRole(mappedRoles: Role[]): Role {
   if (mappedRoles.length === 0) return DEFAULT_ROLE
-  return [...mappedRoles].sort((a, b) => ROLE_RANK[b] - ROLE_RANK[a])[0]!
+  return [...mappedRoles].sort((a, b) => rolePriority(String(b)) - rolePriority(String(a)))[0]!
 }
+
+/** @deprecated Use pickPrimaryRealmRole */
+export const pickPrimaryCoarseRole = pickPrimaryRealmRole
 
 function roleDisplayFromEntry(entry: unknown): string | null {
   if (typeof entry === 'string') {
@@ -26,27 +36,59 @@ function roleDisplayFromEntry(entry: unknown): string | null {
   return null
 }
 
-/** Maps `/auth/me` realm role slug or display label to a coarse navigation role. */
+function normalizeSlug(text: string): string {
+  return text.trim().toLowerCase().replace(/\s+/g, '-')
+}
+
+/** Realm roles that are never shown in the in-app role switcher (Keycloak internals). */
+function isTechnicalRealmRole(slug: string): boolean {
+  const t = slug.trim().toLowerCase()
+  return (
+    t === 'offline_access' ||
+    t === 'uma_authorization' ||
+    t.startsWith('default-roles') ||
+    t === 'default-roles-fms'
+  )
+}
+
+/**
+ * Maps JWT / profile realm strings to an FMS slug when possible.
+ * Unknown `fms-*` slugs pass through for forward compatibility.
+ */
 export function mapSlugOrLabel(textRaw: string): Role | null {
-  const text = textRaw.trim()
-  if (!text) return null
-  const t = text.replace(/\s+/g, '-').toLowerCase()
+  const raw = textRaw.trim()
+  if (!raw) return null
+  const t = normalizeSlug(raw)
 
-  if (text === 'Super Admin') return 'Super Admin'
-  if (text === 'Agency Admin') return 'Agency Admin'
-
-  const directMatches: Partial<Record<string, Role>> = {
-    'agency-admin': 'Agency Admin',
-    'super-admin': 'Super Admin',
+  const legacy: Record<string, FmsRealmRole> = {
+    'super-admin': 'fms-super-admin',
+    'agency-admin': 'fms-agency-admin',
+    'finance-officer': 'fms-finance-officer',
+    mto: 'fms-mto',
+    driver: 'fms-driver',
+    applicant: 'fms-applicant',
+    viewer: 'fms-viewer',
+    'fms-super-admin': 'fms-super-admin',
+    'fms-agency-admin': 'fms-agency-admin',
+    'fms-finance-officer': 'fms-finance-officer',
+    'fms-mto': 'fms-mto',
+    'fms-driver': 'fms-driver',
+    'fms-applicant': 'fms-applicant',
+    'fms-viewer': 'fms-viewer',
   }
-  const direct = directMatches[t]
-  if (direct) return direct
+  const mapped = legacy[t]
+  if (mapped) return mapped
 
-  if (t === 'fms-super-admin' || t === 'frms-super-admin' || t.includes('super-admin')) {
-    return 'Super Admin'
-  }
+  if (raw === 'Super Admin') return 'fms-super-admin'
+  if (raw === 'Agency Admin') return 'fms-agency-admin'
 
-  if (t.includes('agency-admin') || t === 'fms-agency-admin') return 'Agency Admin'
+  if (t === 'frms-super-admin' || t.includes('super-admin')) return 'fms-super-admin'
+
+  if (t.includes('agency-admin')) return 'fms-agency-admin'
+
+  if (t.startsWith('fms-') && !isTechnicalRealmRole(t)) return t
+
+  if (FMS_SLUG_SET.has(t)) return t as FmsRealmRole
 
   return null
 }
@@ -60,7 +102,7 @@ export function mapApiRoleValue(value: unknown): Role | null {
 
 export type RealmCoarsePair = { realm: string; coarse: Role }
 
-/** Ordered realm strings from the profile with their coarse role (unknown slugs skipped). */
+/** Ordered realm strings from the profile with their normalized slug (for pinning + API). */
 export function realmCoarsePairsFromUser(user: Record<string, unknown> | null): RealmCoarsePair[] {
   if (!user) return []
 
@@ -69,9 +111,10 @@ export function realmCoarsePairsFromUser(user: Record<string, unknown> | null): 
 
   const pushRaw = (raw: string | null | undefined) => {
     const t = typeof raw === 'string' ? raw.trim() : ''
-    if (!t || seenRealm.has(t)) return
+    if (!t || seenRealm.has(t) || isTechnicalRealmRole(t)) return
     const coarse = mapSlugOrLabel(t)
     if (!coarse) return
+    if (!String(coarse).startsWith('fms-')) return
     seenRealm.add(t)
     out.push({ realm: t, coarse })
   }
@@ -96,11 +139,12 @@ export function realmCoarsePairsFromUser(user: Record<string, unknown> | null): 
 }
 
 export function getMappedRolesFromUserProfile(user: Record<string, unknown> | null): Role[] {
-  const seen = new Set<Role>()
+  const seen = new Set<string>()
   const out: Role[] = []
   for (const { coarse } of realmCoarsePairsFromUser(user)) {
-    if (seen.has(coarse)) continue
-    seen.add(coarse)
+    const key = String(coarse)
+    if (seen.has(key)) continue
+    seen.add(key)
     out.push(coarse)
   }
   return out
@@ -115,7 +159,7 @@ export function readPinnedCoarseRoleFromStorage(): Role | null {
 
 /**
  * Realm role string for GET `/admin/roles/{role}/permissions`, honoring the header role switcher
- * (`fms-role`) and coarse role mapping (not raw array order).
+ * (`fms-role`) and primary realm role selection.
  */
 export function resolveActiveRealmRoleString(
   user: Record<string, unknown> | null,
@@ -126,12 +170,15 @@ export function resolveActiveRealmRoleString(
 
   const pin = pinnedCoarse !== undefined ? pinnedCoarse : readPinnedCoarseRoleFromStorage()
   if (pin) {
-    const match = pairs.find((p) => p.coarse === pin)
-    if (match) return match.realm
+    const pinStr = String(pin)
+    const exact = pairs.find((p) => p.realm === pinStr || p.coarse === pinStr)
+    if (exact) return exact.realm
+    const fold = pairs.find((p) => normalizeSlug(p.realm) === normalizeSlug(pinStr))
+    if (fold) return fold.realm
   }
 
-  const uniqueCoarse = [...new Set(pairs.map((p) => p.coarse))]
-  const primary = pickPrimaryCoarseRole(uniqueCoarse)
+  const uniqueCoarse = [...new Set(pairs.map((p) => p.coarse as Role))]
+  const primary = pickPrimaryRealmRole(uniqueCoarse)
   return pairs.find((p) => p.coarse === primary)?.realm ?? pairs[0]!.realm
 }
 

@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 
 import { fetchUserSidebarMenus, type MenuRecord } from '@/features/modules/lib/menus-api'
 import { findSubMenuIdByRoutePath } from '@/shared/lib/sub-menu-id-from-route'
+import { useAccessControl } from '@/shared/hooks/useAccessControl'
 import { useRoleSubMenuPermissions } from '@/shared/hooks/useRoleSubMenuPermissions'
 import { useUserStore } from '@/services/user-store'
 
@@ -17,7 +18,7 @@ export type UseRouteCrudPermissionsOptions = {
 }
 
 /**
- * Maps the signed-in user's realm role + GET `/admin/me/menu` to CRUD flags for the sidebar sub-menu
+ * Maps the signed-in user's realm role + sidebar menus from GET `/admin/roles/{role}/permissions` to CRUD flags for the sidebar sub-menu
  * that matches `sidebarRoute` (React Router path, e.g. `/master/fuel-type`).
  */
 export function useRouteCrudPermissions(
@@ -25,12 +26,13 @@ export function useRouteCrudPermissions(
   options?: UseRouteCrudPermissionsOptions,
 ) {
   const authenticated = useUserStore((state) => state.authenticated)
+  const { apiRoleName } = useAccessControl()
 
   const menusQuery = useQuery({
-    queryKey: ['me-menu'],
-    queryFn: fetchUserSidebarMenus,
+    queryKey: ['role-sidebar-menus', apiRoleName],
+    queryFn: () => fetchUserSidebarMenus(apiRoleName),
     staleTime: 60_000,
-    enabled: authenticated,
+    enabled: authenticated && Boolean(apiRoleName),
   })
 
   const menusList = useMemo(

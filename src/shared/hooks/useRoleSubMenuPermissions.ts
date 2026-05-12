@@ -1,39 +1,21 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 
-import { fetchRoleDetail, resolvePrimaryRealmRole } from '@/features/user/lib/roles-api'
+import { fetchUserSidebarMenus, findSubMenuRowById } from '@/features/modules/lib/menus-api'
+import { fetchRoleDetail } from '@/features/user/lib/roles-api'
 import { useUserStore } from '@/services/user-store'
-import {
-  FMS_ROLE_PREFERENCE_CHANGED,
-} from '@/shared/lib/realm-role-mapping'
+import { useAccessControl } from '@/shared/hooks/useAccessControl'
 
 export type RoleCrudAction = 'read' | 'create' | 'update' | 'delete'
 
 /**
- * Loads GET `/admin/roles/{realmRole}/permissions` for the signed-in user's primary realm role and
- * maps permission rows for `subMenuId` into `canRead` / `canCreate` / `canUpdate` / `canDelete`.
- * When `subMenuId` is missing or permissions are still loading, CRUD flags are false and `isResolved` is false.
+ * Resolves CRUD flags for a sidebar `subMenuId` from embedded row `actions` when present,
+ * otherwise from the cached GET `/admin/roles/{realmRole}/permissions` role-permissions query.
+ * When `subMenuId` is missing or data is still loading, flags are false and `isResolved` is false.
  */
 export function useRoleSubMenuPermissions(subMenuId: string | null | undefined) {
-  const user = useUserStore((state) => state.user)
   const authenticated = useUserStore((state) => state.authenticated)
-  const userRecord = user && typeof user === 'object' ? (user as Record<string, unknown>) : null
-
-  const [preferenceRev, setPreferenceRev] = useState(0)
-  useEffect(() => {
-    const onChange = () => setPreferenceRev((n) => n + 1)
-    window.addEventListener(FMS_ROLE_PREFERENCE_CHANGED, onChange)
-    window.addEventListener('storage', onChange)
-    return () => {
-      window.removeEventListener(FMS_ROLE_PREFERENCE_CHANGED, onChange)
-      window.removeEventListener('storage', onChange)
-    }
-  }, [])
-
-  const apiRoleName = useMemo(() => {
-    void preferenceRev
-    return resolvePrimaryRealmRole(userRecord)
-  }, [userRecord, preferenceRev])
+  const { apiRoleName } = useAccessControl()
 
   const permissionsQuery = useQuery({
     queryKey: ['role-permissions-detail', apiRoleName],
@@ -42,18 +24,41 @@ export function useRoleSubMenuPermissions(subMenuId: string | null | undefined) 
     staleTime: 60_000,
   })
 
+  const menusQuery = useQuery({
+    queryKey: ['role-sidebar-menus', apiRoleName],
+    queryFn: () => fetchUserSidebarMenus(apiRoleName),
+    enabled: Boolean(authenticated && apiRoleName),
+    staleTime: 60_000,
+  })
+
+  const menuRow = useMemo(() => {
+    if (!subMenuId?.trim() || !menusQuery.data) return undefined
+    return findSubMenuRowById(menusQuery.data, subMenuId)
+  }, [menusQuery.data, subMenuId])
+
+  const embeddedActions = menuRow?.actions
+
   const permMap = permissionsQuery.data?.permissionsBySubMenu
-  const actions =
+  const matrixActions =
     subMenuId && permMap instanceof Map ? permMap.get(subMenuId) : undefined
 
-  const resolved = Boolean(subMenuId && apiRoleName && permissionsQuery.isSuccess)
+  const actions = embeddedActions ?? matrixActions
+
+  const resolved = Boolean(
+    subMenuId &&
+      (embeddedActions !== undefined
+        ? menusQuery.isSuccess
+        : apiRoleName && permissionsQuery.isSuccess),
+  )
 
   const allowed = (action: RoleCrudAction) => (resolved ? actions?.[action] === 1 : false)
 
   return {
     apiRoleName,
-    isLoading: permissionsQuery.isLoading,
-    isError: permissionsQuery.isError,
+    isLoading:
+      menusQuery.isLoading ||
+      (embeddedActions === undefined && Boolean(apiRoleName) && permissionsQuery.isLoading),
+    isError: menusQuery.isError || permissionsQuery.isError,
     isResolved: resolved,
     canRead: allowed('read'),
     canCreate: allowed('create'),

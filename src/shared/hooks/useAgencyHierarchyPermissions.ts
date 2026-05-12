@@ -8,6 +8,7 @@ import {
   type AgencyHierarchyTab,
 } from '@/shared/lib/agency-sub-menu-id'
 
+import { useAccessControl } from '@/shared/hooks/useAccessControl'
 import { useRoleSubMenuPermissions } from '@/shared/hooks/useRoleSubMenuPermissions'
 
 /**
@@ -17,12 +18,13 @@ import { useRoleSubMenuPermissions } from '@/shared/hooks/useRoleSubMenuPermissi
  */
 export function useAgencyHierarchyPermissions(activeTab: AgencyHierarchyTab) {
   const authenticated = useUserStore((state) => state.authenticated)
+  const { apiRoleName } = useAccessControl()
 
   const menusQuery = useQuery({
-    queryKey: ['me-menu'],
-    queryFn: fetchUserSidebarMenus,
+    queryKey: ['role-sidebar-menus', apiRoleName],
+    queryFn: () => fetchUserSidebarMenus(apiRoleName),
     staleTime: 60_000,
-    enabled: authenticated,
+    enabled: authenticated && Boolean(apiRoleName),
   })
 
   const subMenuId = useMemo(
