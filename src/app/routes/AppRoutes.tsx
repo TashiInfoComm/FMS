@@ -28,18 +28,36 @@ import { RolePermissionManagement } from '@/features/user/components/RolePermiss
 import { UserRoleManagement } from '@/features/user/components/UserRoleManagement'
 import { RoleFormPage } from '@/features/user/components/RoleFormPage'
 import { VehicleStatusPage } from '@/features/master/pages/VehicleStatusPage'
+import { VehicleCategoryDetailPage } from '@/features/master/pages/VehicleCategoryDetailPage'
 import { VehicleTypeCategoryPage } from '@/features/master/pages/VehicleTypeCategoryPage'
 import { AssignVehicleCreatePage } from '@/features/vehicles/pages/AssignVehicleCreatePage'
+import { AssignVehicleDetailPage } from '@/features/vehicles/pages/AssignVehicleDetailPage'
+import { AssignVehicleEditPage } from '@/features/vehicles/pages/AssignVehicleEditPage'
 import { AssignVehiclePage } from '@/features/vehicles/pages/AssignVehiclePage'
-import { VehicleCreatePage } from '@/features/vehicles/pages/VehicleCreatePage'
+import { VehicleFormPage } from '@/features/vehicles/pages/VehicleCreatePage'
+import { VehicleDetailPage } from '@/features/vehicles/pages/VehicleDetailPage'
+import { VehicleAgencyMapping } from '@/features/vehicles/pages/VehicleAgencyMapping'
 import { VehicleManagementPage } from '@/features/vehicles/pages/VehicleManagementPage'
+import TripRequisition from '@/features/trips/pages/TripRequisition'
+import TripRequest from '@/features/trips/pages/TripRequest'
+import TripRequestDetailPage from '@/features/trips/pages/TripRequestDetailPage'
+import MyAssignments from '@/features/trips/pages/MyAssignments'
+import UpdateTripStatus from '@/features/trips/pages/UpdateTripStatus'
+import DriverFeedback from '@/features/trips/pages/DriverFeedback'
+import RateDriverPage from '@/features/trips/pages/RateDriverPage'
+import CreateTripRequisition from '@/features/trips/pages/CreateTripRequisition'
+import WorkOrders from '@/features/maintenance/pages/WorkOrders'
+import WorkOrderDetail from '@/features/maintenance/pages/WorkOrderDetail'
+import CreateWorkOrder from '@/features/maintenance/pages/CreateWorkOrder'
+import ServiceRecord from '@/features/maintenance/pages/ServiceRecord'
+import ServiceRecordDetail from '@/features/maintenance/pages/ServiceRecordDetail'
 
 export function AppRoutes() {
   return (
     <BrowserRouter>
       <Routes>
         {/* Public auth and registration */}
-        <Route path="/" element={<Navigate to="/login/ndi" replace />} />
+        <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/login/ndi" element={<NdiLoginPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<NdiRegistrationPage />} />
@@ -51,12 +69,20 @@ export function AppRoutes() {
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/master/agency" element={<AgencyPage />} />
           <Route
-            path="/assign-vehicle"
+            path="/assign-driver"
             element={<AssignVehiclePage />}
           />
           <Route
-            path="/assign-vehicle/add"
+            path="/assign-driver/add"
             element={<AssignVehicleCreatePage />}
+          />
+          <Route
+            path="/assign-driver/:assignmentId/edit"
+            element={<AssignVehicleEditPage />}
+          />
+          <Route
+            path="/assign-driver/:assignmentId"
+            element={<AssignVehicleDetailPage />}
           />
           <Route path="/master/destination" element={<DestinationPage />} />
           <Route path="/master/dzongkhags" element={<DzongkhagListPage />} />
@@ -78,11 +104,21 @@ export function AppRoutes() {
             element={<PurposeOfJourneyPage />}
           />
           <Route path="/vehicle/list" element={<VehicleManagementPage />} />
-          <Route path="/vehicle/add" element={<VehicleCreatePage />} />
+          <Route path="/vehicle/list/:vehicleId/edit" element={<VehicleFormPage />} />
+          <Route
+            path="/vehicle/list/:vehicleId/agency-assignments"
+            element={<VehicleAgencyMapping />}
+          />
+          <Route path="/vehicle/list/:vehicleId" element={<VehicleDetailPage />} />
+          <Route path="/vehicle/add" element={<VehicleFormPage />} />
           <Route path="/master/status" element={<VehicleStatusPage />} />
           <Route
             path="/master/vehicle-type-category"
             element={<VehicleTypeCategoryPage />}
+          />
+          <Route
+            path="/master/vehicle-type-category/:categoryCode"
+            element={<VehicleCategoryDetailPage />}
           />
           <Route path="/master/trip-type" element={<TripTypePage />} />
           <Route path="/admin/modules" element={<ModuleListPage />} />
@@ -100,6 +136,25 @@ export function AppRoutes() {
           <Route path="/users/add" element={<CreateUserFormPage />} />
           <Route path="/users/:userId/edit" element={<EditUserFormPage />} />
           <Route path="/users/:userId" element={<UserDetailPage />} />
+          <Route path="/trip/requisition" element={<TripRequisition />} />
+          <Route path="/trip/request" element={<TripRequest />} />
+          <Route path="/trip/request/create" element={<CreateTripRequisition />} />
+          <Route path="/trip/request/:requestId" element={<TripRequestDetailPage />} />
+          <Route path="/trip/my-assignments" element={<MyAssignments />} />
+          <Route path="/trip/my-assignments/:tripId" element={<UpdateTripStatus />} />
+          <Route path="/trip/driver-feedback" element={<DriverFeedback />} />
+          <Route
+            path="/trip/driver-feedback/:tripId/rate"
+            element={<RateDriverPage />}
+          />
+          <Route path="/maintenance/work-orders" element={<WorkOrders />} />
+          <Route path="/maintenance/work-orders/create" element={<CreateWorkOrder />} />
+          <Route path="/maintenance/work-orders/:workOrderId" element={<WorkOrderDetail />} />
+          <Route path="/maintenance/records" element={<ServiceRecord />} />
+          <Route
+            path="/maintenance/records/:recordId"
+            element={<ServiceRecordDetail />}
+          />
         </Route>
       </Routes>
     </BrowserRouter>

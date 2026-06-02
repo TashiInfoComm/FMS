@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Skeleton } from '@/components/ui/skeleton'
 import { apiDelete, apiGet, apiPost } from '@/services/apiClient'
 import {
   mapMenuRecord,
@@ -42,10 +43,58 @@ import {
   rowActionsContainerClassName,
 } from '@/shared/components/TableRowActionButtons'
 import { TablePagination } from '@/shared/components/TablePagination'
+import { formatRealmRoleDisplayName } from '@/shared/lib/format-realm-role-display'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
 import { applyPagination } from '@/shared/utils/pagination'
 
 type ViewMode = 'list' | 'detail' | 'edit'
+
+const ROLE_LIST_SKELETON_CAP = 8
+
+function RoleListTableSkeletonBody({ rowCount }: { rowCount: number }) {
+  return (
+    <>
+      {Array.from({ length: rowCount }).map((_, i) => (
+        <tr key={`role-rp-sk-${i}`} className="border-t border-[var(--fms-strokes)]">
+          <td className="px-4 py-3">
+            <Skeleton className="h-4 w-8" />
+          </td>
+          <td className="px-4 py-3">
+            <Skeleton className="h-4 w-[min(100%,14rem)]" />
+          </td>
+          <td className="px-4 py-3">
+            <div className="flex justify-center gap-2">
+              <Skeleton className="h-8 w-16" />
+              <Skeleton className="h-8 w-14" />
+              <Skeleton className="h-8 w-8" />
+            </div>
+          </td>
+        </tr>
+      ))}
+    </>
+  )
+}
+
+function RoleListMobileSkeleton({ rowCount }: { rowCount: number }) {
+  return (
+    <>
+      {Array.from({ length: rowCount }).map((_, i) => (
+        <div
+          key={`role-rp-m-sk-${i}`}
+          className="space-y-2 rounded-lg border border-[var(--fms-strokes)] bg-white p-3"
+        >
+          <Skeleton className="h-4 w-16" />
+          <Skeleton className="h-4 w-full max-w-xs" />
+          <div className="flex flex-wrap gap-2 pt-2">
+            <Skeleton className="h-8 w-16" />
+            <Skeleton className="h-8 w-14" />
+            <Skeleton className="h-8 w-8" />
+          </div>
+        </div>
+      ))}
+    </>
+  )
+}
 
 /** URL for paginated role list; skips empty search. */
 function listPath(search: string, page: number, pageSize: number) {
@@ -414,7 +463,7 @@ export function RolePermissionManagement() {
         effectivePageSize: paged.effectivePageSize,
       }
     },
-    enabled: mode === 'list',
+    enabled: mode === 'list' && crud.isResolved && crud.canRead,
   })
 
   const menusQuery = useQuery({
@@ -581,6 +630,10 @@ export function RolePermissionManagement() {
 
   const displayName = mode === 'detail' || mode === 'edit' ? detailQuery.data?.role_name || selectedRoleName : ''
 
+  const roleListSkeletonRows = Math.min(pageSize, ROLE_LIST_SKELETON_CAP)
+  const showRoleListSkeleton =
+    mode === 'list' && (!crud.isResolved || (crud.canRead && listQuery.isLoading))
+
   if (mode === 'list') {
     return (
       <section className="space-y-5">
@@ -605,7 +658,7 @@ export function RolePermissionManagement() {
               <table className="min-w-full text-sm">
                 <thead className="bg-[#f6f6f7] text-[var(--fms-text-header)]">
                   <tr>
-                    {['#', 'Role',].map((column) => (
+                    {['Sl.No', 'Role',].map((column) => (
                       <th key={column} className="px-8 py-3 text-left text-xs font-bold uppercase tracking-wide">
                         {column}
                       </th>
@@ -614,12 +667,8 @@ export function RolePermissionManagement() {
                   </tr>
                 </thead>
                 <tbody>
-                  {listQuery.isLoading ? (
-                    <tr className="border-t border-[var(--fms-strokes)]">
-                      <td colSpan={3} className="px-4 py-6 text-center text-[var(--fms-text-subheading)]">
-                        Loading roles…
-                      </td>
-                    </tr>
+                  {showRoleListSkeleton ? (
+                    <RoleListTableSkeletonBody rowCount={roleListSkeletonRows} />
                   ) : listError ? (
                     <tr className="border-t border-[var(--fms-strokes)]">
                       <td colSpan={3} className="px-4 py-6 text-center text-[var(--fms-delete)]">
@@ -642,7 +691,9 @@ export function RolePermissionManagement() {
                     rows.map((row, index) => (
                       <tr key={row.roleName || `role-${index}`} className="border-t border-[var(--fms-strokes)]">
                         <td className="px-4 py-3 tabular-nums text-[var(--fms-text-subheading)]">{row.serialNo}</td>
-                        <td className="px-4 py-3 font-medium text-[var(--fms-text-header)]">{row.roleName}</td>
+                        <td className="px-4 py-3 font-medium text-[var(--fms-text-header)]">
+                          {formatRealmRoleDisplayName(row.roleName)}
+                        </td>
                         <td className="px-4 py-3">
                           <div className={rowActionsContainerClassName}>
                             <DetailRowActionButton type="button" disabled={!crud.canRead} onClick={() => openDetail(row)} />
@@ -658,8 +709,8 @@ export function RolePermissionManagement() {
             </div>
 
             <div className="space-y-3 md:hidden">
-              {listQuery.isLoading ? (
-                <p className="py-6 text-center text-[var(--fms-text-subheading)]">Loading roles…</p>
+              {showRoleListSkeleton ? (
+                <RoleListMobileSkeleton rowCount={roleListSkeletonRows} />
               ) : listError ? (
                 <p className="py-6 text-center text-[var(--fms-delete)]">{listError}</p>
               ) : crud.isResolved && !crud.canRead ? (
@@ -675,10 +726,11 @@ export function RolePermissionManagement() {
                     className="rounded-lg border border-[var(--fms-strokes)] bg-white p-3"
                   >
                     <p className="text-sm text-[var(--fms-text-subheading)]">
-                      <span className="font-medium text-[var(--fms-text-header)]">#:</span> {row.serialNo}
+                      <span className="font-medium text-[var(--fms-text-header)]">Sl.No:</span> {row.serialNo}
                     </p>
                     <p className="text-sm text-[var(--fms-text-subheading)]">
-                      <span className="font-medium text-[var(--fms-text-header)]">Role:</span> {row.roleName}
+                      <span className="font-medium text-[var(--fms-text-header)]">Role:</span>{' '}
+                      {formatRealmRoleDisplayName(row.roleName)}
                     </p>
                     <div className={`mt-3 ${rowActionsContainerClassName}`}>
                       <DetailRowActionButton type="button" disabled={!crud.canRead} onClick={() => openDetail(row)} />
@@ -777,7 +829,9 @@ export function RolePermissionManagement() {
         <PageHeader title="Role detail" />
         <p className="text-sm text-[var(--fms-text-subheading)]">
           Showing role details and permissions for{' '}
-          <span className="font-semibold text-[var(--fms-success-text)]">{displayName}</span>
+          <span className="font-semibold text-[var(--fms-success-text)]">
+            {formatRealmRoleDisplayName(displayName)}
+          </span>
         </p>
         <PermissionMatrixDetail
           groups={groups}
@@ -804,7 +858,13 @@ export function RolePermissionManagement() {
               <Label htmlFor="rp-role-name">
                 Role name <span className="text-[var(--fms-delete)]">*</span>
               </Label>
-              <Input id="rp-role-name" value={nameInput} disabled className="bg-[#f6f6f7]" readOnly />
+              <Input
+                id="rp-role-name"
+                value={formatRealmRoleDisplayName(nameInput)}
+                disabled
+                className="bg-[#f6f6f7]"
+                readOnly
+              />
               <p className="text-xs text-[var(--fms-text-subheading)]">Role name cannot be changed here.</p>
             </div>
             <div className="space-y-2">

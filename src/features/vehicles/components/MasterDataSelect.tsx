@@ -1,13 +1,7 @@
 import type { ReactNode } from 'react'
 
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { SearchableAutocomplete } from '@/shared/components/SearchableAutocomplete'
 
 import type { MasterOption } from '@/features/vehicles/lib/vehicle-create-master-data'
 
@@ -22,7 +16,7 @@ export type MasterDataSelectProps = {
   onValueChange: (value: string) => void
 }
 
-/** Single-select for vehicle create master-data lists (scrollable Select). */
+/** Single-select for vehicle create master-data lists with searchable options. */
 export function MasterDataSelect({
   id,
   label,
@@ -36,24 +30,18 @@ export function MasterDataSelect({
   const busy = disabled || loading
 
   return (
-    <div className="space-y-2">
+    <div className="min-w-0 space-y-2">
       <Label htmlFor={id}>{label}</Label>
-      <Select
-        value={value || undefined}
-        onValueChange={onValueChange}
+      <SearchableAutocomplete
+        id={id}
+        value={value}
+        onChange={onValueChange}
+        options={options}
         disabled={busy}
-      >
-        <SelectTrigger id={id} className="w-full">
-          <SelectValue placeholder={loading ? 'Loading…' : placeholder} />
-        </SelectTrigger>
-        <SelectContent>
-          {options.map((o) => (
-            <SelectItem key={`${o.value}-${o.label}`} value={o.value}>
-              {o.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+        loading={loading}
+        placeholder={loading ? 'Loading…' : placeholder}
+        searchPlaceholder="Type to search…"
+      />
     </div>
   )
 }

@@ -1,7 +1,9 @@
+import type { ReactNode } from 'react'
+
 // Renders a consistent page title and optional subtitle header.
 type PageHeaderProps = {
   title: string
-  subtitle?: string
+  subtitle?: ReactNode
 }
 
 export function PageHeader({ title, subtitle }: PageHeaderProps) {

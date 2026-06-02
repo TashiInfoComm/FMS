@@ -10,6 +10,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   Dialog,
   DialogContent,
@@ -26,9 +27,7 @@ import {
   mapUserDetailFields,
   rejectPendingUser,
 } from '@/features/user/lib/users-api'
-import { fetchAdminHierarchyGroups } from '@/features/user/lib/groups-api'
 import { PageHeader } from '@/shared/components/PageHeader'
-import { Loader } from '@/shared/components/Loader'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
 import { cn } from '@/lib/utils'
@@ -42,6 +41,81 @@ function statusDisplayClass(status: string) {
   if (key === "rejected")
     return "text-xs text-[var(--fms-error-text)] font-medium";
   return "text-xs";
+}
+
+/** Placeholder cards while `GET /admin/users/:id` is loading. */
+function UserDetailPageSkeleton() {
+  return (
+    <div className="grid gap-4 md:grid-cols-2">
+      <DetailCardSkeleton className="min-w-0" fieldRows={3} />
+      <DetailCardSkeleton className="md:col-span-1" fieldRows={3} />
+      <DetailCardSkeleton className="md:col-span-2 lg:col-span-1" fieldRows={5} wideGrid />
+      <DetailCardSkeleton className="md:col-span-2 lg:col-span-1" fieldRows={2} twoCol />
+      <DetailCardSkeleton className="md:col-span-2" fieldRows={0} chips />
+    </div>
+  )
+}
+
+function DetailCardSkeleton({
+  className,
+  fieldRows,
+  wideGrid,
+  twoCol,
+  chips,
+}: {
+  className?: string
+  fieldRows: number
+  wideGrid?: boolean
+  twoCol?: boolean
+  chips?: boolean
+}) {
+  return (
+    <Card size="sm" className={cn('border border-[var(--fms-strokes)] bg-white shadow-sm', className)}>
+      <CardHeader className="border-b border-[var(--fms-strokes)] pb-3">
+        <div className="flex items-start gap-3">
+          <Skeleton className="size-10 shrink-0 rounded-lg" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <Skeleton className="h-5 w-32" />
+            <Skeleton className="h-3.5 w-full max-w-[14rem]" />
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3 pt-4">
+        {chips ? (
+          <div className="flex flex-wrap gap-2">
+            <Skeleton className="h-7 w-24 rounded-full" />
+            <Skeleton className="h-7 w-28 rounded-full" />
+            <Skeleton className="h-7 w-20 rounded-full" />
+          </div>
+        ) : wideGrid ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {Array.from({ length: fieldRows }).map((_, i) => (
+              <div key={`sk-w-${i}`} className={i === fieldRows - 1 ? 'sm:col-span-2' : undefined}>
+                <Skeleton className="mb-1 h-3 w-20" />
+                <Skeleton className="h-4 w-full max-w-[12rem]" />
+              </div>
+            ))}
+          </div>
+        ) : twoCol ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {Array.from({ length: fieldRows }).map((_, i) => (
+              <div key={`sk-2-${i}`} className="space-y-1">
+                <Skeleton className="h-3 w-24" />
+                <Skeleton className="h-4 w-full max-w-[10rem]" />
+              </div>
+            ))}
+          </div>
+        ) : (
+          Array.from({ length: fieldRows }).map((_, i) => (
+            <div key={`sk-f-${i}`} className="space-y-1">
+              <Skeleton className="h-3 w-28" />
+              <Skeleton className="h-4 w-full max-w-xs" />
+            </div>
+          ))
+        )}
+      </CardContent>
+    </Card>
+  )
 }
 
 /** Read-only summary with permission gates and optimistic navigation helpers. */
@@ -63,19 +137,11 @@ export function UserDetailPage() {
     },
   })
 
-  const groupsQuery = useQuery({
-    queryKey: ['admin-groups-hierarchy'],
-    enabled: Boolean(userId?.trim()) && crud.isResolved && crud.canRead,
-    queryFn: fetchAdminHierarchyGroups,
-    staleTime: 5 * 60 * 1000,
-  })
-
   const detail = useMemo(() => {
     const record = userQuery.data?.record
     if (!record) return undefined
-    const nodes = groupsQuery.data
-    return mapUserDetailFields(record, nodes && nodes.length > 0 ? { groupNodes: nodes } : undefined)
-  }, [userQuery.data?.record, groupsQuery.data])
+    return mapUserDetailFields(record)
+  }, [userQuery.data?.record])
 
   const approveMutation = useMutation({
     mutationFn: async () => {
@@ -103,10 +169,9 @@ export function UserDetailPage() {
       if (!id) throw new Error('Missing user id')
       const rec = userQuery.data?.record
       if (!rec) throw new Error('User data is not loaded')
-      const base = buildPendingUserActionPayload(rec)
       const trimmed = reason.trim()
       if (!trimmed) throw new Error('Rejection reason is required')
-      return rejectPendingUser(id, { ...base, reason: trimmed })
+      return rejectPendingUser(id, {reason: trimmed, action: 'reject'})
     },
     onSuccess: () => {
       showSuccessToast('Registration rejected')
@@ -125,9 +190,7 @@ export function UserDetailPage() {
     return (
       <section className="space-y-5">
         <PageHeader title="User detail" subtitle="View account information" />
-        <div className="flex justify-center py-12">
-          <Loader />
-        </div>
+        <UserDetailPageSkeleton />
       </section>
     )
   }
@@ -218,9 +281,7 @@ export function UserDetailPage() {
       </div>
 
       {userQuery.isLoading ? (
-        <div className="flex justify-center py-12">
-          <Loader />
-        </div>
+        <UserDetailPageSkeleton />
       ) : userQuery.isError ? (
         <p className="text-sm text-[var(--fms-delete)]">
           {userQuery.error instanceof Error

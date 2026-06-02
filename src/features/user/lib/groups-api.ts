@@ -49,20 +49,37 @@ export type OrgTierLocks = {
   subDivision: boolean
 }
 
-function extractGroupsList(payload: unknown): ApiRecord[] {
-  if (Array.isArray(payload)) return payload.filter((item): item is ApiRecord => !!item && typeof item === 'object')
+/**
+ * Top-level agency rows from `GET /admin/groups`.
+ * Shape: parent array = agencies → `children` = departments → `children` = divisions → `children` = sub-divisions.
+ */
+export function extractAdminGroupAgencies(payload: unknown): ApiRecord[] {
+  if (Array.isArray(payload)) {
+    return payload.filter((item): item is ApiRecord => !!item && typeof item === 'object')
+  }
   if (!payload || typeof payload !== 'object') return []
   const root = payload as Record<string, unknown>
+  const dataObj =
+    root.data && typeof root.data === 'object' && !Array.isArray(root.data)
+      ? (root.data as Record<string, unknown>)
+      : null
   const candidates = [
+    root.agencies,
+    dataObj?.agencies,
+    root.children,
+    dataObj?.children,
+    root.data,
+    dataObj?.data,
     root.groups,
+    dataObj?.groups,
     root.items,
     root.results,
     root.records,
-    root.data,
-    (root.data as Record<string, unknown> | undefined)?.groups,
-    (root.data as Record<string, unknown> | undefined)?.items,
-    (root.data as Record<string, unknown> | undefined)?.results,
-    (root.data as Record<string, unknown> | undefined)?.records,
+    root.content,
+    dataObj?.items,
+    dataObj?.results,
+    dataObj?.records,
+    dataObj?.content,
   ]
   for (const candidate of candidates) {
     if (Array.isArray(candidate)) {
@@ -72,17 +89,195 @@ function extractGroupsList(payload: unknown): ApiRecord[] {
   return []
 }
 
-/** Keys used by tree-shaped group APIs for child rows (agency → department → …). */
-const NESTED_GROUP_CHILD_KEYS = ['subGroups', 'sub_groups', 'childGroups', 'children'] as const
+/** @deprecated Prefer `extractAdminGroupAgencies` for `/admin/groups`. */
+function extractGroupsList(payload: unknown): ApiRecord[] {
+  return extractAdminGroupAgencies(payload)
+}
 
-function nestedGroupChildren(record: ApiRecord): ApiRecord[] {
-  for (const key of NESTED_GROUP_CHILD_KEYS) {
-    const v = record[key]
-    if (Array.isArray(v)) {
-      return v.filter((item): item is ApiRecord => !!item && typeof item === 'object')
+/** Merges id → name from nested group trees and flat node lists (`/public/groups`, `/admin/groups`). */
+export function mergeGroupsPayloadIntoLookup(
+  lookup: Map<string, string>,
+  payload: unknown,
+): void {
+  for (const [id, name] of groupsPayloadToIdNameLookup(payload)) {
+    if (name) lookup.set(id, name)
+  }
+  for (const node of parseGroupsApiPayloadToNodes(payload)) {
+    lookup.set(node.id.toLowerCase(), node.name)
+  }
+  indexAllGroupRecordsInPayload(payload, lookup)
+}
+
+/** Builds a complete id → name map from `/admin/groups` and `/public/groups`. */
+export async function fetchGroupsIdNameLookup(): Promise<Map<string, string>> {
+  const lookup = new Map<string, string>()
+  const [adminPayload, publicPayload] = await Promise.all([
+    apiGet<unknown>('/admin/groups'),
+    apiGet<unknown>('/public/groups').catch(() => null),
+  ])
+  mergeGroupsPayloadIntoLookup(lookup, adminPayload)
+  if (publicPayload != null) mergeGroupsPayloadIntoLookup(lookup, publicPayload)
+  for (const node of parseGroupsApiPayloadToNodes(adminPayload)) {
+    lookup.set(node.id.toLowerCase(), node.name)
+  }
+  if (publicPayload != null) {
+    for (const node of parseGroupsApiPayloadToNodes(publicPayload)) {
+      lookup.set(node.id.toLowerCase(), node.name)
     }
   }
-  return []
+  return lookup
+}
+
+/**
+ * Child array keys on `/admin/groups` (each tier usually nests the next under `children`;
+ * some payloads also use tier-named keys).
+ */
+const NESTED_GROUP_CHILD_KEYS = [
+  'children',
+  'departments',
+  'divisions',
+  'sub_divisions',
+  'subDivisions',
+  'sub_division',
+  'subdivision',
+  'subGroups',
+  'sub_groups',
+  'childGroups',
+] as const
+
+function readGroupNodeId(record: ApiRecord): string {
+  return (
+    toText(record.id) ||
+    toText(record.group_id) ||
+    toText(record.groupId) ||
+    toText(record.uuid) ||
+    toText(record.entity_id) ||
+    toText(record.entityId) ||
+    toText(record.key)
+  ).trim()
+}
+
+function readGroupNodeName(record: ApiRecord): string {
+  return (
+    toText(record.name) ||
+    toText(record.group_name) ||
+    toText(record.groupName) ||
+    toText(record.title) ||
+    toText(record.label) ||
+    toText(record.text) ||
+    toText(record.display_name) ||
+    toText(record.displayName) ||
+    toText(record.agency_name) ||
+    toText(record.agencyName) ||
+    toText(record.department_name) ||
+    toText(record.division_name) ||
+    toText(record.sub_division_name) ||
+    toText(record.subDivisionName)
+  ).trim()
+}
+
+/** Every id-like field on a group row (user `agency_id` may match `entity_id`, not primary `id`). */
+const GROUP_RECORD_ID_KEYS = [
+  'id',
+  'group_id',
+  'groupId',
+  'uuid',
+  'entity_id',
+  'entityId',
+  'key',
+  'agency_id',
+  'agencyId',
+  'department_id',
+  'departmentId',
+  'division_id',
+  'divisionId',
+  'sub_division_id',
+  'subDivisionId',
+] as const
+
+function readGroupRecordIdAliases(record: ApiRecord): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const key of GROUP_RECORD_ID_KEYS) {
+    const id = toText(record[key]).trim()
+    if (!id) continue
+    const lower = id.toLowerCase()
+    if (seen.has(lower)) continue
+    seen.add(lower)
+    out.push(id)
+  }
+  return out
+}
+
+/** Index all id aliases on a group row to the same display name. */
+export function indexGroupRecordIdAliases(
+  lookup: Map<string, string>,
+  record: ApiRecord,
+  name: string,
+): void {
+  const label = name.trim()
+  if (!label) return
+  for (const id of readGroupRecordIdAliases(record)) {
+    lookup.set(id.toLowerCase(), label)
+  }
+}
+
+/** True when any id-like field on the row matches `groupId` (case-insensitive). */
+export function groupRecordMatchesId(record: ApiRecord, groupId: string): boolean {
+  const want = groupId.trim().toLowerCase()
+  if (!want) return false
+  return readGroupRecordIdAliases(record).some((id) => id.toLowerCase() === want)
+}
+
+/** Deep-walk entire JSON (including `data` envelopes) to index every id + name pair. */
+function indexAllGroupRecordsInPayload(payload: unknown, lookup: Map<string, string>): void {
+  const seen = new WeakSet<object>()
+
+  const walk = (nodes: unknown): void => {
+    if (nodes == null) return
+    if (typeof nodes === 'object') {
+      if (seen.has(nodes as object)) return
+      seen.add(nodes as object)
+    }
+    if (Array.isArray(nodes)) {
+      for (const item of nodes) walk(item)
+      return
+    }
+    if (typeof nodes !== 'object') return
+
+    const record = nodes as ApiRecord
+    const name = readGroupNodeName(record)
+    if (name) indexGroupRecordIdAliases(lookup, record, name)
+
+    for (const value of Object.values(record)) {
+      walk(value)
+    }
+  }
+
+  walk(payload)
+}
+
+/** Collects nested rows from all known child keys (deduped by id). */
+function collectGroupChildRows(record: ApiRecord): ApiRecord[] {
+  const out: ApiRecord[] = []
+  const seen = new Set<string>()
+  for (const key of NESTED_GROUP_CHILD_KEYS) {
+    const v = record[key]
+    if (!Array.isArray(v)) continue
+    for (const item of v) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) continue
+      const row = item as ApiRecord
+      const id = readGroupNodeId(row).toLowerCase()
+      if (id && seen.has(id)) continue
+      if (id) seen.add(id)
+      out.push(row)
+    }
+  }
+  return out
+}
+
+function nestedGroupChildren(record: ApiRecord): ApiRecord[] {
+  return collectGroupChildRows(record)
 }
 
 /**
@@ -119,19 +314,9 @@ function normalizeParentRef(value: unknown): string | null {
 
 /** Maps one API row into a graph node; skips rows without id+name. */
 export function mapRecordToGroupNode(item: ApiRecord): AdminGroupNode | null {
-  const id =
-    toText(item.id) ||
-    toText(item.group_id) ||
-    toText(item.uuid) ||
-    (typeof item.groupId === 'number' || typeof item.groupId === 'string' ? String(item.groupId) : '')
-  const name =
-    toText(item.name) ||
-    toText(item.group_name) ||
-    toText(item.title) ||
-    toText(item.label) ||
-    toText(item.agency_name) ||
-    toText(item.agencyName)
-  if (!id?.trim() || !name?.trim()) return null
+  const id = readGroupNodeId(item)
+  const name = readGroupNodeName(item)
+  if (!id || !name) return null
 
   const parentRaw =
     item.parent_id ??
@@ -171,6 +356,74 @@ export function parseGroupsApiPayloadToNodes(payload: unknown): AdminGroupNode[]
     nodes.push(n)
   }
   return nodes
+}
+
+/**
+ * Recursively walks nested `children` (and aliases) on `/admin/groups` payloads through every
+ * organogram tier (agency → department → division → sub-division) and indexes id → name.
+ */
+function indexGroupNode(lookup: Map<string, string>, record: ApiRecord): void {
+  const name = readGroupNodeName(record)
+  if (name) indexGroupRecordIdAliases(lookup, record, name)
+}
+
+/** Walks agency → department → division → sub-division via nested `children` (and aliases). */
+function indexAdminGroupsTree(rows: ApiRecord[], lookup: Map<string, string>): void {
+  for (const row of rows) {
+    indexGroupNode(lookup, row)
+    const children = collectGroupChildRows(row)
+    if (children.length > 0) indexAdminGroupsTree(children, lookup)
+  }
+}
+
+/**
+ * Indexes every organogram tier from `GET /admin/groups`:
+ * parent array = agencies → `children` = departments → `children` = divisions → `children` = sub-divisions.
+ */
+export function groupsPayloadToIdNameLookup(payload: unknown): Map<string, string> {
+  const lookup = new Map<string, string>()
+  const agencies = extractAdminGroupAgencies(payload)
+  indexAdminGroupsTree(agencies, lookup)
+  indexAllGroupRecordsInPayload(payload, lookup)
+  return lookup
+}
+
+/** Resolves a group id to its `name` anywhere in a groups API tree payload. */
+export function findGroupNameInPayload(payload: unknown, groupId: string): string | null {
+  const id = groupId.trim().toLowerCase()
+  if (!id) return null
+
+  let found: string | null = null
+  const seen = new WeakSet<object>()
+
+  const walk = (nodes: unknown): void => {
+    if (found || nodes == null) return
+    if (typeof nodes === 'object') {
+      if (seen.has(nodes as object)) return
+      seen.add(nodes as object)
+    }
+    if (Array.isArray(nodes)) {
+      for (const item of nodes) walk(item)
+      return
+    }
+    if (typeof nodes !== 'object') return
+
+    const record = nodes as ApiRecord
+    if (groupRecordMatchesId(record, id)) {
+      const nodeName = readGroupNodeName(record)
+      if (nodeName) {
+        found = nodeName
+        return
+      }
+    }
+
+    for (const value of Object.values(record)) {
+      walk(value)
+    }
+  }
+
+  walk(payload)
+  return found
 }
 
 /** Loads all public groups (single page; extend with pagination if the API grows). */

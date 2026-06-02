@@ -1,13 +1,13 @@
 // Lists admin menus (modules) from GET `/admin/menus`; navigates to create and edit flows.
 import { Pencil, Plus } from 'lucide-react'
 import { useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
-import { editRowActionButtonClassName } from '@/shared/components/TableRowActionButtons'
+import { EditRowActionButton, editRowActionButtonClassName } from '@/shared/components/TableRowActionButtons'
 import { MenuLucideIcon } from '@/features/modules/components/MenuLucideIcon'
 import { mapMenuRecord, menusToArray, type MenuRecord } from '@/features/modules/lib/menus-api'
 import { apiGet } from '@/services/apiClient'
@@ -16,6 +16,7 @@ import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 
 export function ModuleListPage() {
   const crud = useRouteCrudPermissions('/admin/modules')
+  const navigate = useNavigate();
   const listQuery = useQuery({
     queryKey: ['admin-menus'],
     queryFn: async () => {
@@ -54,7 +55,7 @@ export function ModuleListPage() {
             <table className="w-full text-sm">
               <thead className="bg-[#e8eef5] text-[var(--fms-text-header)]">
                 <tr>
-                  <th className="px-4 py-3 text-center font-semibold">#</th>
+                  <th className="px-4 py-3 text-center font-semibold">Sl.No</th>
                   <th className="px-4 py-3 text-center font-semibold">ICON</th>
                   <th className="px-4 py-3 text-left font-semibold">MODULES</th>
                   <th className="px-4 py-3 text-center font-semibold">ACTION</th>
@@ -103,19 +104,13 @@ export function ModuleListPage() {
                         <td className="px-4 py-3 font-medium text-[var(--fms-text-header)]">{row.name}</td>
                         <td className="px-4 py-3">
                           <div className="flex justify-center">
-                            {crud.canUpdate ? (
-                              <Button variant="outline" size="sm" asChild className={cn(editRowActionButtonClassName, 'justify-center')}>
-                                <Link to={`/admin/modules/${encodeURIComponent(row.id)}/edit`}>
-                                  <Pencil className="shrink-0" aria-hidden />
-                                  Edit
-                                </Link>
-                              </Button>
-                            ) : (
-                              <Button type="button" variant="outline" size="sm" className={editRowActionButtonClassName} disabled>
-                                <Pencil className="shrink-0" aria-hidden />
-                                Edit
-                              </Button>
-                            )}
+                            <EditRowActionButton
+                              type="button"
+                              disabled={!crud.canUpdate}
+                              onClick={() =>
+                                navigate(`/admin/modules/${encodeURIComponent(row.id)}/edit`)
+                              }
+                            />
                           </div>
                         </td>
                       </tr>

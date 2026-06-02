@@ -142,6 +142,26 @@ export function mapRoleListRecord(record: ApiRecord): { roleName: string; descri
   return { roleName, description }
 }
 
+export type AdminRoleOption = { roleName: string; description: string }
+
+/** Role names from GET `/admin/roles` for selects and autocompletes. */
+export async function fetchAdminRoleOptions(): Promise<AdminRoleOption[]> {
+  const payload = await apiGet<unknown>('/admin/roles?page_size=20')
+  const seen = new Set<string>()
+  const options: AdminRoleOption[] = []
+  for (const row of rolesToArray(payload)) {
+    const mapped = mapRoleListRecord(row)
+    const roleName = mapped.roleName === '-' ? '' : mapped.roleName.trim()
+    if (!roleName || seen.has(roleName)) continue
+    seen.add(roleName)
+    options.push({
+      roleName,
+      description: mapped.description === '-' ? '' : mapped.description,
+    })
+  }
+  return options.sort((a, b) => a.roleName.localeCompare(b.roleName))
+}
+
 export function normalizeAction(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value === 0 ? 0 : 1
   if (typeof value === 'boolean') return value ? 1 : 0
@@ -428,76 +448,15 @@ export function buildBulkPayload(
   }
 }
 
-function detailFromListRecord(match: ApiRecord, fallbackRoleName: string): ParsedRoleDetail {
-  const { roleName, description } = mapRoleListRecord(match)
-  const desc = description === '-' ? '' : description
-  const parsed = parseRoleDetailPayload(match, fallbackRoleName)
-  if (parsed && parsed.permissionsBySubMenu.size > 0) {
-    return {
-      role_name: roleName !== '-' ? roleName : parsed.role_name,
-      description: parsed.description.trim() || desc,
-      permissionsBySubMenu: parsed.permissionsBySubMenu,
-      availableActionsBySubMenu: parsed.availableActionsBySubMenu,
-      assignedActionsBySubMenu: parsed.assignedActionsBySubMenu,
-    }
-  }
-  return {
-    role_name: roleName !== '-' ? roleName : fallbackRoleName,
-    description: desc,
-    permissionsBySubMenu: new Map(),
-    availableActionsBySubMenu: new Map(),
-    assignedActionsBySubMenu: new Map(),
-  }
-}
-
-/**
- * Loads sub-menu permission flags from GET `/admin/roles/{role}/permissions` only.
- * Does not call GET `/admin/roles/{role}` (single-role by name). Description may come from that response,
- * the roles list match, or be empty.
- */
+/** Loads sub-menu permission flags from GET `/admin/roles/{role}/permissions`. */
 export async function fetchRoleDetail(roleName: string): Promise<ParsedRoleDetail> {
-  try {
-    const permPayload = await apiGet<unknown>(
-      `/admin/roles/${encodeURIComponent(roleName)}/permissions`,
-    )
-    const fromPermissions = parseRoleDetailPayload(permPayload, roleName)
-    if (fromPermissions) {
-      const resolved = fromPermissions.role_name || roleName
-      return { ...fromPermissions, role_name: resolved }
-    }
-  } catch {
-    /* fall through */
-  }
-
-  const searchPayload = await apiGet<unknown>(
-    `/admin/roles?page_size=200&search=${encodeURIComponent(roleName)}`,
+  const permPayload = await apiGet<unknown>(
+    `/admin/roles/${encodeURIComponent(roleName)}/permissions`,
   )
-  const records = rolesToArray(searchPayload)
-  const match = records.find((r) => {
-    const rn = mapRoleListRecord(r).roleName
-    return rn === roleName || rn.toLowerCase() === roleName.toLowerCase()
-  })
-  if (!match) throw new Error('Role not found')
-
-  const resolvedName = mapRoleListRecord(match).roleName
-  try {
-    const permPayload = await apiGet<unknown>(
-      `/admin/roles/${encodeURIComponent(resolvedName)}/permissions`,
-    )
-    const fromPermissions = parseRoleDetailPayload(permPayload, resolvedName)
-    if (fromPermissions) {
-      const { description: listDescRaw } = mapRoleListRecord(match)
-      const listDesc = listDescRaw === '-' ? '' : listDescRaw
-      const mergedDesc = fromPermissions.description.trim() || listDesc
-      return {
-        ...fromPermissions,
-        role_name: fromPermissions.role_name || resolvedName,
-        description: mergedDesc,
-      }
-    }
-  } catch {
-    /* use list row only */
+  const fromPermissions = parseRoleDetailPayload(permPayload, roleName)
+  if (!fromPermissions) {
+    throw new Error('Unable to load role permissions')
   }
-
-  return detailFromListRecord(match, roleName)
+  const resolved = fromPermissions.role_name || roleName
+  return { ...fromPermissions, role_name: resolved }
 }

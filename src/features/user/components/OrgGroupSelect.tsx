@@ -2,13 +2,7 @@ import type { ReactNode } from 'react'
 
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { SearchableAutocomplete } from '@/shared/components/SearchableAutocomplete'
 
 import type { AdminGroupNode } from '@/features/user/lib/groups-api'
 
@@ -46,25 +40,17 @@ export function OrgGroupSelect({
   return (
     <div className="space-y-2">
       <Label>{label}</Label>
-      <Select
-        value={selectedId || undefined}
-        onValueChange={(id) => {
+      <SearchableAutocomplete
+        value={selectedId}
+        onChange={(id) => {
           const next = options.find((o) => o.id === id)
           if (next) onSelect(next.id, next.name)
         }}
+        options={options.map((o) => ({ value: o.id, label: o.name, searchText: o.id }))}
         disabled={disabled}
-      >
-        <SelectTrigger className="w-full">
-          <SelectValue placeholder={placeholder} />
-        </SelectTrigger>
-        <SelectContent>
-          {options.map((o) => (
-            <SelectItem key={o.id} value={o.id}>
-              {o.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+        placeholder={placeholder}
+        searchPlaceholder="Type to search…"
+      />
     </div>
   )
 }

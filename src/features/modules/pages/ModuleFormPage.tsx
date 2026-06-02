@@ -252,7 +252,8 @@ function ModuleFormFields({ menuId, isEdit, initialRecord }: ModuleFormFieldsPro
             <table className="w-full min-w-[480px] text-sm">
               <thead className="bg-[#f6f6f7] text-[var(--fms-text-header)]">
                 <tr>
-                  <th className="w-10 px-2 py-2 text-center font-semibold">#</th>
+                  <th className="w-12 px-2 py-2 text-center font-semibold">Sl.No</th>
+                  <th className="w-10 px-2 py-2 text-center font-semibold" aria-label="Remove row" />
                   <th className="px-2 py-2 text-left font-semibold">
                     SUB MODULE NAME <span className="text-[var(--fms-delete)]">*</span>
                   </th>
@@ -265,8 +266,11 @@ function ModuleFormFields({ menuId, isEdit, initialRecord }: ModuleFormFieldsPro
                 </tr>
               </thead>
               <tbody>
-                {subRows.map((row) => (
+                {subRows.map((row, index) => (
                   <tr key={row.key} className="border-t border-[var(--fms-strokes)]">
+                    <td className="px-2 py-2 text-center align-middle tabular-nums text-[var(--fms-text-subheading)]">
+                      {index + 1}
+                    </td>
                     <td className="px-2 py-2 align-middle">
                       <Button
                         type="button"

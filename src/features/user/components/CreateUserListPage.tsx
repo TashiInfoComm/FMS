@@ -5,12 +5,19 @@
  */
 import { LayoutGrid, Pencil, Plus, Search } from "lucide-react";
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -18,18 +25,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { realmRoleNamesFromUserRecord } from "@/features/user/lib/users-api";
 import { apiDelete, apiGet } from "@/services/apiClient";
 import { cn } from "@/lib/utils";
 import { DeleteDialog } from "@/shared/components/DeleteDialog";
 import { PageHeader } from "@/shared/components/PageHeader";
 import {
   DeleteRowActionButton,
+  DetailRowActionButton,
   detailRowActionButtonClassName,
+  EditRowActionButton,
   editRowActionButtonClassName,
   rowActionsContainerClassName,
 } from "@/shared/components/TableRowActionButtons";
 import { TablePagination } from "@/shared/components/TablePagination";
 import { useRouteCrudPermissions } from "@/shared/hooks/useRouteCrudPermissions";
+import { formatRealmRoleDisplayName } from "@/shared/lib/format-realm-role-display";
 import { showErrorToast, showSuccessToast } from "@/shared/lib/toast";
 import { applyPagination } from "@/shared/utils/pagination";
 
@@ -41,9 +52,51 @@ type UserRow = {
   contact: string;
   email: string;
   username: string;
+  roles: string[];
   enabled: boolean;
   status: string;
 };
+
+/** First role as plain text (like other columns); additional roles open in a popover of badges. */
+function UserRolesListValue({ roles }: { roles: string[] }) {
+  if (roles.length === 0) {
+    return (
+      <span className="text-[var(--fms-text-subheading)]">—</span>
+    );
+  }
+  const firstLabel = formatRealmRoleDisplayName(roles[0]);
+  const rest = roles.slice(1);
+  if (rest.length === 0) {
+    return <span>{firstLabel}</span>;
+  }
+  return (
+    <span className="inline-flex max-w-[14rem] flex-wrap items-baseline gap-x-1.5 gap-y-1">
+      <span>{firstLabel}</span>
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="link"
+            size="xs"
+            className="inline h-auto min-h-0 px-0 py-0 underline-offset-2"
+            aria-label={`${rest.length} more roles`}
+          >
+            +{rest.length}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-auto max-w-xs" align="start">
+          <div className="flex flex-wrap gap-1.5">
+            {rest.map((role) => (
+              <Badge key={role} variant="secondary" className="font-normal">
+                {formatRealmRoleDisplayName(role)}
+              </Badge>
+            ))}
+          </div>
+        </PopoverContent>
+      </Popover>
+    </span>
+  );
+}
 
 /** Coerces API scalars to trimmed string; numbers become string; everything else → `""`. */
 function toText(value: unknown) {
@@ -216,6 +269,7 @@ function mapUserRows(records: ApiRecord[]): UserRow[] {
       contact: toContact(record),
       email: toEmail(record),
       username: toUsername(record),
+      roles: realmRoleNamesFromUserRecord(record),
       enabled: Boolean(record.enabled),
       status: pickStatus(record),
     };
@@ -264,6 +318,82 @@ type UserStatusFilterSelectProps = {
   onValueChange: (apiValue: string) => void;
 };
 
+const USER_LIST_SKELETON_CAP = 8;
+
+function UsersTableSkeletonBody({ rowCount }: { rowCount: number }) {
+  return (
+    <>
+      {Array.from({ length: rowCount }).map((_, i) => (
+        <tr
+          key={`user-sk-${i}`}
+          className="border-t border-[var(--fms-strokes)]"
+        >
+          <td className="px-4 py-3">
+            <Skeleton className="h-4 w-8" />
+          </td>
+          <td className="px-4 py-3">
+            <Skeleton className="h-4 w-[min(100%,12rem)]" />
+          </td>
+          <td className="px-4 py-3">
+            <Skeleton className="h-4 w-24" />
+          </td>
+          <td className="px-4 py-3">
+            <Skeleton className="h-4 w-[min(100%,14rem)]" />
+          </td>
+          <td className="px-4 py-3">
+            <Skeleton className="h-4 w-28" />
+          </td>
+          <td className="px-4 py-3">
+            <div className="flex flex-wrap gap-1.5">
+              <Skeleton className="h-5 w-16 rounded-md" />
+              <Skeleton className="h-5 w-20 rounded-md" />
+            </div>
+          </td>
+          <td className="px-4 py-3">
+            <Skeleton className="h-4 w-20" />
+          </td>
+          <td className="px-4 py-3">
+            <div className="flex justify-center gap-2">
+              <Skeleton className="h-8 w-16" />
+              <Skeleton className="h-8 w-14" />
+              <Skeleton className="h-8 w-8" />
+            </div>
+          </td>
+        </tr>
+      ))}
+    </>
+  );
+}
+
+function UsersMobileCardSkeleton({ rowCount }: { rowCount: number }) {
+  return (
+    <>
+      {Array.from({ length: rowCount }).map((_, i) => (
+        <div
+          key={`user-m-sk-${i}`}
+          className="space-y-2 rounded-lg border border-[var(--fms-strokes)] bg-white p-3"
+        >
+          <Skeleton className="h-4 w-20" />
+          <Skeleton className="h-4 w-full max-w-xs" />
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="h-4 w-full max-w-sm" />
+          <Skeleton className="h-4 w-36" />
+          <div className="flex flex-wrap gap-1.5 pt-0.5">
+            <Skeleton className="h-5 w-14 rounded-md" />
+            <Skeleton className="h-5 w-20 rounded-md" />
+          </div>
+          <Skeleton className="h-4 w-24" />
+          <div className="flex flex-wrap gap-2 pt-2">
+            <Skeleton className="h-8 w-16" />
+            <Skeleton className="h-8 w-14" />
+            <Skeleton className="h-8 w-8" />
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
 /** Status filter dropdown (`Approved` / `Pending` / `Rejected`, or all). */
 function UserStatusFilterSelect({
   value,
@@ -306,6 +436,7 @@ export function CreateUserListPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const crud = useRouteCrudPermissions("/users");
+  const navigate = useNavigate();
 
   const listQuery = useQuery({
     queryKey: ["admin-users", search, statusFilter, page, pageSize],
@@ -357,6 +488,7 @@ export function CreateUserListPage() {
     listQuery.data?.totalPages ??
     Math.max(1, Math.ceil(totalCount / Math.max(1, effectivePageSize)));
   const serialBase = listQuery.data?.serialBase ?? (page - 1) * pageSize;
+  const userListSkeletonRows = Math.min(pageSize, USER_LIST_SKELETON_CAP);
 
   /** Opens delete dialog after permission + id checks. */
   const askDelete = (id: string) => {
@@ -401,8 +533,8 @@ export function CreateUserListPage() {
         ) : null}
       </div>
 
-      <Card className="rounded-xl border border-[var(--fms-strokes)] bg-white p-2 sm:p-4">
-        <CardContent className="space-y-4 p-0">
+      <Card className="min-w-0 rounded-xl border border-[var(--fms-strokes)] bg-white p-2 sm:p-4">
+        <CardContent className="min-w-0 space-y-4 p-0">
           <div className="flex flex-col gap-2 sm:flex-row sm:justify-end sm:gap-3">
             <UserStatusFilterSelect
               value={statusFilter}
@@ -425,17 +557,19 @@ export function CreateUserListPage() {
             </div>
           </div>
 
-          <div className="hidden overflow-hidden rounded-lg border border-[var(--fms-strokes)] md:block">
-            <table className="w-full text-sm">
+          <div className="hidden w-full min-w-0 overflow-x-auto rounded-lg border border-[var(--fms-strokes)] md:block">
+            <table className="w-max min-w-full text-sm">
               <thead className="bg-[#f6f6f7] text-[var(--fms-text-header)]">
                 <tr>
                   <th className="px-4 py-3 text-left font-semibold">Sl.No</th>
                   <th className="px-4 py-3 text-left font-semibold">Name</th>
-                  <th className="px-4 py-3 text-left font-semibold">Contact</th>
-                  <th className="px-4 py-3 text-left font-semibold">Email</th>
                   <th className="px-4 py-3 text-left font-semibold">
                     Username
                   </th>
+                  <th className="px-4 py-3 text-left font-semibold">Contact</th>
+                  <th className="px-4 py-3 text-left font-semibold">Email</th>
+
+                  <th className="px-4 py-3 text-left font-semibold">Role</th>
                   <th className="px-4 py-3 text-left font-semibold">Status</th>
                   <th className="px-4 py-3 text-center font-semibold">
                     Actions
@@ -444,18 +578,11 @@ export function CreateUserListPage() {
               </thead>
               <tbody>
                 {listQuery.isLoading ? (
-                  <tr className="border-t border-[var(--fms-strokes)]">
-                    <td
-                      colSpan={7}
-                      className="px-4 py-6 text-center text-[var(--fms-text-subheading)]"
-                    >
-                      Loading users...
-                    </td>
-                  </tr>
+                  <UsersTableSkeletonBody rowCount={userListSkeletonRows} />
                 ) : listError ? (
                   <tr className="border-t border-[var(--fms-strokes)]">
                     <td
-                      colSpan={7}
+                      colSpan={8}
                       className="px-4 py-6 text-center text-[var(--fms-delete)]"
                     >
                       {listError}
@@ -464,7 +591,7 @@ export function CreateUserListPage() {
                 ) : crud.isResolved && !crud.canRead ? (
                   <tr className="border-t border-[var(--fms-strokes)]">
                     <td
-                      colSpan={7}
+                      colSpan={8}
                       className="px-4 py-6 text-center text-[var(--fms-text-subheading)]"
                     >
                       You do not have permission to view this data.
@@ -473,7 +600,7 @@ export function CreateUserListPage() {
                 ) : rows.length === 0 ? (
                   <tr className="border-t border-[var(--fms-strokes)]">
                     <td
-                      colSpan={7}
+                      colSpan={8}
                       className="px-4 py-6 text-center text-[var(--fms-text-subheading)]"
                     >
                       No users found.
@@ -487,9 +614,13 @@ export function CreateUserListPage() {
                     >
                       <td className="px-4 py-3">{serialBase + index + 1}</td>
                       <td className="px-4 py-3">{user.name}</td>
+                      <td className="px-4 py-3">{user.username}</td>
                       <td className="px-4 py-3">{user.contact}</td>
                       <td className="px-4 py-3">{user.email}</td>
-                      <td className="px-4 py-3">{user.username}</td>
+
+                      <td className="px-4 py-3 capitalize">
+                        <UserRolesListValue roles={user.roles} />
+                      </td>
                       <td className="px-4 py-3">
                         <span className={cn(statusDisplayClass(user.status))}>
                           {user.status}
@@ -498,65 +629,29 @@ export function CreateUserListPage() {
 
                       <td className="px-4 py-3">
                         <div className={rowActionsContainerClassName}>
-                          {user.id ? (
-                            <Link
-                              to={`/users/${encodeURIComponent(user.id)}`}
-                              className={viewLinkClassName}
-                              aria-label="View user"
-                            >
-                              <LayoutGrid
-                                aria-hidden
-                                className="size-3.5 shrink-0"
-                              />
-                              Detail
-                            </Link>
-                          ) : (
-                            <span
-                              className={cn(
-                                viewLinkClassName,
-                                "pointer-events-none opacity-45",
-                              )}
-                              aria-disabled
-                            >
-                              <LayoutGrid
-                                aria-hidden
-                                className="size-3.5 shrink-0"
-                              />
-                              Detail
-                            </span>
-                          )}
-                          {user.id ? (
-                            <Link
-                              to={`/users/${encodeURIComponent(user.id)}/edit`}
-                              className={editLinkClassName}
-                              aria-label="Edit user"
-                            >
-                              <Pencil
-                                aria-hidden
-                                className="size-3.5 shrink-0"
-                              />
-                              Edit
-                            </Link>
-                          ) : (
-                            <span
-                              className={cn(
-                                editLinkClassName,
-                                "pointer-events-none opacity-45",
-                              )}
-                              aria-disabled
-                            >
-                              <Pencil
-                                aria-hidden
-                                className="size-3.5 shrink-0"
-                              />
-                              Edit
-                            </span>
-                          )}
-                          <DeleteRowActionButton
+                          <DetailRowActionButton
+                            type="button"
+                            disabled={!crud.canRead}
+                            onClick={() =>
+                              navigate(`/users/${encodeURIComponent(user.id)}`)
+                            }
+                          />
+                          <EditRowActionButton
+                            type="button"
+                            disabled={!crud.canUpdate}
+                            onClick={() =>
+                              navigate(
+                                `/users/${encodeURIComponent(user.id)}/edit`,
+                              )
+                            }
+                          />
+
+                          
+                          {/* <DeleteRowActionButton
                             type="button"
                             disabled={!crud.canDelete || !user.id}
                             onClick={() => askDelete(user.id)}
-                          />
+                          /> */}
                         </div>
                       </td>
                     </tr>
@@ -567,9 +662,7 @@ export function CreateUserListPage() {
           </div>
           <div className="space-y-3 md:hidden">
             {listQuery.isLoading ? (
-              <p className="py-6 text-center text-[var(--fms-text-subheading)]">
-                Loading users...
-              </p>
+              <UsersMobileCardSkeleton rowCount={userListSkeletonRows} />
             ) : listError ? (
               <p className="py-6 text-center text-[var(--fms-delete)]">
                 {listError}
@@ -617,6 +710,12 @@ export function CreateUserListPage() {
                       Username:
                     </span>{" "}
                     {user.username}
+                  </p>
+                  <p className="text-sm text-[var(--fms-text-subheading)]">
+                    <span className="font-medium text-[var(--fms-text-header)]">
+                      Role:
+                    </span>{" "}
+                    <UserRolesListValue roles={user.roles} />
                   </p>
                   <p className="text-sm text-[var(--fms-text-subheading)]">
                     <span className="font-medium text-[var(--fms-text-header)]">

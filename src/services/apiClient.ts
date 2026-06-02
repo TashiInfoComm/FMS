@@ -1,5 +1,6 @@
 // Centralizes authenticated HTTP requests to the backend API.
 import { clearCurrentProfileQueryCache } from "@/lib/query-client";
+import { useApiLoadingStore } from "@/services/api-loading-store";
 import { useUserStore } from "@/services/user-store";
 import { notifyRolePreferenceChanged } from "@/shared/lib/realm-role-mapping";
 
@@ -77,34 +78,39 @@ async function tryRefreshAccessToken(): Promise<boolean> {
       if (!refreshToken) return false;
 
       const url = resolveUrl("/auth/refresh");
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          "ngrok-skip-browser-warning": "true",
-        },
-        body: JSON.stringify({ refresh_token: refreshToken }),
-      });
+      useApiLoadingStore.getState().begin();
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+            "ngrok-skip-browser-warning": "true",
+          },
+          body: JSON.stringify({ refresh_token: refreshToken }),
+        });
 
-      const contentType = response.headers.get("content-type") ?? "";
-      const isJson = contentType.includes("application/json");
-      const payload = isJson ? await response.json() : await response.text();
+        const contentType = response.headers.get("content-type") ?? "";
+        const isJson = contentType.includes("application/json");
+        const payload = isJson ? await response.json() : await response.text();
 
-      if (!response.ok) return false;
+        if (!response.ok) return false;
 
-      const { accessToken, refreshToken: nextRefresh } =
-        extractTokensFromAuthPayload(payload);
+        const { accessToken, refreshToken: nextRefresh } =
+          extractTokensFromAuthPayload(payload);
 
-      if (!accessToken) return false;
+        if (!accessToken) return false;
 
-      const state = useUserStore.getState();
-      state.setAuthSession({
-        accessToken,
-        refreshToken: nextRefresh ?? state.refreshToken,
-        user: state.user,
-      });
-      return true;
+        const state = useUserStore.getState();
+        state.setAuthSession({
+          accessToken,
+          refreshToken: nextRefresh ?? state.refreshToken,
+          user: state.user,
+        });
+        return true;
+      } finally {
+        useApiLoadingStore.getState().end();
+      }
     } catch {
       return false;
     } finally {
@@ -148,7 +154,7 @@ async function handleUnauthorized() {
   if (typeof window === "undefined") return;
   if (isPublicAuthPath(window.location.pathname)) return;
 
-  window.location.replace("/login/ndi");
+  window.location.replace("/login");
 }
 
 function resolveUrl(path: string) {
@@ -156,6 +162,30 @@ function resolveUrl(path: string) {
   if (!API_BASE_URL) return path;
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   return `${API_BASE_URL}${normalizedPath}`;
+}
+
+/** NDI QR / callback polling — no full-screen global loader (avoids flicker during long polls). */
+const GLOBAL_API_LOADING_SKIP_SUFFIXES = [
+  "/ndi/proof_request",
+  "/ndi/login_callback_response",
+  "/ndi/check_callback_response",
+] as const;
+
+function shouldSkipGlobalApiLoading(path: string): boolean {
+  const pathname = /^https?:\/\//.test(path)
+    ? (() => {
+        try {
+          return new URL(path).pathname;
+        } catch {
+          return path;
+        }
+      })()
+    : path.startsWith("/")
+      ? path
+      : `/${path}`;
+  return GLOBAL_API_LOADING_SKIP_SUFFIXES.some(
+    (suffix) => pathname === suffix || pathname.endsWith(suffix),
+  );
 }
 
 function getErrorMessage(payload: unknown, status: number) {
@@ -261,7 +291,13 @@ export async function apiClient<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
-  return fetchWithAuthHandling<T>(path, init, false);
+  const skipLoader = shouldSkipGlobalApiLoading(path);
+  if (!skipLoader) useApiLoadingStore.getState().begin();
+  try {
+    return await fetchWithAuthHandling<T>(path, init, false);
+  } finally {
+    if (!skipLoader) useApiLoadingStore.getState().end();
+  }
 }
 
 export function apiGet<T>(path: string, init?: RequestInit) {

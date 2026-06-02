@@ -19,6 +19,7 @@ import {
   type ApiRecord,
   type MenuRecord,
 } from '@/features/modules/lib/menus-api'
+import { formatRealmRoleDisplayName } from '@/shared/lib/format-realm-role-display'
 import {
   assignedSetFromRoleActions,
   buildBulkPayload,
@@ -68,6 +69,7 @@ function RolePermissionFields({
       <table className="min-w-[640px] w-full text-sm">
         <thead className="sticky top-0 z-[1] bg-[#f6f6f7] text-[var(--fms-text-header)]">
           <tr>
+            <th className="w-16 px-3 py-3 text-left font-semibold">Sl.No</th>
             <th className="px-3 py-3 text-left font-semibold">Sub-menu</th>
             {(['Read', 'Create', 'Update', 'Delete'] as const).map((h) => (
               <th key={h} className="px-2 py-3 text-center font-semibold">
@@ -77,10 +79,13 @@ function RolePermissionFields({
           </tr>
         </thead>
         <tbody>
-          {flatSubs.map((row) => {
+          {flatSubs.map((row, index) => {
             const a = permState.get(row.sub_menu_id) ?? defaultActions()
             return (
               <tr key={row.sub_menu_id} className="border-t border-[var(--fms-strokes)]">
+                <td className="px-3 py-2 align-middle tabular-nums text-[var(--fms-text-subheading)]">
+                  {index + 1}
+                </td>
                 <td className="max-w-[280px] px-3 py-2 align-middle text-[var(--fms-text-header)]">{row.label}</td>
                 <td className="px-2 py-2 text-center align-middle">
                   <div className="flex justify-center">
@@ -282,7 +287,7 @@ export function RoleFormPage() {
               </Label>
               <Input
                 id="role-name"
-                value={nameInput}
+                value={isEdit ? formatRealmRoleDisplayName(nameInput) : nameInput}
                 onChange={(e) => setNameInput(e.target.value)}
                 placeholder="e.g. fms-custom-role"
                 disabled={isEdit}

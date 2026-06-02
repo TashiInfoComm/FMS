@@ -35,6 +35,7 @@ import {
   shouldApplySubMenuPermissionFilter,
   useRolePermissionsDetail,
 } from "@/shared/hooks/useRolePermissionsDetail";
+import { formatRealmRoleDisplayName } from "@/shared/lib/format-realm-role-display";
 import { notifyRolePreferenceChanged } from "@/shared/lib/realm-role-mapping";
 import { showSuccessToast } from "@/shared/lib/toast";
 
@@ -178,7 +179,7 @@ export function MainLayout() {
     localStorage.removeItem("fms-permissions");
     notifyRolePreferenceChanged();
     showSuccessToast("You have been logged out successfully");
-    navigate("/login/ndi");
+    navigate("/login");
   };
 
   const renderNavigation = () => {
@@ -343,7 +344,7 @@ export function MainLayout() {
               >
                 {profileRoles.map((roleOption) => (
                   <option key={roleOption} value={roleOption}>
-                    {roleOption}
+                    {formatRealmRoleDisplayName(roleOption)}
                   </option>
                 ))}
               </select>
@@ -352,14 +353,14 @@ export function MainLayout() {
             <span className="rounded-md border border-[var(--fms-strokes)] px-2 py-1 text-[var(--fms-text-subheading)]">
               Role:{" "}
               <span className="text-[var(--fms-text-header)]">
-                {profileRoles[0]}
+                {formatRealmRoleDisplayName(profileRoles[0])}
               </span>
             </span>
           ) : (
             <span className="rounded-md border border-[var(--fms-strokes)] px-2 py-1 text-[var(--fms-text-subheading)]">
               Role:{" "}
               <span className="text-[var(--fms-text-header)]">
-                {DEFAULT_ROLE}
+                {formatRealmRoleDisplayName(DEFAULT_ROLE)}
               </span>
             </span>
           )}
@@ -435,7 +436,7 @@ export function MainLayout() {
         <main className="min-w-0 bg-[#f8f8f9] py-3 px-5 sm:py-6">
           <div className="mb-3 inline-flex items-center gap-2 rounded-md bg-[var(--fms-info-fill)] px-2 py-1 text-xs text-[var(--fms-text-header)]">
             <RoleIcon className="h-3.5 w-3.5" />
-            {role || DEFAULT_ROLE} Permissions Applied
+            {formatRealmRoleDisplayName(role || DEFAULT_ROLE)} Permissions Applied
           </div>
           <Outlet />
         </main>

@@ -8,6 +8,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   Dialog,
   DialogContent,
@@ -34,6 +35,7 @@ import {
 import { PageHeader } from '@/shared/components/PageHeader'
 import { TablePagination } from '@/shared/components/TablePagination'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
+import { formatRealmRoleDisplayName } from '@/shared/lib/format-realm-role-display'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
 import { applyPagination } from '@/shared/utils/pagination'
 
@@ -54,6 +56,45 @@ function listPath(search: string, page: number, pageSize: number) {
   const q = search.trim()
   if (q) params.set('search', q)
   return `/admin/roles?${params.toString()}`
+}
+
+const ROLE_LIST_SKELETON_CAP = 8
+
+function RolesTableSkeletonBody({ rowCount }: { rowCount: number }) {
+  return (
+    <>
+      {Array.from({ length: rowCount }).map((_, i) => (
+        <tr key={`role-um-sk-${i}`} className="border-t border-[var(--fms-strokes)]">
+          <td className="px-4 py-3">
+            <Skeleton className="h-4 w-8" />
+          </td>
+          <td className="px-4 py-3">
+            <Skeleton className="h-4 w-[min(100%,14rem)]" />
+          </td>
+          <td className="px-4 py-3">
+            <Skeleton className="h-4 w-full max-w-md" />
+          </td>
+        </tr>
+      ))}
+    </>
+  )
+}
+
+function RolesMobileCardSkeleton({ rowCount }: { rowCount: number }) {
+  return (
+    <>
+      {Array.from({ length: rowCount }).map((_, i) => (
+        <div
+          key={`role-um-m-sk-${i}`}
+          className="space-y-2 rounded-lg border border-[var(--fms-strokes)] bg-white p-3"
+        >
+          <Skeleton className="h-4 w-20" />
+          <Skeleton className="h-4 w-full max-w-xs" />
+          <Skeleton className="h-4 w-full max-w-sm" />
+        </div>
+      ))}
+    </>
+  )
 }
 
 /** Applies `mapRoleListRecord` plus serial numbers for Sl.No column. */
@@ -129,6 +170,7 @@ export function UserRoleManagement() {
         effectivePageSize: paged.effectivePageSize,
       }
     },
+    enabled: crud.isResolved && crud.canRead,
   })
 
   const rows = useMemo(() => listQuery.data?.rows ?? [], [listQuery.data?.rows])
@@ -143,10 +185,16 @@ export function UserRoleManagement() {
       : 'Failed to load roles'
     : null
 
+  const roleListSkeletonRows = Math.min(pageSize, ROLE_LIST_SKELETON_CAP)
+  const showRoleListSkeleton = !crud.isResolved || (crud.canRead && listQuery.isLoading)
+
   return (
     <section className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <PageHeader title="Roles" subtitle="Realm roles available in the system" />
+        <PageHeader
+          title="Roles"
+          subtitle="Roles available in the system"
+        />
         {crud.canCreate ? (
           <Button
             type="button"
@@ -162,10 +210,10 @@ export function UserRoleManagement() {
       <Dialog
         open={createOpen}
         onOpenChange={(open) => {
-          setCreateOpen(open)
+          setCreateOpen(open);
           if (!open) {
-            setCreateName('')
-            setCreateDescription('')
+            setCreateName("");
+            setCreateDescription("");
           }
         }}
       >
@@ -217,7 +265,7 @@ export function UserRoleManagement() {
               }
               onClick={() => createRoleMutation.mutate()}
             >
-              {createRoleMutation.isPending ? 'Creating…' : 'Create role'}
+              {createRoleMutation.isPending ? "Creating…" : "Create role"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -230,8 +278,8 @@ export function UserRoleManagement() {
             <Input
               value={search}
               onChange={(event) => {
-                setSearch(event.target.value)
-                setPage(1)
+                setSearch(event.target.value);
+                setPage(1);
               }}
               placeholder="Search role name or description…"
               className="pl-9"
@@ -242,44 +290,64 @@ export function UserRoleManagement() {
             <table className="min-w-full text-sm">
               <thead className="bg-[#f6f6f7] text-[var(--fms-text-header)]">
                 <tr>
-                  {['Sl.No', 'Role Name', 'Description'].map((column) => (
-                    <th key={column} className="px-4 py-3 text-left font-semibold">
+                  {["Sl.No", "Role", " Name", "Description"].map((column) => (
+                    <th
+                      key={column}
+                      className="px-4 py-3 text-left font-semibold"
+                    >
                       {column}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {listQuery.isLoading ? (
-                  <tr className="border-t border-[var(--fms-strokes)]">
-                    <td colSpan={3} className="px-4 py-6 text-center text-[var(--fms-text-subheading)]">
-                      Loading roles…
-                    </td>
-                  </tr>
+                {showRoleListSkeleton ? (
+                  <RolesTableSkeletonBody rowCount={roleListSkeletonRows} />
                 ) : listError ? (
                   <tr className="border-t border-[var(--fms-strokes)]">
-                    <td colSpan={3} className="px-4 py-6 text-center text-[var(--fms-delete)]">
+                    <td
+                      colSpan={3}
+                      className="px-4 py-6 text-center text-[var(--fms-delete)]"
+                    >
                       {listError}
                     </td>
                   </tr>
                 ) : crud.isResolved && !crud.canRead ? (
                   <tr className="border-t border-[var(--fms-strokes)]">
-                    <td colSpan={3} className="px-4 py-6 text-center text-[var(--fms-text-subheading)]">
+                    <td
+                      colSpan={3}
+                      className="px-4 py-6 text-center text-[var(--fms-text-subheading)]"
+                    >
                       You do not have permission to view this data.
                     </td>
                   </tr>
                 ) : rows.length === 0 ? (
                   <tr className="border-t border-[var(--fms-strokes)]">
-                    <td colSpan={3} className="px-4 py-6 text-center text-[var(--fms-text-subheading)]">
+                    <td
+                      colSpan={3}
+                      className="px-4 py-6 text-center text-[var(--fms-text-subheading)]"
+                    >
                       No roles found.
                     </td>
                   </tr>
                 ) : (
                   rows.map((row, index) => (
-                    <tr key={row.roleName || `role-${index}`} className="border-t border-[var(--fms-strokes)]">
-                      <td className="px-4 py-3 text-[var(--fms-text-subheading)] tabular-nums">{row.serialNo}</td>
-                      <td className="px-4 py-3 font-medium text-[var(--fms-text-header)]">{row.roleName}</td>
-                      <td className="px-4 py-3 text-[var(--fms-text-subheading)]">{row.description}</td>
+                    <tr
+                      key={row.roleName || `role-${index}`}
+                      className="border-t border-[var(--fms-strokes)]"
+                    >
+                      <td className="px-4 py-3 text-[var(--fms-text-subheading)] tabular-nums">
+                        {row.serialNo}
+                      </td>
+                      <td className="px-4 py-3  text-[var(--fms-text-subheading)]">
+                        {row.roleName}
+                      </td>
+                      <td className="px-4 py-3  text-[var(--fms-text-subheading)] capitalize">
+                        {formatRealmRoleDisplayName(row.roleName)}
+                      </td>
+                      <td className="px-4 py-3 text-[var(--fms-text-subheading)]">
+                        {row.description}
+                      </td>
                     </tr>
                   ))
                 )}
@@ -288,16 +356,20 @@ export function UserRoleManagement() {
           </div>
 
           <div className="space-y-3 md:hidden">
-            {listQuery.isLoading ? (
-              <p className="py-6 text-center text-[var(--fms-text-subheading)]">Loading roles…</p>
+            {showRoleListSkeleton ? (
+              <RolesMobileCardSkeleton rowCount={roleListSkeletonRows} />
             ) : listError ? (
-              <p className="py-6 text-center text-[var(--fms-delete)]">{listError}</p>
+              <p className="py-6 text-center text-[var(--fms-delete)]">
+                {listError}
+              </p>
             ) : crud.isResolved && !crud.canRead ? (
               <p className="py-6 text-center text-[var(--fms-text-subheading)]">
                 You do not have permission to view this data.
               </p>
             ) : rows.length === 0 ? (
-              <p className="py-6 text-center text-[var(--fms-text-subheading)]">No roles found.</p>
+              <p className="py-6 text-center text-[var(--fms-text-subheading)]">
+                No roles found.
+              </p>
             ) : (
               rows.map((row, index) => (
                 <div
@@ -305,13 +377,22 @@ export function UserRoleManagement() {
                   className="rounded-lg border border-[var(--fms-strokes)] bg-white p-3"
                 >
                   <p className="text-sm text-[var(--fms-text-subheading)]">
-                    <span className="font-medium text-[var(--fms-text-header)]">Sl.No:</span> {row.serialNo}
+                    <span className="font-medium text-[var(--fms-text-header)]">
+                      Sl.No:
+                    </span>{" "}
+                    {row.serialNo}
                   </p>
                   <p className="text-sm text-[var(--fms-text-subheading)]">
-                    <span className="font-medium text-[var(--fms-text-header)]">Role Name:</span> {row.roleName}
+                    <span className="font-medium text-[var(--fms-text-header)]">
+                      Role Name:
+                    </span>{" "}
+                    {formatRealmRoleDisplayName(row.roleName)}
                   </p>
                   <p className="text-sm text-[var(--fms-text-subheading)]">
-                    <span className="font-medium text-[var(--fms-text-header)]">Description:</span> {row.description}
+                    <span className="font-medium text-[var(--fms-text-header)]">
+                      Description:
+                    </span>{" "}
+                    {row.description}
                   </p>
                 </div>
               ))
@@ -323,14 +404,16 @@ export function UserRoleManagement() {
             totalPages={totalPages}
             pageSize={effectivePageSize}
             totalCount={totalCount}
-            onPageChange={(nextPage) => setPage(Math.max(1, Math.min(nextPage, totalPages)))}
+            onPageChange={(nextPage) =>
+              setPage(Math.max(1, Math.min(nextPage, totalPages)))
+            }
             onPageSizeChange={(nextPageSize) => {
-              setPageSize(nextPageSize)
-              setPage(1)
+              setPageSize(nextPageSize);
+              setPage(1);
             }}
           />
         </CardContent>
       </Card>
     </section>
-  )
+  );
 }

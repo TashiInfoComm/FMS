@@ -2,7 +2,6 @@
 import type { ComponentType, ReactNode } from 'react'
 import { useMemo } from 'react'
 import { Building2, Fingerprint, IdCard, KeyRound, UserRound } from 'lucide-react'
-
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { mapUserDetailFields } from '@/features/user/lib/users-api'
 import type { ApiRecord } from '@/features/user/lib/roles-api'
@@ -29,7 +28,16 @@ export function ProfilePage() {
   const user = useUserStore((state) => state.user)
   const record = asRecord(user)
 
-  const detail = useMemo(() => (record ? mapUserDetailFields(record) : undefined), [record])
+  // const organogramQuery = useQuery({
+  //   queryKey: ['admin', 'groups', 'display-lookups'],
+  //   queryFn: fetchOrganogramDisplayLookups,
+  //   staleTime: 60_000,
+  // })
+
+  const detail = useMemo(
+    () => (record ? mapUserDetailFields(record) : undefined),
+    [record],
+  )
 
   return (
     <section className="space-y-5">

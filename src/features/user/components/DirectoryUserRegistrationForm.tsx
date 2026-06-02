@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Skeleton } from '@/components/ui/skeleton'
 import { OrgGroupSelect } from '@/features/user/components/OrgGroupSelect'
 import {
   buildCreateUserPayload,
@@ -35,8 +36,54 @@ import {
 } from '@/features/user/lib/groups-api'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
+import { formatRealmRoleDisplayName } from '@/shared/lib/format-realm-role-display'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
 import { apiPost } from '@/services/apiClient'
+import { z } from 'zod'
+
+function directoryUserRegistrationSchema(isAdmin: boolean) {
+  return z
+    .object({
+      username: z.string().trim().min(1, 'Username is required'),
+      cid: z.string().trim().min(1, 'CID/Employee ID is required'),
+      employeeId: z.string().trim(),
+      firstName: z.string().trim().min(1, 'First name is required'),
+      middleName: z.string().trim(),
+      lastName: z.string().trim(),
+      contact: z
+        .string()
+        .trim()
+        .refine((s) => s.replace(/\D/g, '').length === 8, {
+          message: 'Phone number must contain exactly 8 digits',
+        }),
+      email: z
+        .string()
+        .trim()
+        .pipe(z.email({ error: 'Enter a valid email address' })),
+      designation: z
+        .string()
+        .trim()
+        .refine((s) => s !== '' && s !== '-', { message: 'Designation is required' }),
+      agencyId: z.string().trim().min(1, 'Agency is required'),
+      departmentId: z.string().trim().min(1, 'Department is required'),
+      divisionId: z.string().trim().min(1, 'Division is required'),
+      subDivisionId: z.string().trim(),
+      roles: z.array(z.string()),
+    })
+    .superRefine((data, ctx) => {
+      if (isAdmin && data.roles.length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Select at least one role',
+          path: ['roles'],
+        })
+      }
+    })
+}
+
+function firstZodIssueMessage(error: z.ZodError): string {
+  return error.issues[0]?.message ?? 'Validation failed'
+}
 
 export type DirectoryUserRegistrationFormProps = {
   mode: 'admin' | 'signup'
@@ -52,6 +99,7 @@ export function DirectoryUserRegistrationForm({
   const ndiWelcomeRef = useRef(false)
   const queryClient = useQueryClient()
   const crud = useRouteCrudPermissions('/users')
+  const rolesCrud = useRouteCrudPermissions('/admin/roles')
   const [lookupInput, setLookupInput] = useState(() => {
     if (!ndiBootstrap) return ''
     const cid = (ndiBootstrap.cid ?? '').trim()
@@ -88,7 +136,7 @@ export function DirectoryUserRegistrationForm({
     queryKey: ['admin-roles-user-form'],
     queryFn: fetchRealmRoleOptions,
     staleTime: 60_000,
-    enabled: queriesEnabled && isAdmin,
+    enabled: queriesEnabled && isAdmin && rolesCrud.isResolved && rolesCrud.canRead,
   })
 
   const groupsQuery = useQuery({
@@ -172,27 +220,60 @@ export function DirectoryUserRegistrationForm({
             : 'Look up details by CID first',
         )
       }
-      const u = username.trim()
-      if (!u) throw new Error('Username is required')
-      const roles = isAdmin ? [...selectedRoles] : []
-      if (isAdmin && roles.length === 0) throw new Error('Select at least one role')
-
-      const fn = (profile.firstName ?? '').trim()
-      const ln = (profile.lastName ?? '').trim()
-      if (!fn && !ln) {
-        throw new Error('Enter at least a first name or a last name')
+      if (isAdmin && rolesCrud.isResolved && !rolesCrud.canRead) {
+        throw new Error(
+          'You do not have permission to view the role list, so new users cannot be assigned roles from this screen.',
+        )
       }
 
       const nodes = groupsQuery.data ?? []
       if (!nodes.length)
         throw new Error('Group directory could not be loaded. Try again.')
 
-      if (!orgSelection.agencyId || !orgSelection.departmentId || !orgSelection.divisionId) {
-        throw new Error('Select agency, department, and division from the group directory.')
+      const roles = isAdmin ? [...selectedRoles] : []
+      const contactRaw = profile.contact === '-' ? '' : profile.contact
+      const emailRaw = profile.email === '-' ? '' : profile.email
+      const designationRaw = profile.designationFromDirectory
+        ? profile.designation
+        : profile.designation === '-'
+          ? ''
+          : profile.designation
+
+      const parsed = directoryUserRegistrationSchema(isAdmin).safeParse({
+        username: username.trim(),
+        cid: profile.cid === '-' ? '' : profile.cid,
+        employeeId: profile.employeeId === '-' ? '' : profile.employeeId,
+        firstName: profile.firstName ?? '',
+        middleName: profile.middleName ?? '',
+        lastName: profile.lastName ?? '',
+        contact: contactRaw,
+        email: emailRaw,
+        designation: designationRaw,
+        agencyId: orgSelection.agencyId,
+        departmentId: orgSelection.departmentId,
+        divisionId: orgSelection.divisionId,
+        subDivisionId: orgSelection.subDivisionId,
+        roles,
+      })
+      if (!parsed.success) {
+        throw new Error(firstZodIssueMessage(parsed.error))
       }
-      const subRequired = childGroupsOf(orgSelection.divisionId, nodes).length > 0
-      if (subRequired && !orgSelection.subDivisionId) {
-        throw new Error('Select a sub division for the chosen division.')
+
+      const u = parsed.data.username
+      const contactDigits = contactRaw.trim().replace(/\D/g, '')
+      const fn = parsed.data.firstName
+      const mn = parsed.data.middleName
+      const ln = parsed.data.lastName
+      const combinedName = [fn, mn, ln].filter(Boolean).join(' ').trim()
+      const profileForPayload: FetchedPerson = {
+        ...profile,
+        firstName: fn,
+        middleName: mn,
+        lastName: ln,
+        name: combinedName || profile.name,
+        contact: contactDigits,
+        email: parsed.data.email,
+        designation: parsed.data.designation,
       }
 
       const orgIds: CreateUserOrgIds = {
@@ -201,7 +282,7 @@ export function DirectoryUserRegistrationForm({
         division_id: orgSelection.divisionId,
         sub_division_id: orgSelection.subDivisionId || undefined,
       }
-      const body = buildCreateUserPayload(profile, u, roles, orgIds)
+      const body = buildCreateUserPayload(profileForPayload, u, roles, orgIds)
       const path = mode === 'signup' ? '/public/register' : '/admin/users'
       return apiPost<unknown, typeof body>(path, body)
     },
@@ -230,6 +311,8 @@ export function DirectoryUserRegistrationForm({
   }
 
   const roleOptions = rolesQuery.data ?? []
+  const adminRolesBlocked = isAdmin && rolesCrud.isResolved && !rolesCrud.canRead
+  const adminRolesPermLoading = isAdmin && !rolesCrud.isResolved
 
   const toggleRole = (roleName: string) => {
     if (formLocked) return
@@ -251,11 +334,26 @@ export function DirectoryUserRegistrationForm({
   const setPersonFirstName = (value: string) => {
     setProfile((p) => {
       if (!p) return p
+      const middleName = p.middleName ?? ''
       const lastName = p.lastName ?? ''
-      const combined = [value, lastName].filter((x) => x.trim()).join(' ').trim()
+      const combined = [value, middleName, lastName].filter((x) => x.trim()).join(' ').trim()
       return {
         ...p,
         firstName: value,
+        name: combined || '-',
+      }
+    })
+  }
+
+  const setPersonMiddleName = (value: string) => {
+    setProfile((p) => {
+      if (!p) return p
+      const firstName = p.firstName ?? ''
+      const lastName = p.lastName ?? ''
+      const combined = [firstName, value, lastName].filter((x) => x.trim()).join(' ').trim()
+      return {
+        ...p,
+        middleName: value,
         name: combined || '-',
       }
     })
@@ -265,7 +363,8 @@ export function DirectoryUserRegistrationForm({
     setProfile((p) => {
       if (!p) return p
       const firstName = p.firstName ?? ''
-      const combined = [firstName, value].filter((x) => x.trim()).join(' ').trim()
+      const middleName = p.middleName ?? ''
+      const combined = [firstName, middleName, value].filter((x) => x.trim()).join(' ').trim()
       return {
         ...p,
         lastName: value,
@@ -334,13 +433,13 @@ export function DirectoryUserRegistrationForm({
   return (
     <>
       <PageHeader
-        title={isAdmin ? 'Add New User' : 'User Registration'}
+        title={isAdmin ? "Add New User" : "User Registration"}
         subtitle={
           isAdmin
-            ? 'Look up by Citizen ID (CID). Agency hierarchy comes from GET /public/groups: values matched from directory organogram fields are read-only; otherwise search each tier.'
+            ? "Look up by Citizen ID (CID)/Employee ID."
             : isNdiSignupBootstrap
-              ? 'Details were loaded from Bhutan NDI. Agency hierarchy uses /public/groups: matched organogram tiers may be read-only; otherwise choose each tier from the select lists.'
-              : 'Look up by Citizen ID (CID). Agency hierarchy comes from the group directory: values matched from directory organogram fields are read-only; otherwise search each tier.'
+              ? "Details were loaded from Bhutan NDI."
+              : "Look up by Citizen ID (CID)/Employee ID."
         }
       />
 
@@ -351,13 +450,14 @@ export function DirectoryUserRegistrationForm({
               <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
                 <div className="space-y-2">
                   <Label htmlFor="lookup-cid">
-                    Citizen ID (CID) <span className="text-[var(--fms-delete)]">*</span>
+                    Citizen ID (CID)/Employee ID{" "}
+                    <span className="text-[var(--fms-delete)]">*</span>
                   </Label>
                   <Input
                     id="lookup-cid"
                     value={lookupInput}
                     onChange={(e) => setLookupInput(e.target.value)}
-                    placeholder="Enter CID"
+                    placeholder="Enter CID/Employee ID"
                     disabled={formLocked}
                   />
                 </div>
@@ -366,7 +466,7 @@ export function DirectoryUserRegistrationForm({
                   disabled={formLocked || lookupMutation.isPending}
                   onClick={() => lookupMutation.mutate()}
                 >
-                  {lookupMutation.isPending ? 'Loading…' : 'Fetch details'}
+                  {lookupMutation.isPending ? "Loading…" : "Fetch details"}
                 </Button>
               </div>
             </div>
@@ -375,23 +475,31 @@ export function DirectoryUserRegistrationForm({
           {profile ? (
             <>
               {groupsQuery.isLoading ? (
-                <p className="text-xs text-[var(--fms-text-subheading)]">Loading group directory (/public/groups)…</p>
+                <p className="text-xs text-[var(--fms-text-subheading)]">
+                  Loading group directory (/public/groups)…
+                </p>
               ) : groupsQuery.isError ? (
                 <p className="text-xs text-[var(--fms-delete)]">
-                  Could not load /public/groups. Reload the page or try again—org assignment requires this list.
+                  Could not load /public/groups. Reload the page or try
+                  again—org assignment requires this list.
                 </p>
               ) : null}
-              {!profile.organogramHints && !hasEmployeeDirectoryOrgLabels(profile) ? (
+              {!profile.organogramHints &&
+              !hasEmployeeDirectoryOrgLabels(profile) ? (
                 <p className="text-xs text-[var(--fms-text-subheading)]">
                   {isNdiSignupBootstrap
-                    ? 'No organogram fields were returned from NDI. Use the select lists below to choose agency, department, division, and sub division.'
-                    : 'No organogram fields were returned for this CID. Use the search fields below to pick agency, department, division, and sub division from the group directory.'}
+                    ? "No organogram fields were returned from NDI. Use the select lists below to choose agency, department, division, and sub division."
+                    : "No organogram fields were returned for this CID. Use the search fields below to pick agency, department, division, and sub division from the group directory."}
                 </p>
               ) : (
                 <p className="text-xs text-[var(--fms-text-subheading)]">
-                  Directory organogram IDs and names (or agency, department, division, and sub division from the employee
-                  record). Read-only tiers were resolved from{' '}
-                  {isNdiSignupBootstrap ? 'your NDI verification payload' : 'your EMS/directory payload'}.
+                  Directory organogram IDs and names (or agency, department,
+                  division, and sub division from the employee record).
+                  Read-only tiers were resolved from{" "}
+                  {isNdiSignupBootstrap
+                    ? "your NDI verification payload"
+                    : "your EMS/directory payload"}
+                  .
                 </p>
               )}
               {/* {isNdiSignupBootstrap && profile ? (
@@ -428,23 +536,36 @@ export function DirectoryUserRegistrationForm({
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 <div className="space-y-2">
                   <Label>CID</Label>
-                  <Input value={profile.cid || '-'} readOnly className="bg-[#fafafa]" />
+                  <Input
+                    value={profile.cid || "-"}
+                    readOnly
+                    className="bg-[#fafafa]"
+                  />
                 </div>
                 {isDirectoryProvided(profile.employeeId) ? (
                   <div className="space-y-2">
                     <Label>Employee ID</Label>
-                    <Input value={profile.employeeId || '-'} readOnly className="bg-[#fafafa]" />
+                    <Input
+                      value={profile.employeeId || "-"}
+                      readOnly
+                      className="bg-[#fafafa]"
+                    />
                   </div>
                 ) : null}
                 <div className="space-y-2">
                   <Label>
-                    First name <span className="text-[var(--fms-delete)]">*</span>
+                    First name{" "}
+                    <span className="text-[var(--fms-delete)]">*</span>
                   </Label>
                   {namesLocked ? (
-                    <Input value={profile.firstName ?? ''} readOnly className="bg-[#fafafa]" />
+                    <Input
+                      value={profile.firstName ?? ""}
+                      readOnly
+                      className="bg-[#fafafa]"
+                    />
                   ) : (
                     <Input
-                      value={profile.firstName ?? ''}
+                      value={profile.firstName ?? ""}
                       onChange={(e) => setPersonFirstName(e.target.value)}
                       placeholder="First name"
                       disabled={formLocked}
@@ -452,12 +573,36 @@ export function DirectoryUserRegistrationForm({
                   )}
                 </div>
                 <div className="space-y-2">
-                  <Label>Last name</Label>
+                  <Label>
+                    Middle name{' '}
+                    <span className="text-[var(--fms-delete)]">*</span>
+                  </Label>
                   {namesLocked ? (
-                    <Input value={profile.lastName ?? ''} readOnly className="bg-[#fafafa]" />
+                    <Input
+                      value={profile.middleName ?? ""}
+                      readOnly
+                      className="bg-[#fafafa]"
+                    />
                   ) : (
                     <Input
-                      value={profile.lastName ?? ''}
+                      value={profile.middleName ?? ""}
+                      onChange={(e) => setPersonMiddleName(e.target.value)}
+                      placeholder="Middle name"
+                      disabled={formLocked}
+                    />
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label>Last name</Label>
+                  {namesLocked ? (
+                    <Input
+                      value={profile.lastName ?? ""}
+                      readOnly
+                      className="bg-[#fafafa]"
+                    />
+                  ) : (
+                    <Input
+                      value={profile.lastName ?? ""}
                       onChange={(e) => setPersonLastName(e.target.value)}
                       placeholder="Last name"
                       disabled={formLocked}
@@ -468,14 +613,19 @@ export function DirectoryUserRegistrationForm({
                   <OrgGroupSelect
                     label={
                       <>
-                        Agency <span className="text-[var(--fms-delete)]">*</span>
+                        Agency{" "}
+                        <span className="text-[var(--fms-delete)]">*</span>
                       </>
                     }
                     options={agencyOptions}
                     selectedId={orgSelection.agencyId}
                     selectedName={orgSelection.agencyName}
                     locked={orgLocks.agency}
-                    disabled={formLocked || groupsQuery.isLoading || !!groupsQuery.isError}
+                    disabled={
+                      formLocked ||
+                      groupsQuery.isLoading ||
+                      !!groupsQuery.isError
+                    }
                     placeholder="Search agency…"
                     onSelect={setAgency}
                   />
@@ -484,7 +634,8 @@ export function DirectoryUserRegistrationForm({
                   <OrgGroupSelect
                     label={
                       <>
-                        Department <span className="text-[var(--fms-delete)]">*</span>
+                        Department{" "}
+                        <span className="text-[var(--fms-delete)]">*</span>
                       </>
                     }
                     options={departmentOptions}
@@ -498,7 +649,9 @@ export function DirectoryUserRegistrationForm({
                       (!orgLocks.department && !orgSelection.agencyId)
                     }
                     placeholder={
-                      orgSelection.agencyId ? 'Search department…' : 'Select agency first'
+                      orgSelection.agencyId
+                        ? "Search department…"
+                        : "Select agency first"
                     }
                     onSelect={setDepartment}
                   />
@@ -507,7 +660,8 @@ export function DirectoryUserRegistrationForm({
                   <OrgGroupSelect
                     label={
                       <>
-                        Division <span className="text-[var(--fms-delete)]">*</span>
+                        Division{" "}
+                        <span className="text-[var(--fms-delete)]">*</span>
                       </>
                     }
                     options={divisionOptions}
@@ -521,21 +675,16 @@ export function DirectoryUserRegistrationForm({
                       (!orgLocks.division && !orgSelection.departmentId)
                     }
                     placeholder={
-                      orgSelection.departmentId ? 'Search division…' : 'Select department first'
+                      orgSelection.departmentId
+                        ? "Search division…"
+                        : "Select department first"
                     }
                     onSelect={setDivision}
                   />
                 </div>
                 <div className="space-y-2 md:col-span-2 lg:col-span-3">
                   <OrgGroupSelect
-                    label={
-                      <>
-                        Sub division
-                        {subDivisionOptions.length > 0 ? (
-                          <span className="text-[var(--fms-delete)]"> *</span>
-                        ) : null}
-                      </>
-                    }
+                    label="Sub division"
                     options={subDivisionOptions}
                     selectedId={orgSelection.subDivisionId}
                     selectedName={orgSelection.subDivisionName}
@@ -545,51 +694,71 @@ export function DirectoryUserRegistrationForm({
                       groupsQuery.isLoading ||
                       !!groupsQuery.isError ||
                       (!orgLocks.subDivision &&
-                        (!orgSelection.divisionId || subDivisionOptions.length === 0))
+                        (!orgSelection.divisionId ||
+                          subDivisionOptions.length === 0))
                     }
                     placeholder={
                       !orgSelection.divisionId
-                        ? 'Select division first'
+                        ? "Select division first"
                         : subDivisionOptions.length === 0
-                          ? 'No sub-divisions for this division'
-                          : 'Search sub division…'
+                          ? "No sub-divisions for this division"
+                          : "Search sub division…"
                     }
                     onSelect={setSubDivision}
                   />
-                  {orgSelection.divisionId && subDivisionOptions.length === 0 ? (
+                  {orgSelection.divisionId &&
+                  subDivisionOptions.length === 0 ? (
                     <p className="text-xs text-[var(--fms-text-subheading)]">
                       No sub-divisions are listed under this division
                     </p>
                   ) : null}
                 </div>
                 <div className="space-y-2">
-                  <Label>Designation</Label>
+                  <Label>
+                    Designation{' '}
+                    <span className="text-[var(--fms-delete)]">*</span>
+                  </Label>
                   {profile.designationFromDirectory ? (
-                    <Input value={profile.designation} readOnly className="bg-[#fafafa]" />
+                    <Input
+                      value={profile.designation}
+                      readOnly
+                      className="bg-[#fafafa]"
+                    />
                   ) : (
                     <Input
-                      value={profile.designation === '-' ? '' : profile.designation}
-                      onChange={(e) => patchProfile({ designation: e.target.value })}
+                      value={
+                        profile.designation === "-" ? "" : profile.designation
+                      }
+                      onChange={(e) =>
+                        patchProfile({ designation: e.target.value })
+                      }
                       placeholder="Enter designation"
                       disabled={formLocked}
                     />
                   )}
                 </div>
                 <div className="space-y-2">
-                  <Label>Contact</Label>
+                  <Label>
+                    Contact{' '}
+                    <span className="text-[var(--fms-delete)]">*</span>
+                  </Label>
 
                   <Input
-                    value={profile.contact === '-' ? '' : profile.contact}
+                    value={profile.contact === "-" ? "" : profile.contact}
                     onChange={(e) => patchProfile({ contact: e.target.value })}
-                    placeholder="Enter contact number"
+                    placeholder="8-digit phone number"
+                    disabled={formLocked}
                   />
                 </div>
                 <div className="space-y-2 md:col-span-2 lg:col-span-3">
-                  <Label>Email</Label>
+                  <Label>
+                    Email{' '}
+                    <span className="text-[var(--fms-delete)]">*</span>
+                  </Label>
 
                   <Input
                     type="email"
-                    value={profile.email === '-' ? '' : profile.email}
+                    value={profile.email === "-" ? "" : profile.email}
                     onChange={(e) => patchProfile({ email: e.target.value })}
                     placeholder="Enter email"
                     disabled={formLocked}
@@ -612,31 +781,59 @@ export function DirectoryUserRegistrationForm({
                 <div className="space-y-3 border-t border-[var(--fms-strokes)] pt-4">
                   <div className="inline-flex items-center gap-2">
                     <CircleCheck className="h-4 w-4 text-[var(--fms-button)]" />
-                    <p className="text-sm font-semibold text-[var(--fms-text-header)]">Roles</p>
+                    <p className="text-sm font-semibold text-[var(--fms-text-header)]">
+                      Roles
+                    </p>
                   </div>
                   <p className="text-xs text-[var(--fms-text-subheading)]">
                     Select one or more realm roles from the server.
                   </p>
 
-                  {rolesQuery.isLoading ? (
-                    <p className="text-sm text-[var(--fms-text-subheading)]">Loading roles…</p>
+                  {adminRolesPermLoading ? (
+                    <div className="max-h-64 space-y-2 overflow-y-auto rounded-md border border-[var(--fms-strokes)] p-3">
+                      {Array.from({ length: 4 }).map((_, i) => (
+                        <Skeleton
+                          key={`role-dir-sk-${i}`}
+                          className="h-14 w-full rounded-md"
+                        />
+                      ))}
+                    </div>
+                  ) : adminRolesBlocked ? (
+                    <p className="text-sm text-[var(--fms-text-subheading)]">
+                      You do not have permission to view the role list. User
+                      creation with role assignment is not available until you
+                      have read access on Roles.
+                    </p>
+                  ) : rolesQuery.isLoading ? (
+                    <div className="max-h-64 space-y-2 overflow-y-auto rounded-md border border-[var(--fms-strokes)] p-3">
+                      {Array.from({ length: 4 }).map((_, i) => (
+                        <Skeleton
+                          key={`role-dir-load-sk-${i}`}
+                          className="h-14 w-full rounded-md"
+                        />
+                      ))}
+                    </div>
                   ) : rolesQuery.isError ? (
-                    <p className="text-sm text-[var(--fms-delete)]">Could not load roles.</p>
+                    <p className="text-sm text-[var(--fms-delete)]">
+                      Could not load roles.
+                    </p>
                   ) : (
                     <div className="max-h-64 space-y-2 overflow-y-auto rounded-md border border-[var(--fms-strokes)] p-3">
                       {roleOptions.length === 0 ? (
-                        <p className="text-sm text-[var(--fms-text-subheading)]">No roles returned by the API.</p>
+                        <p className="text-sm text-[var(--fms-text-subheading)]">
+                          No roles returned by the API.
+                        </p>
                       ) : (
                         roleOptions.map((opt) => {
-                          const checked = selectedRoles.has(opt.roleName)
+                          const checked = selectedRoles.has(opt.roleName);
                           return (
                             <label
                               key={opt.roleName}
                               className={`flex cursor-pointer gap-3 rounded-md border p-3 ${
                                 checked
-                                  ? 'border-[var(--fms-button)] bg-[var(--fms-info-fill)]'
-                                  : 'border-[var(--fms-strokes)] bg-white'
-                              } ${formLocked ? 'pointer-events-none opacity-60' : ''}`}
+                                  ? "border-[var(--fms-button)] bg-[var(--fms-info-fill)]"
+                                  : "border-[var(--fms-strokes)] bg-white"
+                              } ${formLocked ? "pointer-events-none opacity-60" : ""}`}
                             >
                               <input
                                 type="checkbox"
@@ -647,7 +844,7 @@ export function DirectoryUserRegistrationForm({
                               />
                               <span>
                                 <span className="block text-sm font-semibold text-[var(--fms-text-header)]">
-                                  {opt.roleName}
+                                  {formatRealmRoleDisplayName(opt.roleName)}
                                 </span>
                                 {opt.description ? (
                                   <span className="block text-xs text-[var(--fms-text-subheading)]">
@@ -656,7 +853,7 @@ export function DirectoryUserRegistrationForm({
                                 ) : null}
                               </span>
                             </label>
-                          )
+                          );
                         })
                       )}
                     </div>
@@ -672,10 +869,16 @@ export function DirectoryUserRegistrationForm({
                 <Link to="/users">Close</Link>
               </Button>
               <Button
-                disabled={formLocked || createMutation.isPending || !profile}
+                disabled={
+                  formLocked ||
+                  createMutation.isPending ||
+                  !profile ||
+                  adminRolesBlocked ||
+                  adminRolesPermLoading
+                }
                 onClick={() => createMutation.mutate()}
               >
-                {createMutation.isPending ? 'Saving…' : 'Save User'}
+                {createMutation.isPending ? "Saving…" : "Save User"}
               </Button>
             </div>
           ) : (
@@ -684,13 +887,19 @@ export function DirectoryUserRegistrationForm({
                 <Button variant="outline" asChild>
                   <Link to="/signup">Back</Link>
                 </Button>
-                <Button disabled={createMutation.isPending || !profile} onClick={() => createMutation.mutate()}>
-                  {createMutation.isPending ? 'Submitting…' : 'Sign Up'}
+                <Button
+                  disabled={createMutation.isPending || !profile}
+                  onClick={() => createMutation.mutate()}
+                >
+                  {createMutation.isPending ? "Submitting…" : "Sign Up"}
                 </Button>
               </div>
               <p className="text-center text-sm text-[var(--fms-text-subheading)]">
-                Already have an account?{' '}
-                <Link to="/login" className="font-medium text-[var(--fms-accent-purple)]">
+                Already have an account?{" "}
+                <Link
+                  to="/login"
+                  className="font-medium text-[var(--fms-accent-purple)]"
+                >
                   Sign In
                 </Link>
               </p>
@@ -699,5 +908,5 @@ export function DirectoryUserRegistrationForm({
         </CardContent>
       </Card>
     </>
-  )
+  );
 }

@@ -4,8 +4,29 @@
  * role options, and create-payload builders. Normalizes heterogeneous API shapes.
  */
 import { apiGet, apiPost } from '@/services/apiClient'
-import type { AdminGroupNode, DirectoryOrganogramHints } from '@/features/user/lib/groups-api'
 import { mapRoleListRecord, rolesToArray, type ApiRecord } from '@/features/user/lib/roles-api'
+import {
+  fetchMasterEntityNameById,
+  isUuidLike,
+  resolveAdminGroupIdToName,
+  type OrganogramDisplayLookups,
+} from '@/shared/lib/organogram-master-lookup'
+import { formatRealmRoleDisplayName } from '@/shared/lib/format-realm-role-display'
+
+type DirectoryOrganogramHints = {
+  level1Id?: string
+  level2Id?: string
+  level3Id?: string
+  level4Id?: string
+  level1Name?: string
+  level2Name?: string
+  level3Name?: string
+  level4Name?: string
+  subGroupId?: string
+  subGroupName?: string
+  directoryAgencyId?: string
+  directoryAgencyName?: string
+}
 
 /** Turns API scalars into a display/field string; avoids `undefined`/object leaking into form fields. */
 export function toText(value: unknown) {
@@ -50,6 +71,8 @@ export type FetchedPerson = {
   email: string
   /** Directory/API given name when returned separately (preferred over splitting `name` in the create payload). */
   firstName?: string
+  /** Directory/API middle name when returned separately (shown in form; combined into `last_name` on submit). */
+  middleName?: string
   /** Directory/API family name when returned separately. */
   lastName?: string
   /** UUIDs from a saved user row, for `PUT /admin/users/:id` when the edit form has no tier pickers. */
@@ -167,8 +190,14 @@ function pickName(r: ApiRecord): string {
   const name = toText(r.name) || toText(r.full_name)
   if (name) return name
   const first = toText(r.first_name) || toText(r.firstName)
+  const middle =
+    toText(r.middle_name) ||
+    toText(r.middleName) ||
+    toText(r.mid) ||
+    toText(r.second_name) ||
+    toText(r.secondName)
   const last = toText(r.last_name) || toText(r.lastName)
-  if (first || last) return [first, last].filter(Boolean).join(' ').trim()
+  if (first || middle || last) return [first, middle, last].filter(Boolean).join(' ').trim()
   return toText(r.employee_name) || toText(r.citizen_name) || ''
 }
 
@@ -198,13 +227,18 @@ function pickCid(r: ApiRecord): string {
   )
 }
 
-/** When the API returns only a display `name`, split it once for separate first/last form fields. */
-function splitFullNameForPerson(display: string): { first: string; last: string } {
+/** When the API returns only a display `name`, split into first / middle / last for the form. */
+function splitFullNameForPerson(display: string): { first: string; middle: string; last: string } {
   const t = display.trim()
-  if (!t || t === '-') return { first: '', last: '' }
-  const i = t.indexOf(' ')
-  if (i === -1) return { first: t, last: '' }
-  return { first: t.slice(0, i).trim(), last: t.slice(i + 1).trim() }
+  if (!t || t === '-') return { first: '', middle: '', last: '' }
+  const tokens = t.split(/\s+/).filter(Boolean)
+  if (tokens.length === 1) return { first: tokens[0]!, middle: '', last: '' }
+  if (tokens.length === 2) return { first: tokens[0]!, middle: '', last: tokens[1]! }
+  return {
+    first: tokens[0]!,
+    middle: tokens.slice(1, -1).join(' '),
+    last: tokens[tokens.length - 1]!,
+  }
 }
 
 /** Maps an API user/profile record into the create/edit form shape (directory or saved user). */
@@ -303,13 +337,21 @@ export function realmRoleNamesFromUserRecord(r: ApiRecord): string[] {
 function mapRecordToPerson(r: ApiRecord, lookupId: string): FetchedPerson {
   const organogramHints = pickOrganogramHints(r)
   const firstNameRaw = toText(r.first_name) || toText(r.firstName)
+  const middleNameRaw =
+    toText(r.middle_name) ||
+    toText(r.middleName) ||
+    toText(r.mid) ||
+    toText(r.second_name) ||
+    toText(r.secondName)
   const lastNameRaw = toText(r.last_name) || toText(r.lastName)
   const displayName = pickName(r) || '-'
   let firstName = firstNameRaw || undefined
+  let middleName = middleNameRaw || undefined
   let lastName = lastNameRaw || undefined
-  if (!firstName && !lastName && displayName !== '-') {
+  if (!firstName && !lastName && !middleName && displayName !== '-') {
     const sp = splitFullNameForPerson(displayName)
     if (sp.first) firstName = sp.first
+    if (sp.middle) middleName = sp.middle
     if (sp.last) lastName = sp.last
   }
   const designation = pickDesignation(r)
@@ -326,6 +368,7 @@ function mapRecordToPerson(r: ApiRecord, lookupId: string): FetchedPerson {
     cid: pickCid(r),
     name: displayName,
     firstName,
+    middleName,
     lastName,
     agency:
       toText(r.agency) ||
@@ -473,7 +516,7 @@ export async function fetchUserById(userId: string): Promise<ApiRecord> {
   return mergeNestedUserEnvelope(r)
 }
 
-/** Tier labels from `groups`: index 0 agency … 3 sub division (API convention). */
+/** Tier labels from `groups`: index 0 agency … 3 sub division (legacy / string rows only). */
 function organogramLabelsFromGroups(record: ApiRecord): {
   agency: string
   department: string
@@ -500,14 +543,143 @@ function organogramLabelsFromGroups(record: ApiRecord): {
   }
 }
 
+/**
+ * Parses `/agency/…` paths from the user payload into four tier labels.
+ * Deeper paths join remaining segments into `subDivision` (e.g. repeated org unit names in the trail).
+ */
+function parseOrganogramPath(path: string): {
+  agency: string
+  department: string
+  division: string
+  subDivision: string
+} {
+  const parts = path
+    .split('/')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  let i = 0
+  if (parts[i]?.toLowerCase() === 'agency') i += 1
+  const rest = parts.slice(i)
+  const agency = rest[0] ?? ''
+  const department = rest[1] ?? ''
+  const division = rest[2] ?? ''
+  const subDivision = rest.length > 4 ? rest.slice(3).join(' / ') : (rest[3] ?? '')
+  return { agency, department, division, subDivision }
+}
+
+/** Resolves organogram display names from `groups` on the user record (match `*_id` to `id`, then `path` fallback). */
+function organogramLabelsFromEmbeddedGroups(record: ApiRecord): {
+  agency: string
+  department: string
+  division: string
+  subDivision: string
+} {
+  const r = mergeNestedUserEnvelope(record)
+  const ids = pickOrganogramTierIds(r)
+  const groups = r.groups
+  if (!Array.isArray(groups)) {
+    return { agency: '', department: '', division: '', subDivision: '' }
+  }
+
+  const byId = new Map<string, { name: string; path: string }>()
+  for (const item of groups) {
+    if (typeof item === 'string') continue
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue
+    const o = item as ApiRecord
+    const id = cleanStoredGroupId(
+      o.id ?? o.group_id ?? o.uuid ?? o.groupId ?? o.entity_id ?? o.entityId,
+    )
+    if (!id) continue
+    const name = toText(o.name).trim()
+    const path = toText(o.path).trim()
+    byId.set(id.toLowerCase(), { name, path })
+  }
+
+  const labelFor = (id: string) => {
+    if (!id) return ''
+    return byId.get(id.toLowerCase())?.name ?? ''
+  }
+
+  let agency = labelFor(ids.agencyId)
+  let department = labelFor(ids.departmentId)
+  let division = labelFor(ids.divisionId)
+  let subDivision = labelFor(ids.subDivisionId)
+
+  const needsSubLabel = Boolean(ids.subDivisionId)
+  const complete =
+    Boolean(agency && department && division) && (!needsSubLabel || Boolean(subDivision))
+
+  if (complete) {
+    return { agency, department, division, subDivision }
+  }
+
+  const tierOrder = [ids.subDivisionId, ids.divisionId, ids.departmentId, ids.agencyId]
+  let anchorPath = ''
+  for (const tid of tierOrder) {
+    if (!tid) continue
+    const p = byId.get(tid.toLowerCase())?.path ?? ''
+    if (p) {
+      anchorPath = p
+      break
+    }
+  }
+  if (!anchorPath) {
+    for (const item of groups) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) continue
+      const p = toText((item as ApiRecord).path).trim()
+      if (p) {
+        anchorPath = p
+        break
+      }
+    }
+  }
+
+  if (anchorPath) {
+    const parsed = parseOrganogramPath(anchorPath)
+    if (!agency) agency = parsed.agency
+    if (!department) department = parsed.department
+    if (!division) division = parsed.division
+    if (!subDivision) subDivision = parsed.subDivision
+  }
+
+  if (!agency && !department && !division && !subDivision) {
+    return organogramLabelsFromGroups(r)
+  }
+
+  return { agency, department, division, subDivision }
+}
+
 function cleanStoredGroupId(value: unknown): string {
   const s = toText(value).trim()
   if (!s || s === '0') return ''
   return s
 }
 
-/** Resolves tier UUIDs from a saved user row: top-level ids first, else `groups[0..3]` id fields. */
-function pickOrganogramTierIds(record: ApiRecord): {
+/** When the API stores a tier id in `agency` / `department` instead of `agency_id`. */
+function uuidTierIdFromField(value: unknown): string {
+  const s = cleanStoredGroupId(value)
+  return s && isUuidLike(s) ? s : ''
+}
+
+function readAttributeScalar(record: ApiRecord, key: string): string {
+  const attrs = record.attributes
+  if (!attrs || typeof attrs !== 'object' || Array.isArray(attrs)) return ''
+  const raw = (attrs as ApiRecord)[key]
+  if (typeof raw === 'string') return cleanStoredGroupId(raw)
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      const s = cleanStoredGroupId(item)
+      if (s) return s
+    }
+  }
+  return ''
+}
+
+/**
+ * Organogram tier ids from `GET /admin/users/:id` (`data.agency_id`, `department_id`,
+ * `division_id`, `sub_division_id`). Resolved via `/admin/groups` and `/public/groups` for display names.
+ */
+export function pickUserDetailOrganogramIds(record: ApiRecord): {
   agencyId: string
   departmentId: string
   divisionId: string
@@ -515,67 +687,184 @@ function pickOrganogramTierIds(record: ApiRecord): {
 } {
   const m = mergeNestedUserEnvelope(record)
   const fromFlat = {
-    agencyId: cleanStoredGroupId(m.agency_id ?? m.agencyId),
-    departmentId: cleanStoredGroupId(m.department_id ?? m.departmentId),
-    divisionId: cleanStoredGroupId(m.division_id ?? m.divisionId),
-    subDivisionId: cleanStoredGroupId(m.sub_division_id ?? m.subDivisionId ?? m.subdivision_id),
+    agencyId:
+      cleanStoredGroupId(m.agency_id ?? m.agencyId) ||
+      readAttributeScalar(m, 'agency_id') ||
+      uuidTierIdFromField(m.agency),
+    departmentId:
+      cleanStoredGroupId(m.department_id ?? m.departmentId) ||
+      readAttributeScalar(m, 'department_id') ||
+      uuidTierIdFromField(m.department),
+    divisionId:
+      cleanStoredGroupId(m.division_id ?? m.divisionId) ||
+      readAttributeScalar(m, 'division_id') ||
+      uuidTierIdFromField(m.division),
+    subDivisionId:
+      cleanStoredGroupId(m.sub_division_id ?? m.subDivisionId ?? m.subdivision_id) ||
+      readAttributeScalar(m, 'sub_division_id') ||
+      uuidTierIdFromField(m.sub_division) ||
+      uuidTierIdFromField(m.subDivision) ||
+      uuidTierIdFromField(m.subdivision),
   }
-  if (
-    fromFlat.agencyId ||
-    fromFlat.departmentId ||
-    fromFlat.divisionId ||
-    fromFlat.subDivisionId
-  ) {
-    return fromFlat
-  }
+
   const g = m.groups
-  if (!Array.isArray(g)) {
-    return { agencyId: '', departmentId: '', divisionId: '', subDivisionId: '' }
-  }
+  if (!Array.isArray(g)) return fromFlat
+
   const entryId = (item: unknown): string => {
     if (typeof item === 'string') return cleanStoredGroupId(item)
     if (item && typeof item === 'object' && !Array.isArray(item)) {
       const o = item as ApiRecord
-      return cleanStoredGroupId(o.id ?? o.group_id ?? o.uuid ?? o.groupId)
+      return cleanStoredGroupId(
+        o.id ?? o.group_id ?? o.uuid ?? o.groupId ?? o.entity_id ?? o.entityId,
+      )
     }
     return ''
   }
   return {
-    agencyId: entryId(g[0]),
-    departmentId: entryId(g[1]),
-    divisionId: entryId(g[2]),
-    subDivisionId: entryId(g[3]),
+    agencyId: fromFlat.agencyId || entryId(g[0]),
+    departmentId: fromFlat.departmentId || entryId(g[1]),
+    divisionId: fromFlat.divisionId || entryId(g[2]),
+    subDivisionId: fromFlat.subDivisionId || entryId(g[3]),
   }
 }
 
-function resolveOrganogramNamesFromNodes(
-  r: ApiRecord,
-  nodes: AdminGroupNode[],
-  fromGroups: { agency: string; department: string; division: string; subDivision: string },
-): { agency: string; department: string; division: string; subDivision: string } {
-  const nameById = new Map(nodes.map((n) => [n.id, n.name]))
-  const ids = pickOrganogramTierIds(r)
-  const one = (id: string, fallback: string) => {
-    if (id) {
-      const name = nameById.get(id)
-      if (name) return name
-      return fallback.trim() || id
-    }
-    return fallback.trim()
+function pickOrganogramTierIds(record: ApiRecord) {
+  return pickUserDetailOrganogramIds(record)
+}
+
+function isMissingOrganogramLabel(value: string): boolean {
+  const t = value.trim()
+  return !t || t === '—' || isUuidLike(t)
+}
+
+/** Plain-text tier labels on the user payload (directory / legacy shapes). */
+function organogramLabelsFromFlatFields(record: ApiRecord): {
+  agency: string
+  department: string
+  division: string
+  subDivision: string
+} {
+  const m = mergeNestedUserEnvelope(record)
+  const keep = (value: unknown): string => {
+    const t = toText(value).trim()
+    return t && !isUuidLike(t) ? t : ''
   }
   return {
-    agency: one(ids.agencyId, fromGroups.agency),
-    department: one(ids.departmentId, fromGroups.department),
-    division: one(ids.divisionId, fromGroups.division),
-    subDivision: one(ids.subDivisionId, fromGroups.subDivision),
+    agency:
+      keep(m.agency_name) ||
+      keep(m.agencyName) ||
+      keep(m.organization) ||
+      keep(m.ministry) ||
+      keep(m.agency),
+    department:
+      keep(m.department_name) ||
+      keep(m.departmentName) ||
+      keep(m.dept) ||
+      keep(m.department),
+    division: keep(m.division_name) || keep(m.divisionName) || keep(m.division),
+    subDivision:
+      keep(m.sub_division_name) ||
+      keep(m.subDivisionName) ||
+      keep(m.sub_division) ||
+      keep(m.subDivision) ||
+      keep(m.subdivision) ||
+      keep(m.section),
   }
+}
+
+function pickOrganogramDisplayLabel(...candidates: string[]): string {
+  for (const candidate of candidates) {
+    if (!isMissingOrganogramLabel(candidate)) return candidate.trim()
+  }
+  return '—'
+}
+
+/** Resolves one tier id via `/admin/groups` + `/public/groups`, then embedded/flat fallbacks. */
+function resolveUserOrganogramTierLabel(
+  tierId: string,
+  embeddedLabel: string,
+  flatLabel: string,
+  lookups?: OrganogramDisplayLookups,
+): string {
+  const fromLookup =
+    lookups && tierId.trim() ? resolveAdminGroupIdToName(tierId, lookups) ?? '' : ''
+  return pickOrganogramDisplayLabel(fromLookup, embeddedLabel, flatLabel)
+}
+
+/** Maps user detail organogram ids to labels using group trees, then user payload fallbacks. */
+export function resolveUserOrganogramNames(
+  record: ApiRecord,
+  lookups?: OrganogramDisplayLookups,
+): {
+  agency: string
+  department: string
+  division: string
+  subDivision: string
+} {
+  const ids = pickUserDetailOrganogramIds(record)
+  const embedded = organogramLabelsFromEmbeddedGroups(record)
+  const flat = organogramLabelsFromFlatFields(record)
+  return {
+    agency: resolveUserOrganogramTierLabel(ids.agencyId, embedded.agency, flat.agency, lookups),
+    department: resolveUserOrganogramTierLabel(
+      ids.departmentId,
+      embedded.department,
+      flat.department,
+      lookups,
+    ),
+    division: resolveUserOrganogramTierLabel(ids.divisionId, embedded.division, flat.division, lookups),
+    subDivision: resolveUserOrganogramTierLabel(
+      ids.subDivisionId,
+      embedded.subDivision,
+      flat.subDivision,
+      lookups,
+    ),
+  }
+}
+
+export type UserOrganogramDisplayNames = {
+  agency: string
+  department: string
+  division: string
+  subDivision: string
+}
+
+/**
+ * Resolves organogram tier labels via `GET /master/{tier}/id/{id}` (no `/admin/groups`).
+ * Falls back to names embedded on the user record or plain-text tier fields.
+ */
+export async function fetchUserOrganogramDisplayNames(
+  record: ApiRecord,
+): Promise<UserOrganogramDisplayNames> {
+  const ids = pickUserDetailOrganogramIds(record)
+  const fallback = resolveUserOrganogramNames(record)
+
+  const resolveTier = async (
+    entityType: string,
+    tierId: string,
+    fallbackLabel: string,
+  ): Promise<string> => {
+    const id = tierId.trim()
+    if (id) {
+      const fromMaster = await fetchMasterEntityNameById(entityType, id)
+      if (fromMaster) return fromMaster
+    }
+    if (!isMissingOrganogramLabel(fallbackLabel)) return fallbackLabel.trim()
+    return '—'
+  }
+
+  const [agency, department, division, subDivision] = await Promise.all([
+    resolveTier('agency', ids.agencyId, fallback.agency),
+    resolveTier('department', ids.departmentId, fallback.department),
+    resolveTier('division', ids.divisionId, fallback.division),
+    resolveTier('sub-division', ids.subDivisionId, fallback.subDivision),
+  ])
+
+  return { agency, department, division, subDivision }
 }
 
 /** Projects a user API record into flat strings for read-only cards (detail page). */
-export function mapUserDetailFields(
-  r: ApiRecord,
-  options?: { groupNodes?: AdminGroupNode[] },
-) {
+export function mapUserDetailFields(r: ApiRecord, lookups?: OrganogramDisplayLookups) {
   const id =
     toText(r.id) ||
     toText(r.user_id) ||
@@ -602,24 +891,35 @@ export function mapUserDetailFields(
   const cid = pickCid(r) || '-'
   const status = pickUserRegistrationStatus(r)
   const designation = pickDesignation(r)
-  const fromGroups = organogramLabelsFromGroups(r)
-  const { agency, department, division, subDivision } =
-    options?.groupNodes && options.groupNodes.length > 0
-      ? resolveOrganogramNamesFromNodes(r, options.groupNodes, fromGroups)
-      : fromGroups
+  const organogram = resolveUserOrganogramNames(r, lookups)
+  const agency = organogram.agency
+  const department = organogram.department
+  const division = organogram.division
+  const subDivision = organogram.subDivision
 
   let rolesLabel = '-'
   if (Array.isArray(r.realm_roles) && r.realm_roles.length > 0) {
-    rolesLabel = r.realm_roles.map((x) => (typeof x === 'string' ? x : toText((x as ApiRecord).name))).join(', ')
-  } else if (Array.isArray(r.roles) && r.roles.length > 0) {
-    rolesLabel = r.roles
-      .map((x) => {
-        if (typeof x === 'string') return x
-        if (x && typeof x === 'object') return toText((x as ApiRecord).name) || toText((x as ApiRecord).role_name)
-        return ''
-      })
+    const parts = r.realm_roles.map((x) =>
+      typeof x === 'string' ? x : toText((x as ApiRecord).name),
+    )
+    const label = parts
+      .map((p) => p.trim())
       .filter(Boolean)
+      .map((p) => formatRealmRoleDisplayName(p))
       .join(', ')
+    rolesLabel = label || '-'
+  } else if (Array.isArray(r.roles) && r.roles.length > 0) {
+    const parts = r.roles.map((x) => {
+      if (typeof x === 'string') return x
+      if (x && typeof x === 'object') return toText((x as ApiRecord).name) || toText((x as ApiRecord).role_name)
+      return ''
+    })
+    const label = parts
+      .map((p) => p.trim())
+      .filter(Boolean)
+      .map((p) => formatRealmRoleDisplayName(p))
+      .join(', ')
+    rolesLabel = label || '-'
   }
 
   return {
@@ -710,7 +1010,10 @@ export function buildCreateUserPayload(
   const fromDisplay = splitDisplayName(profile.name)
   const first_name =
     payloadTextField(profile.firstName ?? '') || fromDisplay.first_name
-  const last_name = payloadTextField(profile.lastName ?? '') || fromDisplay.last_name
+  const middle_for_last = payloadTextField(profile.middleName ?? '')
+  const last_surname = payloadTextField(profile.lastName ?? '')
+  const last_name =
+    [middle_for_last, last_surname].filter(Boolean).join(' ').trim() || fromDisplay.last_name
   const roles = [...new Set(realmRoles.map((s) => s.trim()).filter(Boolean))]
   return {
     username: u,
@@ -733,6 +1036,7 @@ export function buildCreateUserPayload(
 
 /** Body for POST `/admin/users/pending/:user_id/approve`; matches pending-registration user fields (+ optional `password` when supplied by the API). */
 export type PendingUserApprovePayload = {
+  action: 'approve'
   username: string
   emp_id: string
   cid: string
@@ -750,9 +1054,10 @@ export type PendingUserApprovePayload = {
   password?: string
 }
 
-export type PendingUserRejectPayload = PendingUserApprovePayload & {
-  reason: string
-}
+export type PendingUserRejectPayload = {
+  action: "reject";
+  reason: string;
+};
 
 /**
  * Builds the JSON body for approve/reject pending user from `GET /admin/users/:id` (merged envelope).
@@ -766,7 +1071,10 @@ export function buildPendingUserActionPayload(record: ApiRecord): PendingUserApp
   const fromDisplay = splitDisplayName(profile.name)
   const first_name =
     payloadTextField(profile.firstName ?? '') || fromDisplay.first_name
-  const last_name = payloadTextField(profile.lastName ?? '') || fromDisplay.last_name
+  const middle_for_last = payloadTextField(profile.middleName ?? '')
+  const last_surname = payloadTextField(profile.lastName ?? '')
+  const last_name =
+    [middle_for_last, last_surname].filter(Boolean).join(' ').trim() || fromDisplay.last_name
   const roles = realmRoleNamesFromUserRecord(merged)
   const org = profile.persistedOrgIds
   const pw = payloadTextField(
@@ -774,6 +1082,7 @@ export function buildPendingUserActionPayload(record: ApiRecord): PendingUserApp
   )
 
   const base: PendingUserApprovePayload = {
+    action: 'approve',
     username,
     emp_id: payloadTextField(profile.employeeId),
     cid: payloadTextField(profile.cid),
@@ -800,16 +1109,16 @@ export function approvePendingUser(userId: string, body: PendingUserApprovePaylo
   const id = userId.trim()
   if (!id) throw new Error('User id is required for approve')
   return apiPost<unknown, PendingUserApprovePayload>(
-    `/admin/users/pending/${encodeURIComponent(id)}/approve`,
+    `/admin/users/pending/${encodeURIComponent(id)}/review`,
     body,
-  )
+  );
 }
 
 export function rejectPendingUser(userId: string, body: PendingUserRejectPayload): Promise<unknown> {
   const id = userId.trim()
   if (!id) throw new Error('User id is required for reject')
   return apiPost<unknown, PendingUserRejectPayload>(
-    `/admin/users/pending/${encodeURIComponent(id)}/reject`,
+    `/admin/users/pending/${encodeURIComponent(id)}/review`,
     body,
-  )
+  );
 }
