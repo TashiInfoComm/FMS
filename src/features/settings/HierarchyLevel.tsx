@@ -3,7 +3,6 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Plus, Search } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -29,19 +28,6 @@ import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
 const LIST_QUERY_KEY = 'workflows/hierarchy-levels'
 const HIERARCHY_LOOKUP_KEY = 'workflows/hierarchy-lookup'
 const TABLE_COL_COUNT = 9
-
-function StatusBadge({ active }: { active: boolean }) {
-  return (
-    <Badge
-      className={cn(
-        'rounded-full border-0 px-3 py-0.5 text-xs font-semibold text-white',
-        active ? 'bg-[var(--fms-success-text)]' : 'bg-[var(--fms-text-subheading)]',
-      )}
-    >
-      {active ? 'Active' : 'Inactive'}
-    </Badge>
-  )
-}
 
 function HierarchyLevel() {
   const { hierarchyId: routeHierarchyId = '' } = useParams<{ hierarchyId: string }>()

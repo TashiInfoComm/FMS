@@ -50,7 +50,7 @@ function ApprovalDefinationFormPage() {
   const canUpdate = !crud.isResolved || crud.canUpdate
   const canRead = !crud.isResolved || crud.canRead
 
-  const { register, handleSubmit, reset, control, watch, setValue, formState } =
+  const { register, handleSubmit, reset, control, watch, formState } =
     useForm<ApprovalRuleFormValues>({
       defaultValues: emptyApprovalRuleFormValues(initialHeadId),
     })

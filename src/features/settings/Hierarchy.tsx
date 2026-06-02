@@ -3,7 +3,6 @@ import { CloudUpload, Plus, RotateCcw, Search } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -53,21 +52,6 @@ function emptyValues(): FormValues {
     description: "",
     isActive: true,
   };
-}
-
-function StatusBadge({ active }: { active: boolean }) {
-  return (
-    <Badge
-      className={cn(
-        "rounded-full border-0 px-3 py-0.5 text-xs font-semibold text-white",
-        active
-          ? "bg-[var(--fms-success-text)]"
-          : "bg-[var(--fms-text-subheading)]",
-      )}
-    >
-      {active ? "Active" : "Inactive"}
-    </Badge>
-  );
 }
 
 function Hierarchy() {

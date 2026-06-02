@@ -236,10 +236,17 @@ export function organogramGroupsByIdToMap(
   return new Map(Object.entries(groupsById))
 }
 
-export type VehicleDetailMasterLookups = OrganogramDisplayLookups & {
-  insuranceProviders: Map<string, string>
+export type VehicleListStatusLookups = {
   vehicleStatuses: Map<string, string>
+  vehicleMovementStatuses: Map<string, string>
 }
+
+export type VehicleDetailStatusLookups = VehicleListStatusLookups & {
+  insuranceProviders: Map<string, string>
+}
+
+export type VehicleDetailMasterLookups = OrganogramDisplayLookups &
+  VehicleDetailStatusLookups
 
 export async function fetchOrganogramMasterLookups(): Promise<OrganogramMasterLookups> {
   const [agencies, departments, divisions, subDivisions] = await Promise.all([
@@ -312,16 +319,6 @@ export function resolveAdminGroupIdToName(
   return null
 }
 
-export type VehicleListStatusLookups = Pick<
-  VehicleDetailMasterLookups,
-  'vehicleStatuses' | 'vehicleMovementStatuses'
->
-
-export type VehicleDetailStatusLookups = Pick<
-  VehicleDetailMasterLookups,
-  'vehicleStatuses' | 'vehicleMovementStatuses'
->
-
 /** Status/movement labels for vehicle list only (no `/admin/groups`). */
 export async function fetchVehicleListStatusLookups(): Promise<VehicleListStatusLookups> {
   const [vehicleStatuses, vehicleMovementStatuses] = await Promise.all([
@@ -337,14 +334,17 @@ export async function fetchVehicleListStatusLookups(): Promise<VehicleListStatus
 
 /** Insurance + vehicle status labels for detail (no organogram tiers). */
 export async function fetchVehicleDetailStatusLookups(): Promise<VehicleDetailStatusLookups> {
-  const [vehicleStatuses, vehicleMovementStatuses] = await Promise.all([
-    fetchMasterRecordsPaginated('/master/vehicle-statuses'),
-    fetchMasterRecordsPaginated('/master/vehicle-movement-statuses'),
-  ])
+  const [vehicleStatuses, vehicleMovementStatuses, insuranceProviders] =
+    await Promise.all([
+      fetchMasterRecordsPaginated('/master/vehicle-statuses'),
+      fetchMasterRecordsPaginated('/master/vehicle-movement-statuses'),
+      fetchMasterRecordsPaginated('/master/insurance-providers'),
+    ])
 
   return {
     vehicleStatuses: recordsToLookupMap(vehicleStatuses),
     vehicleMovementStatuses: recordsToLookupMap(vehicleMovementStatuses),
+    insuranceProviders: recordsToLookupMap(insuranceProviders),
   }
 }
 

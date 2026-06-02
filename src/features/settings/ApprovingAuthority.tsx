@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Badge, Check, CloudUpload, Plus, RotateCcw, Search, X } from "lucide-react";
+import { Check, CloudUpload, Plus, RotateCcw, Search, X } from "lucide-react";
 import { Controller, useForm } from "react-hook-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
