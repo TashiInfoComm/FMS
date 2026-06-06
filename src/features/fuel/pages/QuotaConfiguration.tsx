@@ -43,6 +43,7 @@ type QuotaFormValues = {
   notes: string
 }
 
+
 const TABLE_COLUMNS = [
   'SL.No',
   'Vehicle Category',
