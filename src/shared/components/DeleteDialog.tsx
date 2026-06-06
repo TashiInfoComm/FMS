@@ -1,3 +1,4 @@
+// Renders a confirmation dialog for destructive delete actions.
 import { AlertTriangle } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -37,6 +38,7 @@ export function DeleteDialog({
           <Button
             className="bg-[var(--fms-delete)] text-white hover:bg-[#c70009]"
             onClick={() => {
+              // Confirm action first, then close to keep calling sites simple.
               onConfirm()
               onOpenChange(false)
             }}

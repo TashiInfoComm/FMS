@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client'
 import App from './App'
 import { QueryProvider } from './app/providers/QueryProvider'
 import { ThemeProvider } from './app/providers/ThemeProvider'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import './styles/globals.css'
 
 const rootElement = document.getElementById('root')
@@ -16,7 +17,9 @@ createRoot(rootElement).render(
   <StrictMode>
     <ThemeProvider>
       <QueryProvider>
-        <App />
+        <TooltipProvider>
+          <App />
+        </TooltipProvider>
       </QueryProvider>
     </ThemeProvider>
   </StrictMode>,

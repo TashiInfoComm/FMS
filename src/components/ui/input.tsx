@@ -1,3 +1,4 @@
+// Provides the shared text input component styling.
 import * as React from "react"
 
 import { cn } from "@/lib/utils"

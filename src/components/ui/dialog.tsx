@@ -1,3 +1,4 @@
+// Implements composable dialog primitives for modal interactions.
 import * as React from "react"
 import { Dialog as DialogPrimitive } from "radix-ui"
 
@@ -55,6 +56,7 @@ function DialogContent({
 }) {
   return (
     <DialogPortal>
+      {/* Overlay captures outside-click and blocks interaction with the page behind the modal. */}
       <DialogOverlay />
       <DialogPrimitive.Content
         data-slot="dialog-content"
@@ -66,6 +68,7 @@ function DialogContent({
       >
         {children}
         {showCloseButton && (
+          // Keep close semantics delegated to DialogPrimitive.Close for keyboard/accessibility behavior.
           <DialogPrimitive.Close data-slot="dialog-close" asChild>
             <Button
               variant="ghost"

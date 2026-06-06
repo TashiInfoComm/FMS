@@ -1,3 +1,5 @@
+// Defines realm roles, permission codes, and menu metadata for access control.
+// Role slugs and effective permission codes are loaded from the backend; this file lists known FMS realm roles and static menu metadata only.
 import type { LucideIcon } from "lucide-react";
 import {
   Building2,
@@ -5,28 +7,28 @@ import {
   LogOut,
   ShieldUser,
   UserCog,
+  CarFront,
+  Settings,
 } from "lucide-react";
 
-export type Role = "Admin" | "Manager" | "Operator";
+/** Realm roles returned by Keycloak / admin APIs for this app (see backend role list). */
+export const FMS_REALM_ROLES = [
+  "fms-super-admin",
+  "fms-agency-admin",
+  "fms-finance-officer",
+  "fms-mto",
+  "fms-driver",
+  "fms-applicant",
+  "fms-viewer",
+] as const;
 
-export type Permission =
-  | "dashboard:view"
-  | "agency:view"
-  | "assign-vehicle:view"
-  | "destination:view"
-  | "dzongkhag:view"
-  | "fuel-type:view"
-  | "insurance-provider:view"
-  | "maintenance-type:view"
-  | "purpose-of-journey:view"
-  | "vehicle:view"
-  | "status:view"
-  | "vehicle-type-category:view"
-  | "trip-type:view"
-  | "user-role:view"
-  | "permission:view"
-  | "role-permission:view"
-  | "create-user:view";
+export type FmsRealmRole = (typeof FMS_REALM_ROLES)[number];
+
+/** Active realm-role slug from JWT + header switcher (`fms-role`). */
+export type Role = FmsRealmRole | (string & {});
+
+/** Permission codes (e.g. `dashboard:view`) — resolved at runtime from menus + role matrix. */
+export type Permission = string;
 
 export type MenuItem = {
   id: string;
@@ -42,45 +44,22 @@ export type MenuItem = {
   }>;
 };
 
-export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
-  Admin: [
-    "dashboard:view",
-    "agency:view",
-    "assign-vehicle:view",
-    "destination:view",
-    "dzongkhag:view",
-    "fuel-type:view",
-    "insurance-provider:view",
-    "maintenance-type:view",
-    "purpose-of-journey:view",
-    "vehicle:view",
-    "status:view",
-    "vehicle-type-category:view",
-    "trip-type:view",
-    "user-role:view",
-    "permission:view",
-    "role-permission:view",
-    "create-user:view",
-  ],
-  Manager: [
-    "dashboard:view",
-    "agency:view",
-    "assign-vehicle:view",
-    "vehicle:view",
-    "status:view",
-    "trip-type:view",
-    "dzongkhag:view",
-    "create-user:view",
-  ],
-  Operator: [
-    "dashboard:view",
-    "agency:view",
-    "vehicle:view",
-    "status:view",
-    "dzongkhag:view",
-  ],
+/** Priority for choosing a default role when the user has several `fms-*` roles (higher = preferred). */
+export const REALM_ROLE_PRIORITY: Record<string, number> = {
+  "fms-super-admin": 100,
+  "fms-agency-admin": 90,
+  "fms-finance-officer": 80,
+  "fms-mto": 70,
+  "fms-driver": 60,
+  "fms-applicant": 50,
+  "fms-viewer": 40,
 };
 
+/**
+ * Reference menu tree (labels / routes). Live sidebar uses GET `/admin/me/menu` with CRUD from
+ * GET `/admin/roles/{role}/permissions`. Optional `permissions` are illustrative; runtime checks use
+ * {@link buildEffectivePermissionCodes}.
+ */
 export const MENU_ITEMS: MenuItem[] = [
   {
     id: "dashboard",
@@ -88,6 +67,52 @@ export const MENU_ITEMS: MenuItem[] = [
     icon: LayoutDashboard,
     href: "/dashboard",
     permissions: ["dashboard:view"],
+  },
+  {
+    id: "system-settings",
+    label: "System Settings",
+    icon: Settings,
+    permissions: ["user-role:view"],
+    children: [
+      {
+        id: "menus",
+        label: "Modules",
+        href: "/admin/modules",
+        permissions: ["user-role:view"],
+      },
+      {
+        id: "user-role",
+        label: " Roles",
+        href: "/admin/roles",
+        permissions: ["user-role:view"],
+      },
+      {
+        id: "permission",
+        label: "Permission",
+        href: "/admin/permissions",
+        permissions: ["permission:view"],
+      },
+      {
+        id: "role-permission",
+        label: "Role Permission",
+        href: "/admin/role-permission",
+        permissions: ["role-permission:view"],
+      },
+    ],
+  },
+  {
+    id: "user-management",
+    label: "User Management",
+    icon: UserCog,
+    permissions: ["user-role:view"],
+    children: [
+      {
+        id: "users",
+        label: "Users",
+        href: "/users",
+        permissions: ["create-user:view"],
+      },
+    ],
   },
   {
     id: "master-management",
@@ -119,11 +144,10 @@ export const MENU_ITEMS: MenuItem[] = [
         href: "/master/trip-type",
         permissions: ["trip-type:view"],
       },
-
       {
         id: "dzongkhag",
         label: "Dzongkhag & Gewog",
-        href: "/master/dzongkhag-gewog",
+        href: "/master/dzongkhags",
         permissions: ["dzongkhag:view"],
       },
       {
@@ -138,25 +162,11 @@ export const MENU_ITEMS: MenuItem[] = [
         href: "/master/status",
         permissions: ["status:view"],
       },
-
       {
         id: "insurance-provider",
         label: "Insurance Provider",
         href: "/master/insurance-provider",
         permissions: ["insurance-provider:view"],
-      },
-
-      {
-        id: "vehicle",
-        label: "Vehicle",
-        href: "/master/vehicle",
-        permissions: ["vehicle:view"],
-      },
-      {
-        id: "assign-vehicle",
-        label: "Assign Vehicle",
-        href: "/master/assign-vehicle",
-        permissions: ["assign-vehicle:view"],
       },
       {
         id: "purpose-journey",
@@ -173,34 +183,22 @@ export const MENU_ITEMS: MenuItem[] = [
     ],
   },
   {
-    id: "user-management",
-    label: "User Management",
-    icon: UserCog,
-    permissions: ["user-role:view"],
+    id: "vehicle-management",
+    label: "Vehicle Management",
+    icon: CarFront,
+    permissions: ["agency:view"],
     children: [
       {
-        id: "user-role",
-        label: "User Role",
-        href: "/users/user-role",
-        permissions: ["user-role:view"],
+        id: "vehicle",
+        label: "Vehicle",
+        href: "/vehicle/list",
+        permissions: ["vehicle:view"],
       },
       {
-        id: "permission",
-        label: "Permission",
-        href: "/users/permission",
-        permissions: ["permission:view"],
-      },
-      {
-        id: "role-permission",
-        label: "Role Permission",
-        href: "/users/role-permission",
-        permissions: ["role-permission:view"],
-      },
-      {
-        id: "users",
-        label: "Users",
-        href: "/users",
-        permissions: ["create-user:view"],
+        id: "assign-driver",
+        label: "Assign Driver",
+        href: "/assign-driver",
+        permissions: ["assign-driver:view"],
       },
     ],
   },
@@ -212,5 +210,6 @@ export const MENU_ITEMS: MenuItem[] = [
   },
 ];
 
-export const DEFAULT_ROLE: Role = "Admin";
+/** Default realm role when none match (lowest privilege). */
+export const DEFAULT_ROLE: Role = "fms-viewer";
 export const ROLE_ICON = ShieldUser;

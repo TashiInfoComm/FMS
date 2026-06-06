@@ -1,3 +1,4 @@
+// Filters navigation items based on required user permissions.
 import type { MenuItem, Permission } from '@/shared/constants/access-control'
 
 function canAccess(required: Permission[] | undefined, permissions: Permission[]) {

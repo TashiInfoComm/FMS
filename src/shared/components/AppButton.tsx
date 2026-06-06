@@ -1,3 +1,4 @@
+// Wraps the base button with app-specific default styling.
 import type { ComponentProps } from 'react'
 
 import { Button } from '@/components/ui/button'

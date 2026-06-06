@@ -1,3 +1,4 @@
+// Provides the shared React Query client to the component tree.
 import type { PropsWithChildren } from 'react'
 import { QueryClientProvider } from '@tanstack/react-query'
 
