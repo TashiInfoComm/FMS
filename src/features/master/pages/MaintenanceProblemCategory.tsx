@@ -3,8 +3,8 @@
  * Lists problem categories for one maintenance type and supports CRUD via problem-categories API.
  */
 import { useMemo, useState } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, Plus, Search } from 'lucide-react'
+import { useParams, useSearchParams } from 'react-router-dom'
+import { Plus, Search } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 

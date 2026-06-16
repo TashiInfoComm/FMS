@@ -27,7 +27,6 @@ import {
   fetchFuelQuotasPage,
   fetchFuelTypeOptions,
   fetchQuotaAssetNameOptions,
-  formatQuotaEffectiveDate,
   mergeQuotaOrgScopeAutocompleteOptions,
   orgScopeOptionKey,
   parseOrgScopeOptionKey,
