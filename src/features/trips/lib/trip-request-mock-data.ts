@@ -1,9 +1,10 @@
 export type TripRequestPriority = 'Normal' | 'High' | 'Low'
 
-export type TripRequestStatus = 'Pending Review' | 'Approved' | 'Rejected'
+export type TripRequestStatus = string
 
 export type TripSuggestedVehicle = {
   plateNumber: string
+  make: string
   model: string
   fuelEfficiency: string
   color: string
@@ -13,6 +14,13 @@ export type TripSuggestedDriver = {
   name: string
   rating: number
   contact: string
+  licenseNumber?: string
+}
+
+export function formatSuggestedVehicleMakeModel(vehicle: TripSuggestedVehicle): string {
+  const parts = [vehicle.make, vehicle.model].filter((part) => part && part !== '—')
+  if (parts.length > 0) return parts.join(' ')
+  return '—'
 }
 
 export type TripAccompanyingOfficial = {
@@ -28,12 +36,15 @@ export type TripRequestListItem = {
   tripType: string
   origin: string
   destination: string
+  route: string
   dateOfJourney: string
   timeOfJourney: string
   suggestedVehicle: TripSuggestedVehicle
   suggestedDriver: TripSuggestedDriver
   priority: TripRequestPriority
   status: TripRequestStatus
+  statusCode: string
+  hasFeedback: boolean
 }
 
 export type TripRequestDetail = TripRequestListItem & {
@@ -53,7 +64,11 @@ export type TripRequestDetail = TripRequestListItem & {
   remarks: string
   tripDetailsJustification?: string
   accompanyingOfficials: TripAccompanyingOfficial[]
-  movementOrderFileName?: string
+  movementOrderFile?: {
+    name: string
+    sizeLabel?: string
+    url?: string
+  }
 }
 
 export const TRIP_REQUEST_MOCK_ROWS: TripRequestDetail[] = [
@@ -75,6 +90,7 @@ export const TRIP_REQUEST_MOCK_ROWS: TripRequestDetail[] = [
     preferredVehicleType: 'SUV / Pickup',
     origin: 'Thimphu',
     destination: 'Punakha',
+    route: 'Thimphu -> Punakha',
     dateOfJourney: '30-Apr-2026',
     timeOfJourney: '09:30 AM',
     dateOfReturn: '02-May-2026',
@@ -86,10 +102,14 @@ export const TRIP_REQUEST_MOCK_ROWS: TripRequestDetail[] = [
       { employeeCid: '11501004567', fullName: 'Sonam Dorji' },
       { employeeCid: '11501007890', fullName: 'Pema Lhamo' },
     ],
-    movementOrderFileName: 'movement-order-tr-2026-001.pdf',
+    movementOrderFile: {
+      name: 'movement-order-tr-2026-001.pdf',
+      sizeLabel: '248 KB',
+    },
     suggestedVehicle: {
       plateNumber: 'BG-1-A1234',
-      model: 'Toyota Hilux',
+      make: 'Toyota',
+      model: 'Hilux',
       fuelEfficiency: '12 km/l',
       color: 'White',
     },
@@ -97,9 +117,12 @@ export const TRIP_REQUEST_MOCK_ROWS: TripRequestDetail[] = [
       name: 'Pema Wangdi',
       rating: 4.5,
       contact: '17854321',
+      licenseNumber: 'DL-12345',
     },
     priority: 'Normal',
     status: 'Pending Review',
+    statusCode: 'PLANNED',
+    hasFeedback: false,
   },
   {
     id: 'tr-2026-002',
@@ -119,6 +142,7 @@ export const TRIP_REQUEST_MOCK_ROWS: TripRequestDetail[] = [
     preferredVehicleType: 'Sedan',
     origin: 'MoF Office',
     destination: 'GovTech Conference Hall',
+    route: 'MoF Office -> GovTech Conference Hall',
     dateOfJourney: '05-May-2026',
     timeOfJourney: '02:00 PM',
     pickupRequired: true,
@@ -126,7 +150,8 @@ export const TRIP_REQUEST_MOCK_ROWS: TripRequestDetail[] = [
     accompanyingOfficials: [],
     suggestedVehicle: {
       plateNumber: 'BG-1-B5678',
-      model: 'Hyundai Elantra',
+      make: 'Hyundai',
+      model: 'Elantra',
       fuelEfficiency: '14 km/l',
       color: 'Silver',
     },
@@ -137,6 +162,8 @@ export const TRIP_REQUEST_MOCK_ROWS: TripRequestDetail[] = [
     },
     priority: 'Low',
     status: 'Pending Review',
+    statusCode: 'PLANNED',
+    hasFeedback: false,
   },
   {
     id: 'tr-2026-003',
@@ -156,6 +183,7 @@ export const TRIP_REQUEST_MOCK_ROWS: TripRequestDetail[] = [
     preferredVehicleType: 'Sedan',
     origin: 'Paro International Airport',
     destination: 'MoF Office',
+    route: 'Paro International Airport -> MoF Office',
     dateOfJourney: '12-May-2026',
     timeOfJourney: '10:15 AM',
     pickupRequired: true,
@@ -163,7 +191,8 @@ export const TRIP_REQUEST_MOCK_ROWS: TripRequestDetail[] = [
     accompanyingOfficials: [{ employeeCid: '11501003321', fullName: 'Dechen Zam' }],
     suggestedVehicle: {
       plateNumber: 'BG-1-C9012',
-      model: 'Toyota Corolla',
+      make: 'Toyota',
+      model: 'Corolla',
       fuelEfficiency: '15 km/l',
       color: 'Black',
     },
@@ -174,6 +203,8 @@ export const TRIP_REQUEST_MOCK_ROWS: TripRequestDetail[] = [
     },
     priority: 'Normal',
     status: 'Pending Review',
+    statusCode: 'PLANNED',
+    hasFeedback: false,
   },
   {
     id: 'tr-2026-004',
@@ -193,6 +224,7 @@ export const TRIP_REQUEST_MOCK_ROWS: TripRequestDetail[] = [
     preferredVehicleType: 'SUV / Pickup',
     origin: 'Thimphu',
     destination: 'Gelephu',
+    route: 'Thimphu -> Gelephu',
     dateOfJourney: '18-May-2026',
     timeOfJourney: '06:00 AM',
     dateOfReturn: '20-May-2026',
@@ -203,10 +235,14 @@ export const TRIP_REQUEST_MOCK_ROWS: TripRequestDetail[] = [
     accompanyingOfficials: [
       { employeeCid: '11501009987', fullName: 'Kinley Norbu' },
     ],
-    movementOrderFileName: 'movement-order-tr-2026-004.pdf',
+    movementOrderFile: {
+      name: 'movement-order-tr-2026-004.pdf',
+      sizeLabel: '312 KB',
+    },
     suggestedVehicle: {
       plateNumber: 'BG-1-A2210',
-      model: 'Toyota Hilux',
+      make: 'Toyota',
+      model: 'Hilux',
       fuelEfficiency: '12 km/l',
       color: 'White',
     },
@@ -217,6 +253,8 @@ export const TRIP_REQUEST_MOCK_ROWS: TripRequestDetail[] = [
     },
     priority: 'High',
     status: 'Pending Review',
+    statusCode: 'PLANNED',
+    hasFeedback: false,
   },
 ]
 
@@ -247,11 +285,21 @@ export const TRIP_OVERRIDE_DRIVERS = [
 ] as const
 
 export function formatTripRoute(origin: string, destination: string): string {
-  return `${origin} to ${destination}`
+  const from = origin.trim()
+  const to = destination.trim()
+  if (from && from !== '—' && to && to !== '—') return `${from} -> ${to}`
+  if (from && from !== '—') return from
+  if (to && to !== '—') return to
+  return '—'
 }
 
 export function formatTripDateTime(date: string, time: string): string {
-  return `${date}, ${time}`
+  const datePart = date.trim()
+  const timePart = time.trim()
+  if ((!datePart || datePart === '—') && (!timePart || timePart === '—')) return '—'
+  if (!datePart || datePart === '—') return timePart
+  if (!timePart || timePart === '—') return datePart
+  return `${datePart}, ${timePart}`
 }
 
 export function formatSuggestedAssignment(
@@ -268,16 +316,41 @@ export function getTripRequestById(id: string): TripRequestDetail | undefined {
   )
 }
 
-export function computeTripRequestSummary(rows: TripRequestListItem[]) {
-  const pending = rows.filter((r) => r.status === 'Pending Review').length
-  const longTrips = rows.filter((r) => r.tripType.toLowerCase().includes('long')).length
-  const localOrPickDrop = rows.filter(
-    (r) =>
-      r.tripType.toLowerCase().includes('local') ||
-      r.tripType.toLowerCase().includes('pick'),
-  ).length
-  const highPriority = rows.filter((r) => r.priority === 'High').length
-  return { pending, longTrips, localOrPickDrop, highPriority }
+export type TripRequestsSummary = {
+  pendingReview: number
+  autoApproved: number
+  completedToday: number
+  inProgress: number
+  mtoRequired: number
+  byStatus: Record<string, number>
+}
+
+export function formatTripSummaryStatusLabel(status: string): string {
+  return status
+    .trim()
+    .toLowerCase()
+    .split('_')
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
+}
+
+export function computeTripRequestSummary(rows: TripRequestListItem[]): TripRequestsSummary {
+  const byStatus: Record<string, number> = {}
+  for (const row of rows) {
+    const code = row.statusCode.trim().toUpperCase() || row.status.trim().toUpperCase()
+    if (!code || code === '—') continue
+    byStatus[code] = (byStatus[code] ?? 0) + 1
+  }
+
+  return {
+    pendingReview: byStatus.PLANNED ?? byStatus.DRAFT ?? 0,
+    autoApproved: 0,
+    completedToday: byStatus.COMPLETED ?? 0,
+    inProgress: (byStatus.IN_PROGRESS ?? 0) + (byStatus.STARTED ?? 0),
+    mtoRequired: 0,
+    byStatus,
+  }
 }
 
 export type TripRequisitionMockRow = {
@@ -324,7 +397,7 @@ export function filterTripRequests(
       row.tripType,
       row.origin,
       row.destination,
-      formatTripRoute(row.origin, row.destination),
+      row.route,
       formatTripDateTime(row.dateOfJourney, row.timeOfJourney),
       row.status,
       row.priority,

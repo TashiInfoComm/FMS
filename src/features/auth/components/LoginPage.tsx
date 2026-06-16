@@ -1,6 +1,6 @@
 // Renders the credential-based login screen and submission flow.
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { Eye, EyeOff } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { clearCurrentProfileQueryCache } from "@/lib/query-client";
+import { clearCurrentProfileQueryCache, queryClient } from "@/lib/query-client";
 import { apiGet, apiPost } from "@/services/apiClient";
 import { useUserStore } from "@/services/user-store";
 import { showErrorToast, showSuccessToast } from "@/shared/lib/toast";
@@ -68,8 +68,8 @@ function pickProfileFromMeResponse(
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const [showPassword, setShowPassword] = useState(false);
+  const [isFetchingProfile, setIsFetchingProfile] = useState(false);
   const setAuthSession = useUserStore((state) => state.setAuthSession);
   const setUser = useUserStore((state) => state.setUser);
 
@@ -132,30 +132,26 @@ export function LoginPage() {
       });
 
       let profile: Record<string, unknown> | null = null;
+      setIsFetchingProfile(true);
       try {
         // Must not reuse another user's cached `/auth/me` (same key, no token in queryKey).
         clearCurrentProfileQueryCache();
         // Warm the current-profile cache right after login for role/permission-driven UI.
-        const profileResponse = await queryClient.fetchQuery({
-          queryKey: ["current-profile"],
-          queryFn: () => apiGet<ProfileResponse>("/auth/me"),
-          staleTime: 5 * 60 * 1000,
-        });
+        const profileResponse = await apiGet<ProfileResponse>("/auth/me");
+        queryClient.setQueryData(["current-profile"], profileResponse);
         profile = pickProfileFromMeResponse(profileResponse);
         if (profile) {
           setUser(profile);
         }
       } catch {
         profile = null;
+      } finally {
+        setIsFetchingProfile(false);
       }
       showSuccessToast(response.message ?? "Login successful");
       navigate("/dashboard");
     } catch (error) {
-      const description =
-        error instanceof Error
-          ? error.message
-          : "Login failed. Please verify your credentials.";
-      showErrorToast("Unable to sign in", { description });
+      showErrorToast(error, "Login failed. Please verify your credentials.");
     }
   };
 
@@ -259,9 +255,11 @@ export function LoginPage() {
               <Button
                 type="submit"
                 className="h-11 w-full rounded-md bg-[var(--fms-button)] hover:bg-[var(--fms-button-hover)]"
-                disabled={loginMutation.isPending}
+                disabled={loginMutation.isPending || isFetchingProfile}
               >
-                {loginMutation.isPending ? "Signing In..." : "Sign In"}
+                {loginMutation.isPending || isFetchingProfile
+                  ? "Signing In..."
+                  : "Sign In"}
               </Button>
 
               <p className="text-center text-sm text-[var(--fms-text-subheading)]">

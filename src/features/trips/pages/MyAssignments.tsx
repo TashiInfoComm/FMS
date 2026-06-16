@@ -1,30 +1,82 @@
-import { Search } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
+import { TripTableListToolbar } from '@/features/trips/components/TripTableListToolbar'
+import { formatDriverRoute } from '@/features/trips/lib/trip-assignment-mock-data'
+import { formatApplicantOrgLine, tripStatusBadgeClass } from '@/features/trips/lib/trip-form-utils'
+import { emptyTripListFilters, tripListFiltersToQueryOptions } from '@/features/trips/lib/trip-list-filters'
+import { formatTripDateTime } from '@/features/trips/lib/trip-request-mock-data'
+import { fetchDriverAssignmentsPage } from '@/features/trips/lib/trips-api'
+import { fetchTripRequisitionMasterLists } from '@/features/trips/lib/trip-requisition-masters'
 import {
-  filterDriverAssignments,
-  formatDriverRoute,
-  getDriverAssignments,
-} from '@/features/trips/lib/trip-assignment-mock-data'
+  ListPanelMessage,
+  MobileListCard,
+  MobileListField,
+} from '@/shared/components/MobileListCard'
 import { PageHeader } from '@/shared/components/PageHeader'
+import {
+  DetailRowActionButton,
+  rowActionsContainerClassName,
+} from '@/shared/components/TableRowActionButtons'
+import { TablePagination } from '@/shared/components/TablePagination'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
-import { DetailRowActionButton } from '@/shared/components/TableRowActionButtons'
+
+const TABLE_COLUMN_COUNT = 8
 
 export default function MyAssignments() {
   const navigate = useNavigate()
   const crud = useRouteCrudPermissions('/trip/my-assignments')
   const [search, setSearch] = useState('')
+  const [filters, setFilters] = useState(emptyTripListFilters)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
 
-  const rows = useMemo(() => {
-    const all = getDriverAssignments()
-    return filterDriverAssignments(all, search)
-  }, [search])
+  const mastersQuery = useQuery({
+    queryKey: ['trips', 'masters'],
+    queryFn: fetchTripRequisitionMasterLists,
+    enabled: !crud.isResolved || crud.canRead,
+    staleTime: 5 * 60_000,
+  })
 
-  const openStatusUpdate = (requestId: string) => {
-    navigate(`/trip/my-assignments/${encodeURIComponent(requestId)}`)
+  const listQuery = useQuery({
+    queryKey: ['trips', 'driver-assignments', search, filters.tripTypeId, page, pageSize],
+    queryFn: () =>
+      fetchDriverAssignmentsPage(
+        search,
+        page,
+        pageSize,
+        { tripTypes: mastersQuery.data?.tripTypes },
+        tripListFiltersToQueryOptions(filters),
+      ),
+    enabled:
+      (!crud.isResolved || crud.canRead) &&
+      (mastersQuery.isSuccess || mastersQuery.isError),
+    staleTime: 30_000,
+  })
+
+  const rows = useMemo(() => listQuery.data?.rows ?? [], [listQuery.data?.rows])
+
+  const totalCount = listQuery.data?.totalCount ?? rows.length
+  const effectivePageSize = listQuery.data?.effectivePageSize ?? pageSize
+  const totalPages =
+    listQuery.data?.totalPages ??
+    Math.max(1, Math.ceil(totalCount / Math.max(1, effectivePageSize)))
+
+  useEffect(() => {
+    setPage(1)
+  }, [search, filters.tripTypeId, pageSize])
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages)
+  }, [page, totalPages])
+
+  const openStatusUpdate = (row: (typeof rows)[number]) => {
+    navigate(`/trip/my-assignments/${encodeURIComponent(row.id)}`, {
+      state: { hasFeedback: row.hasFeedback },
+    })
   }
 
   return (
@@ -34,28 +86,37 @@ export default function MyAssignments() {
         subtitle="Driver first sees assigned trips here, then opens a trip to update its status."
       />
 
-      <Card className="rounded-xl border border-[var(--fms-strokes)] bg-white p-2 sm:p-4">
-        <CardContent className="space-y-4 p-0">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--fms-text-subheading)]" />
-            <Input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search request ID, applicant, destination, status…"
-              className="h-10 pl-9"
-              aria-label="Search assignments"
-            />
-          </div>
+      <Card className="min-w-0 rounded-xl border border-[var(--fms-strokes)] bg-white p-2 sm:p-4">
+        <CardContent className="min-w-0 space-y-4 p-0">
+          <TripTableListToolbar
+            search={search}
+            onSearchChange={(next) => {
+              setSearch(next)
+              setPage(1)
+            }}
+            searchPlaceholder="Search request ID, applicant, destination, status…"
+            searchAriaLabel="Search assignments"
+            tripTypeId={filters.tripTypeId}
+            onTripTypeIdChange={(tripTypeId) => {
+              setFilters({ tripTypeId })
+              setPage(1)
+            }}
+            tripTypeOptions={mastersQuery.data?.tripTypes ?? []}
+            tripTypesLoading={mastersQuery.isLoading}
+          />
 
-          <div className="overflow-hidden rounded-lg border border-[var(--fms-strokes)]">
-            <table className="w-full text-sm">
+          <div className="hidden w-full min-w-0 overflow-x-auto rounded-lg border border-[var(--fms-strokes)] md:block">
+            <table className="w-max min-w-full text-sm">
               <thead className="bg-[#f6f6f7] text-[var(--fms-text-header)]">
                 <tr>
                   <th className="w-16 px-4 py-3 text-left font-semibold">Sl.No</th>
-                  <th className="px-4 py-3 text-left font-semibold">Trip</th>
+                  <th className="px-4 py-3 text-left font-semibold">Trip Type</th>
+                  <th className="px-4 py-3 text-left font-semibold">Applicant</th>
                   <th className="px-4 py-3 text-left font-semibold">Route</th>
-                  <th className="px-4 py-3 text-left font-semibold">Vehicle</th>
-                                  <th className="px-4 py-3 text-left font-semibold">Time</th>
+                  <th className="px-4 py-3 text-left font-semibold">
+                    Journey Start
+                  </th>
+                  <th className="px-4 py-3 text-left font-semibold">Status</th>
                   <th className="px-4 py-3 text-left font-semibold">Action</th>
                 </tr>
               </thead>
@@ -63,19 +124,41 @@ export default function MyAssignments() {
                 {crud.isResolved && !crud.canRead ? (
                   <tr className="border-t border-[var(--fms-strokes)]">
                     <td
-                      colSpan={5}
+                      colSpan={TABLE_COLUMN_COUNT}
                       className="px-4 py-6 text-center text-[var(--fms-text-subheading)]"
                     >
                       You do not have permission to view assignments.
                     </td>
                   </tr>
+                ) : listQuery.isLoading ? (
+                  <tr className="border-t border-[var(--fms-strokes)]">
+                    <td
+                      colSpan={TABLE_COLUMN_COUNT}
+                      className="px-4 py-6 text-center text-[var(--fms-text-subheading)]"
+                    >
+                      Loading assignments…
+                    </td>
+                  </tr>
+                ) : listQuery.isError ? (
+                  <tr className="border-t border-[var(--fms-strokes)]">
+                    <td
+                      colSpan={TABLE_COLUMN_COUNT}
+                      className="px-4 py-6 text-center text-[var(--fms-text-subheading)]"
+                    >
+                      {listQuery.error instanceof Error
+                        ? listQuery.error.message
+                        : 'Could not load assignments.'}
+                    </td>
+                  </tr>
                 ) : rows.length === 0 ? (
                   <tr className="border-t border-[var(--fms-strokes)]">
                     <td
-                      colSpan={5}
+                      colSpan={TABLE_COLUMN_COUNT}
                       className="px-4 py-6 text-center text-[var(--fms-text-subheading)]"
                     >
-                      No assignments match your search.
+                      {search.trim()
+                        ? 'No assignments match your search.'
+                        : 'No assignments found.'}
                     </td>
                   </tr>
                 ) : (
@@ -83,34 +166,146 @@ export default function MyAssignments() {
                     <tr
                       key={row.id}
                       className="cursor-pointer border-t border-[var(--fms-strokes)] hover:bg-[#fafafa]"
-                      
+                      onClick={() => openStatusUpdate(row)}
                     >
                       <td className="px-4 py-3 tabular-nums text-[var(--fms-text-subheading)]">
-                        {index + 1}
+                        {(listQuery.data?.serialBase ?? 0) + index + 1}
                       </td>
-                      <td className="px-4 py-3 font-medium text-[var(--fms-primary)]">
-                        {row.requestId}
+                      <td className="px-4 py-3">{row.tripType}</td>
+                      <td className="px-4 py-3">
+                        <p className="font-medium text-[var(--fms-text-header)]">
+                          {row.applicantName}
+                        </p>
+                        <p className="text-xs text-[var(--fms-text-subheading)]">
+                          {formatApplicantOrgLine(
+                            row.applicantAgency,
+                            row.applicantDepartment,
+                          )}
+                        </p>
                       </td>
+
                       <td className="px-4 py-3">
                         {formatDriverRoute(row.origin, row.destination)}
                       </td>
-                      <td className="px-4 py-3">{row.vehiclePlate}</td>
+                     
                       <td className="px-4 py-3 whitespace-nowrap">
-                        {row.scheduledTime}
-                          </td>
-                          <td className="px-4 py-3">
-                            <DetailRowActionButton
-                              name={row.requestId}
-                              tooltip="View Details"
-                              onClick={() => openStatusUpdate(row.requestId)}
-                            />
-                          </td>
+                        {formatTripDateTime(
+                          row.journeyStartDate,
+                          row.journeyStartTime,
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge
+                          className={tripStatusBadgeClass(
+                            row.statusCode || row.status,
+                          )}
+                        >
+                          {row.status}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                        <DetailRowActionButton
+                          name={row.requestId}
+                          tooltip="Start/End Trip"
+                          onClick={() => openStatusUpdate(row)}
+                        />
+                      </td>
                     </tr>
                   ))
                 )}
               </tbody>
             </table>
           </div>
+
+          <div className="space-y-3 md:hidden">
+            {crud.isResolved && !crud.canRead ? (
+              <ListPanelMessage>
+                You do not have permission to view assignments.
+              </ListPanelMessage>
+            ) : listQuery.isLoading ? (
+              <ListPanelMessage>Loading assignments…</ListPanelMessage>
+            ) : listQuery.isError ? (
+              <ListPanelMessage tone="error">
+                {listQuery.error instanceof Error
+                  ? listQuery.error.message
+                  : 'Could not load assignments.'}
+              </ListPanelMessage>
+            ) : rows.length === 0 ? (
+              <ListPanelMessage>
+                {search.trim()
+                  ? 'No assignments match your search.'
+                  : 'No assignments found.'}
+              </ListPanelMessage>
+            ) : (
+              rows.map((row, index) => (
+                <MobileListCard
+                  key={row.id}
+                  onClick={() => openStatusUpdate(row)}
+                >
+                  <MobileListField label="Sl.No">
+                    {(listQuery.data?.serialBase ?? 0) + index + 1}
+                  </MobileListField>
+                  <MobileListField label="Trip Type">{row.tripType}</MobileListField>
+                  <MobileListField label="Applicant">
+                    <span className="font-medium text-[var(--fms-text-header)]">
+                      {row.applicantName}
+                    </span>
+                    <br />
+                    <span className="text-xs">
+                      {formatApplicantOrgLine(
+                        row.applicantAgency,
+                        row.applicantDepartment,
+                      )}
+                    </span>
+                  </MobileListField>
+                  <MobileListField label="Route">
+                    {formatDriverRoute(row.origin, row.destination)}
+                  </MobileListField>
+                  <MobileListField label="Vehicle">{row.vehiclePlate}</MobileListField>
+                  <MobileListField label="Journey Start">
+                    {formatTripDateTime(row.journeyStartDate, row.journeyStartTime)}
+                  </MobileListField>
+                  <p className="text-sm text-[var(--fms-text-subheading)]">
+                    <span className="font-medium text-[var(--fms-text-header)]">
+                      Status:
+                    </span>{' '}
+                    <Badge
+                      className={tripStatusBadgeClass(
+                        row.statusCode || row.status,
+                      )}
+                    >
+                      {row.status}
+                    </Badge>
+                  </p>
+                  <div
+                    className={`mt-3 ${rowActionsContainerClassName}`}
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => e.stopPropagation()}
+                  >
+                    <DetailRowActionButton
+                      name={row.requestId}
+                      tooltip="Start/End Trip"
+                      onClick={() => openStatusUpdate(row)}
+                    />
+                  </div>
+                </MobileListCard>
+              ))
+            )}
+          </div>
+
+          <TablePagination
+            page={page}
+            totalPages={totalPages}
+            pageSize={pageSize}
+            totalCount={totalCount}
+            onPageChange={(nextPage) =>
+              setPage(Math.max(1, Math.min(nextPage, totalPages)))
+            }
+            onPageSizeChange={(nextPageSize) => {
+              setPageSize(nextPageSize)
+              setPage(1)
+            }}
+          />
         </CardContent>
       </Card>
     </section>

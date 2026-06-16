@@ -214,7 +214,7 @@ export function VehicleAgencyAssignmentDialog({
       onOpenChange(false);
     },
     onError: (err) => {
-      showErrorToast(err instanceof Error ? err.message : "Assignment failed");
+      showErrorToast(err, "Assignment failed");
     },
   });
 

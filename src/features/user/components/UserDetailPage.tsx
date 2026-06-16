@@ -1,6 +1,6 @@
 /**
  * Route: `/users/:userId`. Loads one user, maps to display fields, shows cards grouped by topic; Edit link visible when `canRead`
- * routes to `/users/:id/edit` (update permission enforced on edit page save). Pending registrations show approve/reject when `canUpdate`.
+ * routes to `/users/:id/edit` (update permission enforced on edit page save). Pending registrations show approve/reject when `canApprove` / `canReject`.
  */
 import type { ComponentType, ReactNode } from 'react'
 import { useMemo, useState } from 'react'
@@ -175,6 +175,9 @@ export function UserDetailPage() {
 
   const approveMutation = useMutation({
     mutationFn: async () => {
+      if (!crud.canApprove) {
+        throw new Error('You do not have permission to approve users.')
+      }
       const id = userId?.trim()
       if (!id) throw new Error('Missing user id')
       const rec = userQuery.data?.record
@@ -189,7 +192,7 @@ export function UserDetailPage() {
       navigate('/users')
     },
     onError: (err) => {
-      showErrorToast(err instanceof Error ? err.message : 'Approve failed')
+      showErrorToast(err, 'Approve failed')
     },
   })
 
@@ -205,12 +208,15 @@ export function UserDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['admin-user-org-scopes', userId] })
     },
     onError: (err) => {
-      showErrorToast(err instanceof Error ? err.message : 'Failed to update organizations')
+      showErrorToast(err, 'Failed to update organizations')
     },
   })
 
   const rejectMutation = useMutation({
     mutationFn: async (reason: string) => {
+      if (!crud.canReject) {
+        throw new Error('You do not have permission to reject users.')
+      }
       const id = userId?.trim()
       if (!id) throw new Error('Missing user id')
       const rec = userQuery.data?.record
@@ -228,7 +234,7 @@ export function UserDetailPage() {
       navigate('/users')
     },
     onError: (err) => {
-      showErrorToast(err instanceof Error ? err.message : 'Reject failed')
+      showErrorToast(err, 'Reject failed')
     },
   })
 
@@ -255,13 +261,16 @@ export function UserDetailPage() {
 
   const editHref = userId?.trim() ? `/users/${encodeURIComponent(userId)}/edit` : '/users'
 
-  const isAwaitingApproval =
-    Boolean(detail) && detail!.status.trim().toLowerCase() === 'pending' && crud.canUpdate && Boolean(userQuery.data?.record)
+  const isPendingRegistration =
+    Boolean(detail) &&
+    detail!.status.trim().toLowerCase() === 'pending' &&
+    Boolean(userQuery.data?.record)
+  const showApprovalActions = isPendingRegistration && (crud.canApprove || crud.canReject)
   const actionBusy = approveMutation.isPending || rejectMutation.isPending
 
   return (
     <section className="space-y-5">
-      {isAwaitingApproval ? (
+      {showApprovalActions ? (
         <div
           className={cn(
             "flex flex-col gap-3 rounded-xl border border-[var(--fms-strokes)] bg-[var(--fms-info-fill)]/40 px-4 py-3 sm:flex-row sm:items-center sm:justify-between",
@@ -276,26 +285,30 @@ export function UserDetailPage() {
             </p>
           </div>
           <div className="flex w-full shrink-0 flex-wrap gap-2 sm:w-auto sm:justify-end">
-            <Button
-              type="button"
-              className="min-w-[6rem] bg-[var(--fms-success-text)] text-white hover:bg-[var(--fms-success-text)]/90"
-              disabled={actionBusy}
-              onClick={() => approveMutation.mutate()}
-            >
-              Approve
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              className="min-w-[6rem]"
-              disabled={actionBusy}
-              onClick={() => {
-                setRejectReason("");
-                setRejectOpen(true);
-              }}
-            >
-              Reject
-            </Button>
+            {crud.canApprove ? (
+              <Button
+                type="button"
+                className="min-w-[6rem] bg-[var(--fms-success-text)] text-white hover:bg-[var(--fms-success-text)]/90"
+                disabled={actionBusy}
+                onClick={() => approveMutation.mutate()}
+              >
+                Approve
+              </Button>
+            ) : null}
+            {crud.canReject ? (
+              <Button
+                type="button"
+                variant="destructive"
+                className="min-w-[6rem]"
+                disabled={actionBusy}
+                onClick={() => {
+                  setRejectReason("");
+                  setRejectOpen(true);
+                }}
+              >
+                Reject
+              </Button>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -438,7 +451,7 @@ export function UserDetailPage() {
                 onClick={() => setOrgScopeDialogOpen(true)}
               >
                 <Plus className="mr-1 h-4 w-4" />
-                Add organization
+                Add organization scopes
               </Button>
             ) : null}
           </div>

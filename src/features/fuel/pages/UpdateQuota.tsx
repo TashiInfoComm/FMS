@@ -17,17 +17,24 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { FuelTableListToolbar } from '@/features/fuel/components/FuelTableListToolbar'
 import {
   formatCurrentQuota,
   formatNuDisplay,
 } from '@/features/fuel/lib/quota-request-mock-data'
 import {
+  filterQuotaUpdatePending,
   getQuotaUpdatePendingList,
   getQuotaUpdateVehicleOptions,
   removeQuotaUpdatePending,
   type QuotaUpdatePendingRecord,
 } from '@/features/fuel/lib/update-quota-mock-data'
 import { PageHeader } from '@/shared/components/PageHeader'
+import {
+  ListPanelMessage,
+  MobileListCard,
+  MobileListField,
+} from '@/shared/components/MobileListCard'
 import { TablePagination } from '@/shared/components/TablePagination'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 import { showSuccessToast } from '@/shared/lib/toast'
@@ -52,6 +59,7 @@ function ReadyUpdateStatusBadge() {
 
 export default function UpdateQuota() {
   const crud = useRouteCrudPermissions('/fuel/update-quota')
+  const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -67,19 +75,28 @@ export default function UpdateQuota() {
     return getQuotaUpdatePendingList()
   }, [refreshKey])
 
+  const filteredRows = useMemo(
+    () => filterQuotaUpdatePending(allRows, search),
+    [allRows, search],
+  )
+
   const vehicleOptions = useMemo(
     () => getQuotaUpdateVehicleOptions(allRows),
     [allRows],
   )
 
-  const totalCount = allRows.length
+  const totalCount = filteredRows.length
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
   const serialBase = (page - 1) * pageSize
 
   const rows = useMemo(() => {
     const start = serialBase
-    return allRows.slice(start, start + pageSize)
-  }, [allRows, pageSize, serialBase])
+    return filteredRows.slice(start, start + pageSize)
+  }, [filteredRows, pageSize, serialBase])
+
+  useEffect(() => {
+    setPage(1)
+  }, [search, pageSize])
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages)
@@ -115,8 +132,8 @@ export default function UpdateQuota() {
     <section className="space-y-5">
       <PageHeader title="Quota Update" />
 
-      <Card className="rounded-xl border border-[var(--fms-strokes)] bg-white p-2 sm:p-4">
-        <CardContent className="space-y-4 p-0">
+      <Card className="min-w-0 rounded-xl border border-[var(--fms-strokes)] bg-white p-2 sm:p-4">
+        <CardContent className="min-w-0 space-y-4 p-0">
           <div className="space-y-1 px-1 sm:px-0">
             <h2 className="text-lg font-semibold text-[var(--fms-text-header)]">
               Quota Update Pending List
@@ -127,8 +144,18 @@ export default function UpdateQuota() {
             </p>
           </div>
 
-          <div className="overflow-x-auto rounded-lg border border-[var(--fms-strokes)]">
-            <table className="w-full min-w-[1020px] text-sm">
+          <FuelTableListToolbar
+            search={search}
+            onSearchChange={(next) => {
+              setSearch(next)
+              setPage(1)
+            }}
+            searchPlaceholder="Search request ID, driver, vehicle…"
+            searchAriaLabel="Search quota updates"
+          />
+
+          <div className="hidden w-full min-w-0 overflow-x-auto rounded-lg border border-[var(--fms-strokes)] md:block">
+            <table className="w-max min-w-full text-sm">
               <thead className="bg-[#f6f6f7] text-[var(--fms-text-header)]">
                 <tr>
                   {TABLE_COLUMNS.map((column) => (
@@ -206,6 +233,48 @@ export default function UpdateQuota() {
                 )}
               </tbody>
             </table>
+          </div>
+
+          <div className="space-y-3 md:hidden">
+            {crud.isResolved && !crud.canRead ? (
+              <ListPanelMessage>
+                You do not have permission to view quota updates.
+              </ListPanelMessage>
+            ) : rows.length === 0 ? (
+              <ListPanelMessage>No pending quota updates.</ListPanelMessage>
+            ) : (
+              rows.map((row, index) => (
+                <MobileListCard key={row.id}>
+                  <MobileListField label="Sl.No">{serialBase + index + 1}</MobileListField>
+                  <MobileListField label="Request ID">{row.requestId}</MobileListField>
+                  <MobileListField label="Driver">{row.driver}</MobileListField>
+                  <MobileListField label="Vehicle">{row.vehicle}</MobileListField>
+                  <MobileListField label="Current Quota">
+                    {formatCurrentQuota(row.quotaUsed, row.quotaTotal)}
+                  </MobileListField>
+                  <MobileListField label="Finance Approved Amount">
+                    <span className="font-semibold text-[#0a72a5]">
+                      {formatNuDisplay(row.financeApprovedAmount)}
+                    </span>
+                  </MobileListField>
+                  <p className="text-sm text-[var(--fms-text-subheading)]">
+                    <span className="font-medium text-[var(--fms-text-header)]">Status:</span>{' '}
+                    <ReadyUpdateStatusBadge />
+                  </p>
+                  <div className="mt-3">
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="w-full rounded-full bg-[var(--fms-button)] hover:bg-[var(--fms-button-hover)] sm:w-auto"
+                      disabled={!crud.canUpdate && crud.isResolved}
+                      onClick={() => openUpdateDialog(row)}
+                    >
+                      Update Quota
+                    </Button>
+                  </div>
+                </MobileListCard>
+              ))
+            )}
           </div>
 
           <TablePagination

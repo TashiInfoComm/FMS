@@ -14,6 +14,7 @@ import { DzongkhagListPage } from '@/features/master/pages/DzongkhagListPage'
 import { FuelTypePage } from '@/features/master/pages/FuelTypePage'
 import { GewogListPage } from '@/features/master/pages/GewogListPage'
 import { InsuranceProviderPage } from '@/features/master/pages/InsuranceProviderPage'
+import { MaintenanceProblemCategory } from '@/features/master/pages/MaintenanceProblemCategory'
 import { MaintenanceTypePage } from '@/features/master/pages/MaintenanceTypePage'
 import { PurposeOfJourneyPage } from '@/features/master/pages/PurposeOfJourneyPage'
 import { TripTypePage } from '@/features/master/pages/TripTypePage'
@@ -39,6 +40,7 @@ import { VehicleDetailPage } from '@/features/vehicles/pages/VehicleDetailPage'
 import { VehicleAgencyMapping } from '@/features/vehicles/pages/VehicleAgencyMapping'
 import { VehicleManagementPage } from '@/features/vehicles/pages/VehicleManagementPage'
 import TripRequisition from '@/features/trips/pages/TripRequisition'
+import TripRequisitionDetailPage from '@/features/trips/pages/TripRequisitionDetailPage'
 import TripRequest from '@/features/trips/pages/TripRequest'
 import TripRequestDetailPage from '@/features/trips/pages/TripRequestDetailPage'
 import MyAssignments from '@/features/trips/pages/MyAssignments'
@@ -106,6 +108,10 @@ export function AppRoutes() {
             element={<MaintenanceTypePage />}
           />
           <Route
+            path="/master/maintenance-type/:maintenanceTypeCode/problem-categories"
+            element={<MaintenanceProblemCategory />}
+          />
+          <Route
             path="/master/purpose-of-journey"
             element={<PurposeOfJourneyPage />}
           />
@@ -143,6 +149,7 @@ export function AppRoutes() {
           <Route path="/users/:userId/edit" element={<EditUserFormPage />} />
           <Route path="/users/:userId" element={<UserDetailPage />} />
           <Route path="/trip/requisition" element={<TripRequisition />} />
+          <Route path="/trip/requisition/:tripId" element={<TripRequisitionDetailPage />} />
           <Route path="/trip/request" element={<TripRequest />} />
           <Route path="/trip/request/create" element={<CreateTripRequisition />} />
           <Route path="/trip/request/:requestId" element={<TripRequestDetailPage />} />

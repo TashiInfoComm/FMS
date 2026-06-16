@@ -282,7 +282,7 @@ export function UserOrgScopeAssignDialog({
     },
     onSuccess: () => onOpenChange(false),
     onError: (err) => {
-      showErrorToast(err instanceof Error ? err.message : 'Failed to add organizations')
+      showErrorToast(err, 'Failed to add organizations')
     },
   })
 

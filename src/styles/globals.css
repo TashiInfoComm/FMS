@@ -132,9 +132,36 @@
   --ring: #64748b;
 }
 
+@keyframes fms-quota-icon-blink {
+  0%,
+  100% {
+    background-color: var(--fms-warning-fill);
+    border-color: var(--fms-warning-border);
+    color: #046317;
+    box-shadow: 0 0 0 0 transparent;
+  }
+  50% {
+    background-color: #ffcc00;
+    border-color: #f59e0b;
+    color: #0f7821;
+    box-shadow: 0 0 0 3px rgba(34, 255, 0, 0.5);
+  }
+}
+
+.fms-quota-blink {
+  animation: fms-quota-icon-blink 1.1s ease-in-out infinite;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100dvh;
+    overflow: hidden;
   }
 
   body {

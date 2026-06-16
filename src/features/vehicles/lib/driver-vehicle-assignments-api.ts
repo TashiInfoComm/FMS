@@ -244,6 +244,39 @@ export async function fetchDriverVehicleAssignmentById(id: string): Promise<Driv
   }
 }
 
+function pickPrimaryAssignment(rows: DriverVehicleAssignmentRow[]): DriverVehicleAssignmentRow | null {
+  if (rows.length === 0) return null
+  const primary = rows.find((row) => {
+    const numeric = Number.parseInt(String(row.priority), 10)
+    return numeric === 1 || row.priority.toUpperCase() === 'PRIMARY'
+  })
+  return primary ?? rows[0]
+}
+
+export async function fetchDriverVehicleAssignmentByVehicleId(
+  vehicleId: string,
+): Promise<DriverVehicleAssignmentRow | null> {
+  const trimmedId = vehicleId.trim()
+  if (!trimmedId) return null
+  try {
+    const payload = await apiGet<unknown>(
+      `/drivers/vehicle_assignments/by-vehicle/${encodeURIComponent(trimmedId)}`,
+    )
+    const records = toArray(payload)
+    if (records.length > 0) {
+      const mapped = records
+        .map(mapDriverVehicleAssignment)
+        .filter((row): row is DriverVehicleAssignmentRow => row !== null)
+      return pickPrimaryAssignment(mapped)
+    }
+    const record = unwrapSingleRecord(payload)
+    if (!record) return null
+    return mapDriverVehicleAssignment(record)
+  } catch {
+    return null
+  }
+}
+
 export async function updateDriverVehicleAssignment(
   id: string,
   body: UpdateDriverVehicleAssignmentBody,

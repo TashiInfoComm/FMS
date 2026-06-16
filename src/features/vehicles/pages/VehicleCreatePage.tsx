@@ -14,6 +14,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { MasterDataSelect } from '@/features/vehicles/components/MasterDataSelect'
 import {
   fetchVehicleCreateMasterLists,
+  fetchVehicleTypesByCategoryCode,
+  resolveVehicleCategoryCode,
   type VehicleCreateMasterLists,
 } from '@/features/vehicles/lib/vehicle-create-master-data'
 import {
@@ -135,6 +137,11 @@ const VEHICLE_FORM_SECTIONS: {
         key: "vehicle_category_id",
         label: "Vehicle category",
         placeholder: "Select category",
+      },
+      {
+        key: "vehicle_type_id",
+        label: "Vehicle type",
+        placeholder: "Select vehicle type",
       },
       {
         key: "fuel_type_id",
@@ -268,6 +275,18 @@ export function VehicleFormPage() {
     staleTime: 60_000,
   })
 
+  const selectedCategoryCode = useMemo(() => {
+    const categories = mastersQuery.data?.vehicleCategories ?? []
+    return resolveVehicleCategoryCode(form.vehicle_category_id, categories)
+  }, [form.vehicle_category_id, mastersQuery.data?.vehicleCategories])
+
+  const vehicleTypesQuery = useQuery({
+    queryKey: ['vehicle-create', 'vehicle-types-by-category', selectedCategoryCode],
+    queryFn: () => fetchVehicleTypesByCategoryCode(selectedCategoryCode),
+    enabled: Boolean(selectedCategoryCode),
+    staleTime: 60_000,
+  })
+
   const vehicleQuery = useQuery({
     queryKey: ['vehicles', 'detail', vehicleId, 'edit-form'],
     queryFn: async () => {
@@ -308,7 +327,7 @@ export function VehicleFormPage() {
       showSuccessToast('Vehicle details loaded from GIMS')
     },
     onError: (err) => {
-      showErrorToast(err instanceof Error ? err.message : 'GIMS search failed')
+      showErrorToast(err, 'GIMS search failed')
     },
   })
 
@@ -346,15 +365,15 @@ export function VehicleFormPage() {
       }
     },
     onError: (err) => {
-      showErrorToast(err instanceof Error ? err.message : 'Save failed')
+      showErrorToast(err, 'Save failed')
     },
   })
 
   const canSubmit = isEdit ? crud.canUpdate : crud.canCreate
   const pageTitle = isEdit ? 'Edit vehicle' : 'Add new vehicle'
   const pageSubtitle = isEdit
-    ? 'Update vehicle details. Changes are saved with PUT `/vehicles/{id}`.'
-    : 'Enter vehicle details. Submitted with POST `/vehicles`.'
+    ? 'Update vehicle details. '
+    : 'Enter vehicle details.'
 
   const onSave = () => {
     if (!canSubmit) return
@@ -430,7 +449,11 @@ export function VehicleFormPage() {
                   <p className="text-xs text-[var(--fms-text-subheading)]">{group.subtitle}</p>
                 </div>
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  {group.fields.map((field) =>
+                  {group.fields
+                    .filter(
+                      (field) => isEdit || field.key !== 'fuel_quota_balance',
+                    )
+                    .map((field) =>
                     field.key === 'asset_name_id' && !isEdit ? (
                       <div key={field.key} className="space-y-2">
                         <Label htmlFor={field.key}>{requiredLabel(field.label)}</Label>
@@ -475,6 +498,27 @@ export function VehicleFormPage() {
                           registration number.
                         </p>
                       </div>
+                    ) : field.key === 'vehicle_type_id' ? (
+                      <MasterDataSelect
+                        key={field.key}
+                        id={field.key}
+                        label={requiredLabel(field.label)}
+                        placeholder={
+                          !form.vehicle_category_id.trim()
+                            ? 'Select a vehicle category first'
+                            : field.placeholder
+                        }
+                        options={vehicleTypesQuery.data ?? []}
+                        value={form.vehicle_type_id}
+                        loading={vehicleTypesQuery.isLoading}
+                        disabled={!form.vehicle_category_id.trim()}
+                        error={Boolean(fieldError('vehicle_type_id'))}
+                        errorMessage={fieldError('vehicle_type_id')}
+                        onValueChange={(next) => {
+                          setForm((prev) => ({ ...prev, vehicle_type_id: next }))
+                          touchField('vehicle_type_id')
+                        }}
+                      />
                     ) : isMasterSelectField(field.key) ? (
                       <MasterDataSelect
                         key={field.key}
@@ -488,8 +532,17 @@ export function VehicleFormPage() {
                         error={Boolean(fieldError(field.key))}
                         errorMessage={fieldError(field.key)}
                         onValueChange={(next) => {
-                          setForm((prev) => ({ ...prev, [field.key]: next }))
+                          setForm((prev) => {
+                            const patch: Partial<VehicleFormStringState> = { [field.key]: next }
+                            if (field.key === 'vehicle_category_id') {
+                              patch.vehicle_type_id = ''
+                            }
+                            return { ...prev, ...patch }
+                          })
                           touchField(field.key)
+                          if (field.key === 'vehicle_category_id') {
+                            setTouched((prev) => ({ ...prev, vehicle_type_id: false }))
+                          }
                         }}
                       />
                     ) : (

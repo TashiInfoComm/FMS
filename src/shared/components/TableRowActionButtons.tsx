@@ -1,5 +1,5 @@
 /** Outlined row actions using :root --fms-* tokens (index.css / globals.css). */
-import { LayoutGrid, Pencil, Trash2 } from 'lucide-react'
+import { LayoutGrid, Pencil, Trash2, BookmarkX } from 'lucide-react'
 import type { ComponentProps, ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -15,6 +15,9 @@ export const editRowActionButtonClassName =
   'h-8 gap-1 cursor-pointer rounded-lg border border-[var(--fms-info-border)] bg-[var(--fms-info-fill)] text-[var(--fms-info-text)] shadow-none hover:brightness-[0.98] [&_svg]:size-3.5 dark:border-[var(--fms-info-border)]/50 dark:bg-[var(--fms-info-fill)]/30 dark:text-[var(--fms-info-border)] dark:hover:bg-[var(--fms-info-fill)]/45'
 
 export const deleteRowActionButtonClassName =
+  'h-8 gap-1 cursor-pointer rounded-lg border border-[var(--fms-error-border)] bg-[var(--fms-error-fill)] text-[var(--fms-error-text)] shadow-none hover:brightness-[0.98] [&_svg]:size-3.5 dark:border-[var(--fms-error-border)]/45 dark:bg-[var(--fms-error-fill)]/30 dark:text-[var(--fms-error-border)] dark:hover:bg-[var(--fms-error-fill)]/45'
+
+export const cancelRowActionButtonClassName =
   'h-8 gap-1 cursor-pointer rounded-lg border border-[var(--fms-error-border)] bg-[var(--fms-error-fill)] text-[var(--fms-error-text)] shadow-none hover:brightness-[0.98] [&_svg]:size-3.5 dark:border-[var(--fms-error-border)]/45 dark:bg-[var(--fms-error-fill)]/30 dark:text-[var(--fms-error-border)] dark:hover:bg-[var(--fms-error-fill)]/45'
 
 type RowActionButtonProps = Omit<ComponentProps<typeof Button>, 'variant' | 'size' | 'children'> & {
@@ -72,7 +75,7 @@ export function DeleteRowActionButton({
     <Tooltip>
       <TooltipTrigger asChild>
         <Button type="button" variant="outline" size="sm" className={cn(deleteRowActionButtonClassName, className)} {...props}>
-          <Trash2 aria-hidden />
+          <Trash2 aria-hidden size={24}/>
         </Button>
       </TooltipTrigger>
       <TooltipContent>{tooltip}</TooltipContent>
@@ -80,4 +83,19 @@ export function DeleteRowActionButton({
   )
 }
 
-
+export function CancelRowActionButton({ 
+  className,
+  tooltip = 'Cancel',
+  ...props
+}: RowActionButtonProps & RowActionTooltipProps) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button type="button" variant="outline" size="sm" className={cn(cancelRowActionButtonClassName, className)} {...props}>
+          <BookmarkX aria-hidden />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{tooltip}</TooltipContent>
+      </Tooltip>
+    )
+  }

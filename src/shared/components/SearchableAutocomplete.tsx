@@ -183,14 +183,13 @@ export function SearchableAutocomplete({
     [options, value],
   )
 
-  const triggerLabel = selected?.label ?? (value.trim() ? value : placeholder)
+  const busy = disabled || loading
+  const triggerLabel = selected?.label ?? (busy ? loadingMessage : placeholder)
 
   const closeDropdown = () => {
     setOpen(false)
     setQuery('')
   }
-
-  const busy = disabled || loading
 
   return (
     <div ref={containerRef} className={cn('relative min-w-0 max-w-full', className)}>

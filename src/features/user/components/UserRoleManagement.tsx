@@ -148,7 +148,7 @@ export function UserRoleManagement() {
       setCreateDescription('')
     },
     onError: (error) => {
-      showErrorToast(error instanceof Error ? error.message : 'Could not create role')
+      showErrorToast(error, 'Could not create role')
     },
   })
 

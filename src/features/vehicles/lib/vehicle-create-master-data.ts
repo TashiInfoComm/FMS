@@ -18,6 +18,8 @@ export {
 
 export type MasterOption = { value: string; label: string }
 
+export type VehicleCategoryOption = MasterOption & { code: string }
+
 type ApiRecord = Record<string, unknown>
 
 const PAGE_SIZE = 200
@@ -54,6 +56,20 @@ function recordsToAgencyOptions(records: ApiRecord[]): MasterOption[] {
       return { value, label }
     })
     .filter((o): o is MasterOption => o !== null)
+}
+
+function recordsToVehicleCategoryOptions(records: ApiRecord[]): VehicleCategoryOption[] {
+  return records
+    .filter(isActiveRecord)
+    .map((r) => {
+      const id = r.id != null && String(r.id).trim() !== '' ? String(r.id) : ''
+      const name = typeof r.name === 'string' ? r.name.trim() : ''
+      const code = typeof r.code === 'string' ? r.code.trim() : ''
+      if (!id) return null
+      const label = code && name && code !== name ? `${name} (${code})` : name || code || id
+      return { value: id, label, code: code || name }
+    })
+    .filter((o): o is VehicleCategoryOption => o !== null)
 }
 
 /** Master rows keyed by UUID `id` (e.g. vehicle category, fuel type on `/vehicles`). */
@@ -98,14 +114,50 @@ function recordsToAssetNameOptions(records: ApiRecord[]): MasterOption[] {
 /** Active asset names from master for the vehicle create/edit form. */
 export async function fetchVehicleAssetNameOptions(): Promise<MasterOption[]> {
   const payload = await apiGet<unknown>(
-    `/master/asset-names?active=true&page=1&page_size=${PAGE_SIZE}&code=&search=`,
+    `/master/asset-names/full?active=true&page=1&page_size=${PAGE_SIZE}&code=&search=`,
   )
   return recordsToAssetNameOptions(extractMasterList(payload))
 }
 
+export function resolveVehicleCategoryCode(
+  categoryId: string,
+  categories: VehicleCategoryOption[],
+): string {
+  const trimmed = categoryId.trim()
+  if (!trimmed) return ''
+  const match = categories.find((category) => category.value === trimmed)
+  return match?.code.trim() ?? ''
+}
+
+function recordsToVehicleTypeOptions(records: ApiRecord[]): MasterOption[] {
+  return records
+    .filter(isActiveRecord)
+    .map((r) => {
+      const id = r.id != null && String(r.id).trim() !== '' ? String(r.id) : ''
+      const name = typeof r.name === 'string' ? r.name.trim() : ''
+      const code = typeof r.code === 'string' ? r.code.trim() : ''
+      const value = id || code
+      if (!value) return null
+      const label = name || code || value
+      return { value, label }
+    })
+    .filter((o): o is MasterOption => o !== null)
+}
+
+export async function fetchVehicleTypesByCategoryCode(
+  categoryCode: string,
+): Promise<MasterOption[]> {
+  const code = categoryCode.trim()
+  if (!code) return []
+  const payload = await apiGet<unknown>(
+    `/master/vehicle-types/category/${encodeURIComponent(code)}?page=1&page_size=${PAGE_SIZE}&code=&search=`,
+  )
+  return recordsToVehicleTypeOptions(extractMasterList(payload))
+}
+
 export type VehicleCreateMasterLists = {
   vehicleTypes: MasterOption[]
-  vehicleCategories: MasterOption[]
+  vehicleCategories: VehicleCategoryOption[]
   fuelTypes: MasterOption[]
   vehicleStatuses: MasterOption[]
   vehicleMovementStatuses: MasterOption[]
@@ -139,7 +191,7 @@ export async function fetchVehicleCreateMasterLists(): Promise<VehicleCreateMast
     vehicleTypes: recordsToCodeNameOptions(
       extractMasterList(vehicleTypePayload),
     ),
-    vehicleCategories: recordsToIdNameOptions(
+    vehicleCategories: recordsToVehicleCategoryOptions(
       extractMasterList(vehicleCategoryPayload),
     ),
     fuelTypes: recordsToIdNameOptions(extractMasterList(fuelTypePayload)),

@@ -81,6 +81,23 @@ export function getQuotaUpdatePendingList(): QuotaUpdatePendingRecord[] {
   return pendingUpdates
 }
 
+export function filterQuotaUpdatePending(
+  rows: QuotaUpdatePendingRecord[],
+  search: string,
+): QuotaUpdatePendingRecord[] {
+  const query = search.trim().toLowerCase()
+  if (!query) return rows
+  return rows.filter(
+    (row) =>
+      row.requestId.toLowerCase().includes(query) ||
+      row.driver.toLowerCase().includes(query) ||
+      row.vehicle.toLowerCase().includes(query) ||
+      row.status.toLowerCase().includes(query) ||
+      row.id.toLowerCase().includes(query) ||
+      String(row.financeApprovedAmount).includes(query),
+  )
+}
+
 export function removeQuotaUpdatePending(id: string): boolean {
   const before = pendingUpdates.length
   pendingUpdates = pendingUpdates.filter((row) => row.id !== id)

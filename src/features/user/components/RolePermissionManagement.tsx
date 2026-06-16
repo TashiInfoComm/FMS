@@ -548,7 +548,7 @@ export function RolePermissionManagement() {
       setMode('detail')
     },
     onError: (error) => {
-      showErrorToast(error instanceof Error ? error.message : 'Could not save role')
+      showErrorToast(error, 'Could not save role')
     },
   })
 
@@ -570,7 +570,7 @@ export function RolePermissionManagement() {
       }
     },
     onError: (error) => {
-      showErrorToast(error instanceof Error ? error.message : 'Failed to delete role')
+      showErrorToast(error, 'Failed to delete role')
     },
   })
 

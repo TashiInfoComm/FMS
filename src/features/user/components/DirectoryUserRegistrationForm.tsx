@@ -1,5 +1,6 @@
 /**
- * CID directory lookup and group-directory org tiers — shared by admin create user and public manual signup.
+ * CID directory lookup and org tiers — shared by admin create user and public manual signup.
+ * Admin mode uses `/master/*` organogram lists; signup uses `GET /public/groups`.
  * Realm roles are chosen only in admin mode; signup uses backend default role assignment.
  */
 import { CircleCheck } from 'lucide-react'
@@ -46,6 +47,7 @@ import {
   isDirectoryUserFormValid,
   type DirectoryUserFormFieldKey,
 } from '@/features/user/lib/directory-user-form-schema'
+import { fetchAdminMasterOrgGroupNodes } from '@/features/vehicles/lib/vehicle-agency-assignment-api'
 import { apiPost } from '@/services/apiClient'
 
 function FieldError({ message }: { message?: string }) {
@@ -67,7 +69,6 @@ export function DirectoryUserRegistrationForm({
   const ndiWelcomeRef = useRef(false)
   const queryClient = useQueryClient()
   const crud = useRouteCrudPermissions('/users')
-  const rolesCrud = useRouteCrudPermissions('/admin/roles')
   const [lookupInput, setLookupInput] = useState(() => {
     if (!ndiBootstrap) return ''
     const cid = (ndiBootstrap.cid ?? '').trim()
@@ -106,12 +107,12 @@ export function DirectoryUserRegistrationForm({
     queryKey: ['admin-roles-user-form'],
     queryFn: fetchRealmRoleOptions,
     staleTime: 60_000,
-    enabled: queriesEnabled && isAdmin && rolesCrud.isResolved && rolesCrud.canRead,
+    enabled: queriesEnabled && isAdmin,
   })
 
   const groupsQuery = useQuery({
-    queryKey: ['admin-groups', mode],
-    queryFn: fetchAdminGroups,
+    queryKey: isAdmin ? ['admin-master-org-nodes'] : ['public-groups'],
+    queryFn: isAdmin ? fetchAdminMasterOrgGroupNodes : fetchAdminGroups,
     staleTime: 60_000,
     enabled: queriesEnabled,
   })
@@ -205,7 +206,7 @@ export function DirectoryUserRegistrationForm({
     },
     onError: (err) => {
       setProfile(null)
-      showErrorToast(err instanceof Error ? err.message : 'Lookup failed')
+      showErrorToast(err, 'Lookup failed')
     },
   })
 
@@ -225,15 +226,14 @@ export function DirectoryUserRegistrationForm({
             : 'Look up details by CID first',
         )
       }
-      if (isAdmin && rolesCrud.isResolved && !rolesCrud.canRead) {
+      const nodes = groupsQuery.data ?? []
+      if (!nodes.length) {
         throw new Error(
-          'You do not have permission to view the role list, so new users cannot be assigned roles from this screen.',
+          isAdmin
+            ? 'Master organogram lists could not be loaded. Try again.'
+            : 'Group directory could not be loaded. Try again.',
         )
       }
-
-      const nodes = groupsQuery.data ?? []
-      if (!nodes.length)
-        throw new Error('Group directory could not be loaded. Try again.')
 
       const roles = isAdmin ? [...selectedRoles] : []
       const values = buildDirectoryUserFormValues(profile, username, orgSelection, roles)
@@ -275,7 +275,7 @@ export function DirectoryUserRegistrationForm({
       }
     },
     onError: (err) => {
-      showErrorToast(err instanceof Error ? err.message : 'Failed to submit')
+      showErrorToast(err, 'Failed to submit')
     },
   })
 
@@ -289,11 +289,9 @@ export function DirectoryUserRegistrationForm({
   }
 
   const roleOptions = rolesQuery.data ?? []
-  const adminRolesBlocked = isAdmin && rolesCrud.isResolved && !rolesCrud.canRead
-  const adminRolesPermLoading = isAdmin && !rolesCrud.isResolved
 
   const onSubmit = () => {
-    if (formLocked || adminRolesBlocked || adminRolesPermLoading) return
+    if (formLocked) return
     if (!profile) return
     setSubmitAttempted(true)
     touchAllFields()
@@ -471,12 +469,15 @@ export function DirectoryUserRegistrationForm({
             <>
               {groupsQuery.isLoading ? (
                 <p className="text-xs text-[var(--fms-text-subheading)]">
-                  Loading group directory (/public/groups)…
+                  {isAdmin
+                    ? 'Loading master organogram (agency, department, division, sub division)…'
+                    : 'Loading group directory (/public/groups)…'}
                 </p>
               ) : groupsQuery.isError ? (
                 <p className="text-xs text-[var(--fms-delete)]">
-                  Could not load /public/groups. Reload the page or try
-                  again—org assignment requires this list.
+                  {isAdmin
+                    ? 'Could not load master organogram lists. Reload the page or try again—org assignment requires these lists.'
+                    : 'Could not load /public/groups. Reload the page or try again—org assignment requires this list.'}
                 </p>
               ) : null}
               {!profile.organogramHints &&
@@ -484,7 +485,9 @@ export function DirectoryUserRegistrationForm({
                 <p className="text-xs text-[var(--fms-text-subheading)]">
                   {isNdiSignupBootstrap
                     ? "No organogram fields were returned from NDI. Use the select lists below to choose agency, department, division, and sub division."
-                    : "No organogram fields were returned for this CID. Use the search fields below to pick agency, department, division, and sub division from the group directory."}
+                    : isAdmin
+                      ? 'No organogram fields were returned for this CID. Use the search fields below to pick agency, department, division, and sub division from master data.'
+                      : 'No organogram fields were returned for this CID. Use the search fields below to pick agency, department, division, and sub division from the group directory.'}
                 </p>
               ) : (
                 <p className="text-xs text-[var(--fms-text-subheading)]">
@@ -660,12 +663,7 @@ export function DirectoryUserRegistrationForm({
                 </div>
                 <div className="space-y-2 md:col-span-2 lg:col-span-3">
                   <OrgGroupSelect
-                    label={
-                      <>
-                        Division{" "}
-                        <span className="text-[var(--fms-delete)]">*</span>
-                      </>
-                    }
+                    label="Division"
                     options={divisionOptions}
                     selectedId={orgSelection.divisionId}
                     selectedName={orgSelection.divisionName}
@@ -804,22 +802,7 @@ export function DirectoryUserRegistrationForm({
                     Select one or more realm roles from the server.
                   </p>
 
-                  {adminRolesPermLoading ? (
-                    <div className="max-h-64 space-y-2 overflow-y-auto rounded-md border border-[var(--fms-strokes)] p-3">
-                      {Array.from({ length: 4 }).map((_, i) => (
-                        <Skeleton
-                          key={`role-dir-sk-${i}`}
-                          className="h-14 w-full rounded-md"
-                        />
-                      ))}
-                    </div>
-                  ) : adminRolesBlocked ? (
-                    <p className="text-sm text-[var(--fms-text-subheading)]">
-                      You do not have permission to view the role list. User
-                      creation with role assignment is not available until you
-                      have read access on Roles.
-                    </p>
-                  ) : rolesQuery.isLoading ? (
+                  {rolesQuery.isLoading ? (
                     <div className="max-h-64 space-y-2 overflow-y-auto rounded-md border border-[var(--fms-strokes)] p-3">
                       {Array.from({ length: 4 }).map((_, i) => (
                         <Skeleton
@@ -885,13 +868,7 @@ export function DirectoryUserRegistrationForm({
                 <Link to="/users">Close</Link>
               </Button>
               <Button
-                disabled={
-                  formLocked ||
-                  createMutation.isPending ||
-                  !profile ||
-                  adminRolesBlocked ||
-                  adminRolesPermLoading
-                }
+                disabled={formLocked || createMutation.isPending || !profile}
                 onClick={onSubmit}
               >
                 {createMutation.isPending ? "Saving…" : "Save User"}

@@ -13,6 +13,11 @@ import {
 } from '@/features/vehicles/lib/driver-vehicle-assignments-api'
 import { apiGet } from '@/services/apiClient'
 import { DeleteDialog } from '@/shared/components/DeleteDialog'
+import {
+  ListPanelMessage,
+  MobileListCard,
+  MobileListField,
+} from '@/shared/components/MobileListCard'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
 import { TablePagination } from '@/shared/components/TablePagination'
@@ -158,7 +163,7 @@ export function AssignVehiclePage() {
       setSelectedAssignmentId(null)
     },
     onError: (error) => {
-      showErrorToast(error instanceof Error ? error.message : 'Failed to delete assignment')
+      showErrorToast(error, 'Failed to delete assignment')
     },
   })
 
@@ -213,8 +218,8 @@ export function AssignVehiclePage() {
             </div>
           </div>
 
-          <div className="hidden overflow-hidden rounded-lg border border-[var(--fms-strokes)] md:block">
-            <table className="w-full text-sm">
+          <div className="hidden w-full min-w-0 overflow-x-auto rounded-lg border border-[var(--fms-strokes)] md:block">
+            <table className="w-max min-w-full text-sm">
               <thead className="bg-[#f6f6f7] text-[var(--fms-text-header)]">
                 <tr>
                   <th className="w-16 px-4 py-3 text-left font-semibold">Sl.No</th>
@@ -337,6 +342,75 @@ export function AssignVehiclePage() {
               </tbody>
             </table>
           </div>
+
+          <div className="space-y-3 md:hidden">
+            {crud.isResolved && !crud.canRead ? (
+              <ListPanelMessage>
+                You do not have permission to view this data.
+              </ListPanelMessage>
+            ) : assignmentsQuery.isLoading ? (
+              <ListPanelMessage>Loading assignments…</ListPanelMessage>
+            ) : assignmentsQuery.isError ? (
+              <ListPanelMessage tone="error">
+                Failed to load assignments.
+              </ListPanelMessage>
+            ) : rows.length === 0 ? (
+              <ListPanelMessage>No assignments found.</ListPanelMessage>
+            ) : (
+              rows.map((row, index) => (
+                <MobileListCard key={row.id}>
+                  <MobileListField label="Sl.No">
+                    {serialBase + index + 1}
+                  </MobileListField>
+                  <MobileListField label="Name">
+                    {driverDetailById.get(row.driverId)?.name || row.name}
+                  </MobileListField>
+                  <MobileListField label="CID">
+                    {driverDetailById.get(row.driverId)?.cid || row.cid || '—'}
+                  </MobileListField>
+                  <MobileListField label="License Number">
+                    {row.license}
+                  </MobileListField>
+                  <MobileListField label="Available Status">
+                    <span className="capitalize">
+                      {row.availability_status || '—'}
+                    </span>
+                  </MobileListField>
+                  <MobileListField label="Assigned Vehicle">
+                    {vehicleLabelById.get(row.vehicleId) || row.assignedVehicle}
+                  </MobileListField>
+                  <div className={`mt-3 ${rowActionsContainerClassName}`}>
+                    <DetailRowActionButton
+                      type="button"
+                      disabled={!crud.canRead}
+                      title="Detail"
+                      aria-label="View assignment details"
+                      onClick={() =>
+                        navigate(`/assign-driver/${encodeURIComponent(row.id)}`)
+                      }
+                    />
+                    <EditRowActionButton
+                      type="button"
+                      disabled={!crud.canUpdate}
+                      title="Edit"
+                      aria-label="Edit assignment"
+                      onClick={() =>
+                        navigate(
+                          `/assign-driver/${encodeURIComponent(row.id)}/edit`,
+                        )
+                      }
+                    />
+                    <DeleteRowActionButton
+                      type="button"
+                      disabled={!crud.canDelete || deleteMutation.isPending}
+                      onClick={() => askDelete(row.id)}
+                    />
+                  </div>
+                </MobileListCard>
+              ))
+            )}
+          </div>
+
           <TablePagination
             page={page}
             totalPages={totalPages}

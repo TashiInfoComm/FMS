@@ -37,6 +37,7 @@ export const vehicleFormSchema = z.object({
   cost: requiredNumberText('Cost'),
   identification_code: requiredText('Identification code'),
   vehicle_category_id: requiredText('Vehicle category'),
+  vehicle_type_id: requiredText('Vehicle type'),
   fuel_type_id: requiredText('Fuel type'),
   status_id: requiredText('Vehicle status'),
   movement_status_id: requiredText('Vehicle movement status'),

@@ -1,5 +1,6 @@
 // Master lists for agency → department → division → sub-division (`/master/*`), GET `/vehicles/agency-assignments/{vehicle_id}`,
 // POST `/vehicles/agency-assignment` (create), PUT `/vehicles/agency-assignment/{id}` (update).
+import type { AdminGroupNode } from '@/features/user/lib/groups-api'
 import { extractMasterList } from '@/features/vehicles/lib/vehicle-create-master-data'
 import { apiGet, apiPost, apiPut } from '@/services/apiClient'
 
@@ -157,6 +158,30 @@ export async function fetchVehicleAgencyAssignmentMasterData(): Promise<VehicleA
     divisions: mapDivisionRows(extractMasterList(divisionsPayload)),
     subDivisions: mapSubDivisionRows(extractMasterList(subDivisionsPayload)),
   }
+}
+
+/** Flat `AdminGroupNode[]` from master organogram rows (admin user create/edit tier pickers). */
+export function masterDataToOrgGroupNodes(master: VehicleAgencyAssignmentMasterData): AdminGroupNode[] {
+  const nodes: AdminGroupNode[] = []
+  for (const row of master.agencies) {
+    nodes.push({ id: row.id, name: row.name, parentId: null })
+  }
+  for (const row of master.departments) {
+    nodes.push({ id: row.id, name: row.name, parentId: row.agencyId })
+  }
+  for (const row of master.divisions) {
+    nodes.push({ id: row.id, name: row.name, parentId: row.departmentId })
+  }
+  for (const row of master.subDivisions) {
+    nodes.push({ id: row.id, name: row.name, parentId: row.divisionId })
+  }
+  return nodes
+}
+
+/** Master agency → sub-division lists for admin user org assignment. */
+export async function fetchAdminMasterOrgGroupNodes(): Promise<AdminGroupNode[]> {
+  const master = await fetchVehicleAgencyAssignmentMasterData()
+  return masterDataToOrgGroupNodes(master)
 }
 
 export type AgencyAssignmentTierSelection = {

@@ -1,6 +1,6 @@
 import { formatCurrentQuota } from '@/features/fuel/lib/quota-request-mock-data'
 
-export type FuelLogStatus = 'VERIFIED' | 'PENDING'
+export type FuelLogStatus = string
 
 export type FuelLogRecord = {
   id: string
@@ -115,6 +115,24 @@ let fuelLogs: FuelLogRecord[] = [
 
 export function getFuelLogs(): FuelLogRecord[] {
   return fuelLogs
+}
+
+export function filterFuelLogs(rows: FuelLogRecord[], search: string): FuelLogRecord[] {
+  const query = search.trim().toLowerCase()
+  if (!query) return rows
+  return rows.filter((row) => {
+    const dateLabel = formatFuelLogDate(row.date).toLowerCase()
+    return (
+      row.driver.toLowerCase().includes(query) ||
+      row.vehicle.toLowerCase().includes(query) ||
+      row.status.toLowerCase().includes(query) ||
+      row.id.toLowerCase().includes(query) ||
+      row.location.toLowerCase().includes(query) ||
+      dateLabel.includes(query) ||
+      String(row.liters).includes(query) ||
+      String(row.totalCost).includes(query)
+    )
+  })
 }
 
 export function getFuelLogById(id: string): FuelLogRecord | undefined {

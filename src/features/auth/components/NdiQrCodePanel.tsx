@@ -1,4 +1,3 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { QRCode } from "react-qrcode-logo";
 import { useNavigate } from "react-router-dom";
@@ -11,7 +10,7 @@ import {
   postNdiCheckCallbackResponse,
   type NdiProofIntent,
 } from "@/features/auth/lib/ndi-proof-request-api";
-import { clearCurrentProfileQueryCache } from "@/lib/query-client";
+import { clearCurrentProfileQueryCache, queryClient } from "@/lib/query-client";
 import { apiGet } from "@/services/apiClient";
 import { useUserStore } from "@/services/user-store";
 import { Loader } from "@/shared/components/Loader";
@@ -45,7 +44,6 @@ function pickProfileFromMeResponse(response: ProfileResponse): Record<string, un
 
 export function NdiQrCodePanel({ intent }: Props) {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const setAuthSession = useUserStore((s) => s.setAuthSession);
   const setUser = useUserStore((s) => s.setUser);
   /** Incremented on unmount / new thread so in-flight polls exit without navigating or toasting. */
@@ -54,7 +52,10 @@ export function NdiQrCodePanel({ intent }: Props) {
   const activeCallbackThreadRef = useRef<string | null>(null);
 
   const [callbackUi, setCallbackUi] = useState<
-    { phase: "idle" } | { phase: "polling" } | { phase: "error"; message: string }
+    | { phase: "idle" }
+    | { phase: "polling" }
+    | { phase: "loading-profile" }
+    | { phase: "error"; message: string }
   >({ phase: "idle" });
 
   const { data, isPending, isError, error, refetch } = useNdiProofRequestQr(intent);
@@ -126,13 +127,11 @@ export function NdiQrCodePanel({ intent }: Props) {
               refreshToken: auth.refreshToken,
               user: null,
             });
+            setCallbackUi({ phase: "loading-profile" });
             try {
               clearCurrentProfileQueryCache();
-              const profileResponse = await queryClient.fetchQuery({
-                queryKey: ["current-profile"],
-                queryFn: () => apiGet<ProfileResponse>("/auth/me"),
-                staleTime: 5 * 60 * 1000,
-              });
+              const profileResponse = await apiGet<ProfileResponse>("/auth/me");
+              queryClient.setQueryData(["current-profile"], profileResponse);
               const profile = pickProfileFromMeResponse(profileResponse);
               if (profile) setUser(profile);
             } catch {
@@ -182,12 +181,12 @@ export function NdiQrCodePanel({ intent }: Props) {
     intent,
     threadId,
     navigate,
-    queryClient,
     setAuthSession,
     setUser,
   ]);
 
   const callbackPolling = callbackUi.phase === "polling";
+  const callbackLoadingProfile = callbackUi.phase === "loading-profile";
   const callbackError =
     callbackUi.phase === "error" ? callbackUi.message : null;
 
@@ -228,6 +227,17 @@ export function NdiQrCodePanel({ intent }: Props) {
           <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={restartQr}>
             Try again
           </Button>
+        </div>
+      ) : callbackLoadingProfile ? (
+        <div
+          className="flex h-44 w-44 flex-col items-center justify-center gap-2 rounded-lg bg-[var(--fms-background)] px-3 text-center"
+          aria-busy="true"
+          aria-live="polite"
+        >
+          <Loader />
+          <span className="text-[10px] font-medium leading-tight text-[var(--fms-text-subheading)]">
+            Loading your profile…
+          </span>
         </div>
       ) : qrPayload ? (
         <div className="inline-flex flex-col items-center gap-2">

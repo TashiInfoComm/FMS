@@ -12,6 +12,7 @@ import {
   type OrganogramDisplayLookups,
 } from '@/shared/lib/organogram-master-lookup'
 import { formatRealmRoleDisplayName } from '@/shared/lib/format-realm-role-display'
+import { parseApiPagination } from '@/shared/utils/pagination'
 
 type DirectoryOrganogramHints = {
   level1Id?: string
@@ -216,7 +217,7 @@ function pickDesignation(r: ApiRecord): string {
 
 /** Citizen ID from directory/user payloads (snake_case and camelCase). */
 function pickCid(r: ApiRecord): string {
-  return (
+  const direct =
     toText(r.cid) ||
     toText(r.citizen_id) ||
     toText(r.citizenId) ||
@@ -224,7 +225,21 @@ function pickCid(r: ApiRecord): string {
     toText(r.cidNumber) ||
     toText(r.cid_number) ||
     ''
-  )
+  if (direct) return direct
+
+  const attrs = r.attributes
+  if (attrs && typeof attrs === 'object' && !Array.isArray(attrs)) {
+    const a = attrs as Record<string, unknown>
+    for (const key of ['cid', 'citizen_id', 'citizenId', 'cid_no', 'cid_number'] as const) {
+      const value = a[key]
+      if (typeof value === 'string' && value.trim()) return value.trim()
+      if (Array.isArray(value) && typeof value[0] === 'string' && value[0].trim()) {
+        return value[0].trim()
+      }
+    }
+  }
+
+  return ''
 }
 
 /** When the API returns only a display `name`, split into first / middle / last for the form. */
@@ -516,6 +531,148 @@ export async function fetchUserById(userId: string): Promise<ApiRecord> {
   return mergeNestedUserEnvelope(r)
 }
 
+export type UserCidSearchResult = {
+  cid: string
+  fullName: string
+}
+
+function usersListRecordsFromPayload(payload: unknown): ApiRecord[] {
+  if (Array.isArray(payload)) {
+    return payload.filter((item): item is ApiRecord => !!item && typeof item === 'object')
+  }
+  if (!payload || typeof payload !== 'object') return []
+  const root = payload as ApiRecord
+  const data = root.data
+  const candidates = [
+    root.items,
+    root.results,
+    root.rows,
+    root.users,
+    root.list,
+    Array.isArray(data) ? data : undefined,
+    data && typeof data === 'object' && !Array.isArray(data) ? (data as ApiRecord).items : undefined,
+    data && typeof data === 'object' && !Array.isArray(data) ? (data as ApiRecord).users : undefined,
+    data && typeof data === 'object' && !Array.isArray(data) ? (data as ApiRecord).results : undefined,
+  ]
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) {
+      return candidate.filter((item): item is ApiRecord => !!item && typeof item === 'object')
+    }
+  }
+  return []
+}
+
+function mapUserRecordToCidSearchResult(raw: ApiRecord): UserCidSearchResult | null {
+  const merged = mergeNestedUserEnvelope(raw)
+  const cid = pickCid(merged)
+  const fullName = pickName(merged)
+  if (!cid || !fullName) return null
+  return { cid, fullName }
+}
+
+async function fetchUsersListPage(
+  query: Record<string, string>,
+): Promise<{ payload: unknown; records: ApiRecord[] }> {
+  const params = new URLSearchParams(query)
+  const payload = await apiGet<unknown>(`/admin/users?${params.toString()}`)
+  return { payload, records: usersListRecordsFromPayload(payload) }
+}
+
+function findExactCidMatch(records: ApiRecord[], trimmed: string): UserCidSearchResult | null {
+  for (const raw of records) {
+    const match = mapUserRecordToCidSearchResult(raw)
+    if (match?.cid === trimmed) return match
+  }
+  return null
+}
+
+function usersListHasMorePages(
+  payload: unknown,
+  page: number,
+  pageSize: number,
+  rowCount: number,
+): boolean {
+  const parsed = parseApiPagination(payload, page, pageSize)
+  if (parsed?.totalPages != null && parsed.totalPages > 0) {
+    return page < parsed.totalPages
+  }
+  if (parsed?.totalItems != null) {
+    return page * pageSize < parsed.totalItems
+  }
+  return rowCount >= pageSize
+}
+
+export type UserSelectOption = {
+  id: string
+  name: string
+}
+
+function mapUserRecordToSelectOption(raw: ApiRecord): UserSelectOption | null {
+  const merged = mergeNestedUserEnvelope(raw)
+  const detail = mapUserDetailFields(merged)
+  if (!detail.id || detail.id === '-' || !detail.name || detail.name === '-') return null
+  return { id: detail.id, name: detail.name }
+}
+
+/** Users for select lists (`GET /admin/users`, first page). */
+export async function fetchUsersForSelect(pageSize = 100): Promise<UserSelectOption[]> {
+  const params = new URLSearchParams()
+  params.set('page', '1')
+  params.set('page_size', String(pageSize))
+  params.set('role', 'fms-driver')
+  const payload = await apiGet<unknown>(`/admin/users?${params.toString()}`)
+  return usersListRecordsFromPayload(payload)
+    .map(mapUserRecordToSelectOption)
+    .filter((row): row is UserSelectOption => row !== null)
+}
+
+/** Search `GET /admin/users` by CID; returns CID and display name. */
+export async function searchUserByCid(cid: string): Promise<UserCidSearchResult | null> {
+  const trimmed = cid.trim()
+  if (!trimmed) return null
+
+  // 1) `search` param — works when backend indexes name/username/email.
+  {
+    const { records } = await fetchUsersListPage({
+      page: '1',
+      page_size: '20',
+      search: trimmed,
+    })
+    const match = findExactCidMatch(records, trimmed)
+    if (match) return match
+  }
+
+  // 2) Dedicated `cid` filter when the API exposes it.
+  {
+    const { records } = await fetchUsersListPage({
+      page: '1',
+      page_size: '20',
+      cid: trimmed,
+    })
+    const match = findExactCidMatch(records, trimmed)
+    if (match) return match
+    if (records.length === 1) {
+      const single = mapUserRecordToCidSearchResult(records[0])
+      if (single) return single
+    }
+  }
+
+  // 3) Paginate the user list and match CID client-side — backend `search` often skips CID.
+  const pageSize = 100
+  const maxPages = 50
+  for (let page = 1; page <= maxPages; page += 1) {
+    const { payload, records } = await fetchUsersListPage({
+      page: String(page),
+      page_size: String(pageSize),
+    })
+    const match = findExactCidMatch(records, trimmed)
+    if (match) return match
+    if (!usersListHasMorePages(payload, page, pageSize, records.length)) break
+  }
+
+  return null
+}
+
 /** Tier labels from `groups`: index 0 agency … 3 sub division (legacy / string rows only). */
 function organogramLabelsFromGroups(record: ApiRecord): {
   agency: string
@@ -675,6 +832,32 @@ function readAttributeScalar(record: ApiRecord, key: string): string {
   return ''
 }
 
+function hasExplicitOrganogramTierField(
+  record: ApiRecord,
+  snakeKey: string,
+  camelKey: string,
+): boolean {
+  if (snakeKey in record || camelKey in record) return true
+  const attrs = record.attributes
+  return Boolean(
+    attrs && typeof attrs === 'object' && !Array.isArray(attrs) && snakeKey in attrs,
+  )
+}
+
+/** Uses positional `groups[n]` only when the tier id field is absent — not when it is explicitly null. */
+function resolveOrganogramTierId(
+  record: ApiRecord,
+  snakeKey: string,
+  camelKey: string,
+  flatId: string,
+  groupFallback: string,
+): string {
+  if (hasExplicitOrganogramTierField(record, snakeKey, camelKey)) {
+    return flatId
+  }
+  return flatId || groupFallback
+}
+
 /**
  * Organogram tier ids from `GET /admin/users/:id` (`data.agency_id`, `department_id`,
  * `division_id`, `sub_division_id`). Resolved via `/admin/groups` and `/public/groups` for display names.
@@ -721,10 +904,34 @@ export function pickUserDetailOrganogramIds(record: ApiRecord): {
     return ''
   }
   return {
-    agencyId: fromFlat.agencyId || entryId(g[0]),
-    departmentId: fromFlat.departmentId || entryId(g[1]),
-    divisionId: fromFlat.divisionId || entryId(g[2]),
-    subDivisionId: fromFlat.subDivisionId || entryId(g[3]),
+    agencyId: resolveOrganogramTierId(
+      m,
+      'agency_id',
+      'agencyId',
+      fromFlat.agencyId,
+      entryId(g[0]),
+    ),
+    departmentId: resolveOrganogramTierId(
+      m,
+      'department_id',
+      'departmentId',
+      fromFlat.departmentId,
+      entryId(g[1]),
+    ),
+    divisionId: resolveOrganogramTierId(
+      m,
+      'division_id',
+      'divisionId',
+      fromFlat.divisionId,
+      entryId(g[2]),
+    ),
+    subDivisionId: resolveOrganogramTierId(
+      m,
+      'sub_division_id',
+      'subDivisionId',
+      fromFlat.subDivisionId,
+      entryId(g[3]),
+    ),
   }
 }
 

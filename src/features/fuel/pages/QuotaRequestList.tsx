@@ -1,10 +1,11 @@
-import { Pencil, Search } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Pencil } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { FuelTableListToolbar } from "@/features/fuel/components/FuelTableListToolbar";
 import {
   Select,
   SelectContent,
@@ -13,16 +14,23 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  deleteQuotaRequest,
-  filterQuotaRequests,
-  formatCurrentQuota,
-  getQuotaRequests,
+  formatNuDisplay,
   QUOTA_REQUEST_STATUS_OPTIONS,
-  type QuotaRequestRecord,
   type QuotaRequestStatus,
 } from "@/features/fuel/lib/quota-request-mock-data";
+import {
+  deleteQuotaRequest,
+  fetchQuotaRequestsPage,
+  formatQuotaRequestSource,
+  type QuotaRequestListRow,
+} from "@/features/fuel/lib/quota-requests-api";
 import { cn } from "@/lib/utils";
 import { DeleteDialog } from "@/shared/components/DeleteDialog";
+import {
+  ListPanelMessage,
+  MobileListCard,
+  MobileListField,
+} from "@/shared/components/MobileListCard";
 import { PageHeader } from "@/shared/components/PageHeader";
 import {
   DeleteRowActionButton,
@@ -32,13 +40,14 @@ import {
 } from "@/shared/components/TableRowActionButtons";
 import { TablePagination } from "@/shared/components/TablePagination";
 import { useRouteCrudPermissions } from "@/shared/hooks/useRouteCrudPermissions";
-import { showSuccessToast } from "@/shared/lib/toast";
+import { showErrorToast, showSuccessToast } from "@/shared/lib/toast";
 
 const TABLE_COLUMNS = [
   "Sl.No",
-  "Name",
-  "Contact",
   "Vehicle",
+  "Driver Name",
+  "Contact Number",
+  "Request Source",
   "Current Quota",
   "Status",
 ] as const;
@@ -46,20 +55,20 @@ const TABLE_COLUMNS = [
 function QuotaRequestStatusCell({ status }: { status: QuotaRequestStatus }) {
   if (status === "PENDING") {
     return (
-      <span className="rounded-full bg-[#ddf2ff] px-2 py-1 text-xs font-semibold text-[#0a72a5]">
+      <span className="rounded-full  px-2 py-1 text-xs  text-[#0a72a5]">
         PENDING
       </span>
     );
   }
   if (status === "APPROVED") {
     return (
-      <span className="rounded-full bg-[#d7f8e8] px-2 py-1 text-xs font-semibold text-[#0f8e5c]">
+      <span className="rounded-full  px-2 py-1 text-xs  text-[#0f8e5c]">
         APPROVED
       </span>
     );
   }
   return (
-    <span className="rounded-full bg-[#fde8e8] px-2 py-1 text-xs font-semibold text-[#c53030]">
+    <span className="rounded-full  px-2 py-1 text-xs  text-[#c53030]">
       REJECTED
     </span>
   );
@@ -67,34 +76,48 @@ function QuotaRequestStatusCell({ status }: { status: QuotaRequestStatus }) {
 
 export default function QuotaRequestList() {
   const navigate = useNavigate();
-  const location = useLocation();
+  const queryClient = useQueryClient();
   const crud = useRouteCrudPermissions("/fuel/quota-request-list");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
-  const [refreshKey, setRefreshKey] = useState(0);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [selectedDeleteId, setSelectedDeleteId] = useState<string | null>(null);
 
-  const allRows = useMemo(() => {
-    void refreshKey;
-    return getQuotaRequests();
-  }, [refreshKey, location.pathname]);
+  const listQuery = useQuery({
+    queryKey: ["fuel-quota-requests", search, statusFilter, page, pageSize],
+    queryFn: () => fetchQuotaRequestsPage(search, statusFilter, page, pageSize),
+    enabled: !crud.isResolved || crud.canRead,
+    staleTime: 30_000,
+  });
 
-  const filtered = useMemo(
-    () => filterQuotaRequests(allRows, search, statusFilter),
-    [allRows, search, statusFilter],
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => {
+      if (!crud.canDelete) {
+        throw new Error("You do not have permission to delete quota requests.");
+      }
+      return deleteQuotaRequest(id);
+    },
+    onSuccess: () => {
+      showSuccessToast("Quota request deleted");
+      queryClient.invalidateQueries({ queryKey: ["fuel-quota-requests"] });
+    },
+    onError: (error) => {
+      showErrorToast(error, "Failed to delete quota request");
+    },
+  });
+
+  const rows = useMemo(
+    () => listQuery.data?.rows ?? [],
+    [listQuery.data?.rows],
   );
-
-  const totalCount = filtered.length;
-  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
-  const serialBase = (page - 1) * pageSize;
-
-  const rows = useMemo(() => {
-    const start = serialBase;
-    return filtered.slice(start, start + pageSize);
-  }, [filtered, pageSize, serialBase]);
+  const totalCount = listQuery.data?.totalCount ?? rows.length;
+  const effectivePageSize = listQuery.data?.effectivePageSize ?? pageSize;
+  const totalPages =
+    listQuery.data?.totalPages ??
+    Math.max(1, Math.ceil(totalCount / Math.max(1, effectivePageSize)));
+  const serialBase = listQuery.data?.serialBase ?? (page - 1) * pageSize;
 
   useEffect(() => {
     setPage(1);
@@ -104,63 +127,66 @@ export default function QuotaRequestList() {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
 
-  const openDetail = (row: QuotaRequestRecord) => {
+  const openDetail = (row: QuotaRequestListRow) => {
     navigate(`/fuel/quota-request-list/${encodeURIComponent(row.id)}`);
   };
 
-  const openReplenish = (row: QuotaRequestRecord) => {
+  const openReplenish = (row: QuotaRequestListRow) => {
     navigate(
       `/fuel/quota-request-list/${encodeURIComponent(row.id)}/replenish`,
     );
   };
 
-  const onDeleteRequest = (row: QuotaRequestRecord) => {
+  const onDeleteRequest = (row: QuotaRequestListRow) => {
     setSelectedDeleteId(row.id);
     setDeleteOpen(true);
   };
 
   const onConfirmDelete = () => {
     if (!selectedDeleteId) return;
-    deleteQuotaRequest(selectedDeleteId);
-    setSelectedDeleteId(null);
-    setRefreshKey((key) => key + 1);
-    showSuccessToast("Quota request deleted");
+    deleteMutation.mutate(selectedDeleteId, {
+      onSettled: () => setSelectedDeleteId(null),
+    });
   };
 
   return (
     <section className="space-y-5">
       <PageHeader title="Quota Requests" />
 
-      <Card className="rounded-xl border border-[var(--fms-strokes)] bg-white p-2 sm:p-4">
-        <CardContent className="space-y-4 p-0">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-full sm:w-[200px]">
-                <SelectValue placeholder="All statuses" />
-              </SelectTrigger>
-              <SelectContent>
-                {QUOTA_REQUEST_STATUS_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+      <Card className="min-w-0 rounded-xl border border-[var(--fms-strokes)] bg-white p-2 sm:p-4">
+        <CardContent className="min-w-0 space-y-4 p-0 align-end">
+          <FuelTableListToolbar
+            search={search}
+            onSearchChange={(next) => {
+              setSearch(next);
+              setPage(1);
+            }}
+            searchPlaceholder="Search vehicle"
+            searchAriaLabel="Search quota requests"
+            leading={
+              <Select
+                value={statusFilter}
+                onValueChange={(next) => {
+                  setStatusFilter(next);
+                  setPage(1);
+                }}
+              >
+                <SelectTrigger className="h-10 w-full sm:w-[200px]">
+                  <SelectValue placeholder="All statuses" />
+                </SelectTrigger>
+                <SelectContent>
+                  {QUOTA_REQUEST_STATUS_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            }
+          />
 
-            <div className="relative w-full sm:max-w-md">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--fms-text-subheading)]" />
-              <Input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search driver, vehicle, email..."
-                className="h-10 pl-9"
-                aria-label="Search quota requests"
-              />
-            </div>
-          </div>
-
-          <div className="overflow-x-auto rounded-lg border border-[var(--fms-strokes)]">
-            <table className="w-full min-w-[900px] text-sm">
+          <div className="hidden w-full min-w-0 overflow-x-auto rounded-lg border border-[var(--fms-strokes)] md:block">
+            <table className="w-max min-w-full text-sm">
               <thead className="bg-[#f6f6f7] text-[var(--fms-text-header)]">
                 <tr>
                   {TABLE_COLUMNS.map((column) => (
@@ -186,13 +212,35 @@ export default function QuotaRequestList() {
                       You do not have permission to view quota requests.
                     </td>
                   </tr>
+                ) : listQuery.isLoading ? (
+                  <tr className="border-t border-[var(--fms-strokes)]">
+                    <td
+                      colSpan={TABLE_COLUMNS.length + 1}
+                      className="px-4 py-6 text-center text-[var(--fms-text-subheading)]"
+                    >
+                      Loading quota requests…
+                    </td>
+                  </tr>
+                ) : listQuery.isError ? (
+                  <tr className="border-t border-[var(--fms-strokes)]">
+                    <td
+                      colSpan={TABLE_COLUMNS.length + 1}
+                      className="px-4 py-6 text-center text-[var(--fms-text-subheading)]"
+                    >
+                      {listQuery.error instanceof Error
+                        ? listQuery.error.message
+                        : "Could not load quota requests."}
+                    </td>
+                  </tr>
                 ) : rows.length === 0 ? (
                   <tr className="border-t border-[var(--fms-strokes)]">
                     <td
                       colSpan={TABLE_COLUMNS.length + 1}
                       className="px-4 py-6 text-center text-[var(--fms-text-subheading)]"
                     >
-                      No quota requests match your filters.
+                      {search.trim() || statusFilter !== "all"
+                        ? "No quota requests match your filters."
+                        : "No quota requests found."}
                     </td>
                   </tr>
                 ) : (
@@ -205,17 +253,21 @@ export default function QuotaRequestList() {
                         {serialBase + index + 1}
                       </td>
                       <td className="px-4 py-3 font-medium text-[var(--fms-text-header)]">
-                        {row.name}
-                      </td>
-                      <td className="px-4 py-3 text-[var(--fms-text-subheading)]">
-                        {row.contact}
-                      </td>
-                      <td className="px-4 py-3 text-[var(--fms-text-header)]">
                         {row.vehicle}
                       </td>
                       <td className="px-4 py-3 text-[var(--fms-text-subheading)]">
-                        {formatCurrentQuota(row.quotaUsed, row.quotaTotal)}
+                        {row.driverName}
                       </td>
+                      <td className="px-4 py-3 tabular-nums text-[var(--fms-text-subheading)]">
+                        {row.contactNumber}
+                      </td>
+                      <td className="px-4 py-3 text-[var(--fms-text-subheading)]">
+                        {formatQuotaRequestSource(row.requestSource)}
+                      </td>
+                      <td className="px-4 py-3 text-[var(--fms-text-subheading)]">
+                        {`${formatNuDisplay(row.balanceAtRequest)} / ${formatNuDisplay(row.recommendedAmount)}`}
+                      </td>
+
                       <td className="px-4 py-3">
                         <QuotaRequestStatusCell status={row.status} />
                       </td>
@@ -238,14 +290,14 @@ export default function QuotaRequestList() {
                             className={editRowActionButtonClassName}
                             disabled={
                               row.status !== "PENDING" ||
-                              (!crud.canUpdate && crud.isResolved)
+                              (!crud.canUpdate)
                             }
                             onClick={() => openReplenish(row)}
                           >
                             <Pencil aria-hidden />
                             Replenish
                           </Button>
-                          <DeleteRowActionButton type="button" disabled={!crud.canDelete && crud.isResolved} onClick={() => onDeleteRequest(row)} />    
+                          <DeleteRowActionButton type="button" disabled={!crud.canDelete && crud.isResolved} onClick={() => onDeleteRequest(row)} />
                         </div>
                       </td>
                     </tr>
@@ -253,6 +305,86 @@ export default function QuotaRequestList() {
                 )}
               </tbody>
             </table>
+          </div>
+
+          <div className="space-y-3 md:hidden">
+            {crud.isResolved && !crud.canRead ? (
+              <ListPanelMessage>
+                You do not have permission to view quota requests.
+              </ListPanelMessage>
+            ) : listQuery.isLoading ? (
+              <ListPanelMessage>Loading quota requests…</ListPanelMessage>
+            ) : listQuery.isError ? (
+              <ListPanelMessage tone="error">
+                {listQuery.error instanceof Error
+                  ? listQuery.error.message
+                  : "Could not load quota requests."}
+              </ListPanelMessage>
+            ) : rows.length === 0 ? (
+              <ListPanelMessage>
+                {search.trim() || statusFilter !== "all"
+                  ? "No quota requests match your filters."
+                  : "No quota requests found."}
+              </ListPanelMessage>
+            ) : (
+              rows.map((row, index) => (
+                <MobileListCard key={row.id}>
+                  <MobileListField label="Sl.No">
+                    {serialBase + index + 1}
+                  </MobileListField>
+                  <MobileListField label="Vehicle">{row.vehicle}</MobileListField>
+                  <MobileListField label="Driver Name">
+                    {row.driverName}
+                  </MobileListField>
+                  <MobileListField label="Contact Number">
+                    {row.contactNumber}
+                  </MobileListField>
+                  <MobileListField label="Request Source">
+                    {formatQuotaRequestSource(row.requestSource)}
+                  </MobileListField>
+                  <MobileListField label="Current Quota">
+                    {`${formatNuDisplay(row.balanceAtRequest)} / ${formatNuDisplay(row.recommendedAmount)}`}
+                  </MobileListField>
+                  <p className="text-sm text-[var(--fms-text-subheading)]">
+                    <span className="font-medium text-[var(--fms-text-header)]">
+                      Status:
+                    </span>{" "}
+                    <QuotaRequestStatusCell status={row.status} />
+                  </p>
+                  <div
+                    className={cn(
+                      "mt-3",
+                      rowActionsContainerClassName,
+                      "justify-start gap-2",
+                    )}
+                  >
+                    <DetailRowActionButton
+                      type="button"
+                      disabled={!crud.canRead && crud.isResolved}
+                      onClick={() => openDetail(row)}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className={editRowActionButtonClassName}
+                      disabled={
+                        row.status !== "PENDING" || !crud.canUpdate
+                      }
+                      onClick={() => openReplenish(row)}
+                    >
+                      <Pencil aria-hidden />
+                      Replenish
+                    </Button>
+                    <DeleteRowActionButton
+                      type="button"
+                      disabled={!crud.canDelete && crud.isResolved}
+                      onClick={() => onDeleteRequest(row)}
+                    />
+                  </div>
+                </MobileListCard>
+              ))
+            )}
           </div>
 
           <TablePagination

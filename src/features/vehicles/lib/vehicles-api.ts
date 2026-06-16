@@ -14,6 +14,14 @@ import { applyPagination } from '@/shared/utils/pagination'
 
 type ApiRecord = Record<string, unknown>
 
+function pickBoolean(record: ApiRecord, keys: string[]): boolean | undefined {
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === 'boolean') return value
+  }
+  return undefined
+}
+
 function pickScalar(record: ApiRecord, keys: string[]): string {
   for (const key of keys) {
     const value = record[key]
@@ -31,6 +39,7 @@ export type VehicleListRow = {
   movement: string
   odometer: string
   color: string
+  quota_initialized: boolean
 }
 
 function resolveStatusLabel(
@@ -105,6 +114,10 @@ export function mapVehicleRecordToListRow(
   ]);
   const odometer = odoRaw ? (/\bkm\b/i.test(odoRaw) ? odoRaw : `${odoRaw} km`) : ''
 const color = pickScalar(record, ['color', 'vehicle_color'])
+  const quotaInitialized = pickBoolean(record, [
+    'quota_initialized',
+    'quotaInitialized',
+  ])
   return {
     id,
     color: color || '—',
@@ -113,6 +126,7 @@ const color = pickScalar(record, ['color', 'vehicle_color'])
     status: status || '—',
     movement: movement || '—',
     odometer: odometer || '—',
+    quota_initialized: quotaInitialized ?? true,
   }
 }
 
@@ -191,6 +205,7 @@ export type VehicleUpsertBody = {
   year: number
   color: string
   vehicle_category_id: string
+  vehicle_type_id: string
   fuel_type_id: string
   engine_capacity_cc: number
   seating_capacity: number
@@ -217,6 +232,7 @@ const FORM_KEYS = [
   "year",
   "color",
   "vehicle_category_id",
+  "vehicle_type_id",
   "fuel_type_id",
   "engine_capacity_cc",
   "seating_capacity",
@@ -246,6 +262,7 @@ export function emptyVehicleFormState(): VehicleFormStringState {
     year: '',
     color: '',
     vehicle_category_id: '',
+    vehicle_type_id: '',
     fuel_type_id: '',
     engine_capacity_cc: '',
     seating_capacity: '',
@@ -387,6 +404,10 @@ export function vehicleRecordToFormState(record: ApiRecord): VehicleFormStringSt
     'vehicle_category_id',
     'vehicleCategoryId',
   ])
+  const vehicleTypeId = pickStringFromRecord(record, [
+    'vehicle_type_id',
+    'vehicleTypeId',
+  ])
   const fuelId = pickStringFromRecord(record, ['fuel_type_id', 'fuelTypeId'])
 
   return {
@@ -425,6 +446,7 @@ export function vehicleRecordToFormState(record: ApiRecord): VehicleFormStringSt
     ]),
     color: pickStringFromRecord(record, ["color", "vehicle_color"]),
     vehicle_category_id: categoryId,
+    vehicle_type_id: vehicleTypeId,
     fuel_type_id: fuelId,
     status_id: pickStringFromRecord(record, ["status_id", "statusId"]),
     movement_status_id: pickStringFromRecord(record, [
@@ -500,6 +522,7 @@ export function vehicleFormStateToPayload(form: VehicleFormStringState): Vehicle
     year: parseIntField(form.year, 0),
     color: form.color.trim(),
     vehicle_category_id: form.vehicle_category_id.trim(),
+    vehicle_type_id: form.vehicle_type_id.trim(),
     fuel_type_id: form.fuel_type_id.trim(),
     engine_capacity_cc: parseIntField(form.engine_capacity_cc, 0),
     seating_capacity: parseIntField(form.seating_capacity, 0),
@@ -529,4 +552,24 @@ export async function updateVehicle(vehicleId: string, body: VehicleUpsertBody):
   const trimmed = vehicleId.trim()
   if (!trimmed) throw new Error('Missing vehicle id')
   return apiPut<unknown, VehicleUpsertBody>(`/vehicles/${encodeURIComponent(trimmed)}`, body)
+}
+
+export type VehicleQuotaInitialBody = {
+  fuel_quota_balance: number
+}
+
+/** POST `/vehicles/{vehicle_id}/quota-initial` — sets initial fuel quota when `quota_initialized` is false. */
+export async function assignVehicleQuotaInitial(
+  vehicleId: string,
+  fuelQuotaBalance: number,
+): Promise<unknown> {
+  const trimmed = vehicleId.trim()
+  if (!trimmed) throw new Error('Missing vehicle id')
+  if (!Number.isFinite(fuelQuotaBalance) || fuelQuotaBalance <= 0) {
+    throw new Error('Enter a valid fuel quota amount')
+  }
+  return apiPost<unknown, VehicleQuotaInitialBody>(
+    `/vehicles/${encodeURIComponent(trimmed)}/quota-initial`,
+    { fuel_quota_balance: fuelQuotaBalance },
+  )
 }

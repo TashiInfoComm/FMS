@@ -1,8 +1,10 @@
 // Shows the signed-in user profile from persisted session (local storage via user store).
 import type { ComponentType, ReactNode } from 'react'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Building2, Fingerprint, IdCard, KeyRound, UserRound } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { ChangePasswordDialog } from '@/features/profile/components/ChangePasswordDialog'
 import { mapUserDetailFields } from '@/features/user/lib/users-api'
 import type { ApiRecord } from '@/features/user/lib/roles-api'
 import { useUserStore } from '@/services/user-store'
@@ -27,6 +29,7 @@ function statusDisplayClass(status: string) {
 export function ProfilePage() {
   const user = useUserStore((state) => state.user)
   const record = asRecord(user)
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false)
 
   // const organogramQuery = useQuery({
   //   queryKey: ['admin', 'groups', 'display-lookups'],
@@ -63,6 +66,14 @@ export function ProfilePage() {
               value={detail.status}
               className={cn(statusDisplayClass(detail.status))}
             />
+            <Button
+              type="button"
+              variant="outline"
+              className="mt-2 border-[var(--fms-strokes)] bg-[var(--fms-success-border)] text-white hover:bg-[var(--fms-strokes)] hover:text-[var(--fms-text-header)]"
+              onClick={() => setChangePasswordOpen(true)}
+            >
+              Change password
+            </Button>
           </DetailCard>
 
           <DetailCard
@@ -132,6 +143,8 @@ export function ProfilePage() {
           </DetailCard>
         </div>
       )}
+
+      <ChangePasswordDialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen} />
     </section>
   )
 }

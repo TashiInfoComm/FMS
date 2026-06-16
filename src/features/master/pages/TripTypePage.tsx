@@ -28,6 +28,7 @@ type FormValues = {
   code: string
   name: string
   description: string
+  requiresMtoApproval: boolean
 }
 type TripTypeRow = {
   serialNo: number
@@ -35,10 +36,15 @@ type TripTypeRow = {
   name: string
   description: string
   active: boolean
+  requiresMtoApproval: boolean
 }
 
 function toText(value: unknown) {
   return typeof value === 'string' ? value : ''
+}
+
+function toBoolean(value: unknown) {
+  return typeof value === 'boolean' ? value : value === 1 || value === '1'
 }
 
 function toArray(payload: unknown): ApiRecord[] {
@@ -60,12 +66,13 @@ function mapRows(records: ApiRecord[], serialStart: number): TripTypeRow[] {
     code: toText(record.code),
     name: toText(record.name),
     description: toText(record.description) || '-',
-    active: typeof record.active === 'boolean' ? record.active : record.active === 1 || record.active === '1',
+    active: toBoolean(record.active),
+    requiresMtoApproval: toBoolean(record.requires_mto_approval),
   }))
 }
 
 function emptyValues(): FormValues {
-  return { code: '', name: '', description: '' }
+  return { code: '', name: '', description: '', requiresMtoApproval: false }
 }
 
 function buildStatusPayload(row: TripTypeRow, active: boolean) {
@@ -75,6 +82,7 @@ function buildStatusPayload(row: TripTypeRow, active: boolean) {
     description: (row.description === '-' ? '' : row.description).trim(),
     display_order: 1,
     active,
+    requires_mto_approval: row.requiresMtoApproval,
   }
 }
 
@@ -93,7 +101,10 @@ export function TripTypePage() {
   const [editingCode, setEditingCode] = useState<string | null>(null)
   const [selectedDeleteCode, setSelectedDeleteCode] = useState<string | null>(null)
   const queryClient = useQueryClient()
-  const { register, handleSubmit, reset, formState } = useForm<FormValues>({ defaultValues: emptyValues() })
+  const { register, handleSubmit, reset, formState, watch, setValue } = useForm<FormValues>({
+    defaultValues: emptyValues(),
+  })
+  const requiresMtoApprovalValue = watch('requiresMtoApproval')
 
   const crud = useRouteCrudPermissions('/master/trip-type')
 
@@ -179,6 +190,7 @@ export function TripTypePage() {
       code: row.code,
       name: row.name,
       description: row.description === '-' ? '' : row.description,
+      requiresMtoApproval: row.requiresMtoApproval,
     })
     setDialogOpen(true)
   }
@@ -212,6 +224,7 @@ export function TripTypePage() {
       description: raw.description.trim(),
       display_order: 1,
       active: true,
+      requires_mto_approval: raw.requiresMtoApproval,
     }
 
     if (editingCode) {
@@ -337,6 +350,20 @@ export function TripTypePage() {
                 ) : null}
               </div>
 
+              <div className="flex items-center gap-3">
+                <Switch
+                  id="requires-mto-approval"
+                  checked={requiresMtoApprovalValue}
+                  onCheckedChange={(checked) => setValue('requiresMtoApproval', checked)}
+                />
+                <Label
+                  htmlFor="requires-mto-approval"
+                  className="text-[var(--fms-text-subheading)]"
+                >
+                  Requires MTO Approval
+                </Label>
+              </div>
+
               <DialogFooter>
                 <Button
                   type="button"
@@ -381,7 +408,7 @@ export function TripTypePage() {
             <table className="min-w-full text-sm">
               <thead className="bg-[#f6f6f7] text-[var(--fms-text-header)]">
                 <tr>
-                  {["Sl.No", "Code", "Trip Type", "Description", "Status"].map(
+                  {["Sl.No", "Code", "Trip Type", "Description", "MTO Approval", "Status"].map(
                     (column) => (
                       <th
                         key={column}
@@ -403,7 +430,7 @@ export function TripTypePage() {
                 {listQuery.isLoading ? (
                   <tr className="border-t border-[var(--fms-strokes)]">
                     <td
-                      colSpan={6}
+                      colSpan={7}
                       className="px-4 py-6 text-center text-[var(--fms-text-subheading)]"
                     >
                       Loading records...
@@ -412,7 +439,7 @@ export function TripTypePage() {
                 ) : crud.isResolved && !crud.canRead ? (
                   <tr className="border-t border-[var(--fms-strokes)]">
                     <td
-                      colSpan={6}
+                      colSpan={7}
                       className="px-4 py-6 text-center text-[var(--fms-text-subheading)]"
                     >
                       You do not have permission to view this data.
@@ -421,7 +448,7 @@ export function TripTypePage() {
                 ) : rows.length === 0 ? (
                   <tr className="border-t border-[var(--fms-strokes)]">
                     <td
-                      colSpan={6}
+                      colSpan={7}
                       className="px-4 py-6 text-center text-[var(--fms-text-subheading)]"
                     >
                       No records found.
@@ -444,6 +471,17 @@ export function TripTypePage() {
                       </td>
                       <td className="px-4 py-3 text-[var(--fms-text-subheading)]">
                         {row.description}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={
+                            row.requiresMtoApproval
+                              ? ' text-[var(--fms-success-text)]'
+                              : 'text-[var(--fms-error-text)]'
+                          }
+                        >
+                          {row.requiresMtoApproval ? 'True' : 'False'}
+                        </span>
                       </td>
                       <td className="px-4 py-3">
                         <div className="inline-flex items-center gap-2">

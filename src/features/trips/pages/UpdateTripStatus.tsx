@@ -1,19 +1,41 @@
-import { ArrowLeft } from 'lucide-react'
-import { useMemo, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ArrowLeft, Flag, Play, Star } from 'lucide-react'
+import { useState } from 'react'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { formatDriverRoute } from '@/features/trips/lib/trip-assignment-mock-data'
+import { formatTripDateTime } from '@/features/trips/lib/trip-request-mock-data'
 import {
-  formatDriverRoute,
-  getDriverAssignmentById,
-  setDriverAssignmentStatus,
-  type DriverTripStatus,
-} from '@/features/trips/lib/trip-assignment-mock-data'
+  canCompleteTrip,
+  canStartTrip,
+  isTripCompleted,
+} from '@/features/trips/lib/trip-form-utils'
+import {
+  completeTrip,
+  fetchTripDetail,
+  fetchTripFeedback,
+  startTrip,
+} from '@/features/trips/lib/trips-api'
+import {
+  feedbackRatingToStars,
+  getFeedbackRatingLabel,
+  getRatingLabel,
+} from '@/features/trips/lib/trip-driver-feedback-mock-data'
+import { fetchTripRequisitionMasterLists } from '@/features/trips/lib/trip-requisition-masters'
 import { PageHeader } from '@/shared/components/PageHeader'
-import { showSuccessToast } from '@/shared/lib/toast'
+import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
 import { cn } from '@/lib/utils'
 
 function FieldReadOnly({
@@ -39,16 +61,172 @@ function FieldReadOnly({
   )
 }
 
+function OdometerDialog({
+  open,
+  title,
+  label,
+  value,
+  onValueChange,
+  onClose,
+  onSubmit,
+  isSubmitting,
+  submitLabel,
+}: {
+  open: boolean
+  title: string
+  label: string
+  value: string
+  onValueChange: (value: string) => void
+  onClose: () => void
+  onSubmit: () => void
+  isSubmitting: boolean
+  submitLabel: string
+}) {
+  return (
+    <Dialog open={open} onOpenChange={(next) => !next && !isSubmitting && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-2">
+          <Label htmlFor="odometer-input">
+            {label} <span className="text-[var(--fms-delete)]">*</span>
+          </Label>
+          <Input
+            id="odometer-input"
+            type="number"
+            min={0}
+            step={1}
+            inputMode="numeric"
+            value={value}
+            onChange={(event) => onValueChange(event.target.value)}
+            placeholder="Enter odometer reading"
+          />
+        </div>
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button type="button" variant="outline" disabled={isSubmitting} onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="button" disabled={isSubmitting} onClick={onSubmit}>
+            {isSubmitting ? 'Saving…' : submitLabel}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+type UpdateTripStatusLocationState = {
+  hasFeedback?: boolean
+}
+
+function FeedbackStars({ value }: { value: number }) {
+  return (
+    <div className="inline-flex items-center gap-0.5" aria-label={`${value} out of 5 stars`}>
+      {Array.from({ length: 5 }).map((_, index) => {
+        const starValue = index + 1
+        const filled = starValue <= value
+        return (
+          <Star
+            key={starValue}
+            className={cn(
+              'h-6 w-6',
+              filled ? 'fill-[#facc15] text-[#facc15]' : 'text-[#d1d5db]',
+            )}
+          />
+        )
+      })}
+    </div>
+  )
+}
+
 export default function UpdateTripStatus() {
   const { tripId = '' } = useParams()
+  const location = useLocation()
   const navigate = useNavigate()
-  const [refreshKey, setRefreshKey] = useState(0)
-  const assignment = useMemo(
-    () => getDriverAssignmentById(tripId),
-    [tripId, refreshKey],
-  )
+  const queryClient = useQueryClient()
+  const locationState = (location.state as UpdateTripStatusLocationState | null) ?? null
+  const [startDialogOpen, setStartDialogOpen] = useState(false)
+  const [completeDialogOpen, setCompleteDialogOpen] = useState(false)
+  const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false)
+  const [startOdometer, setStartOdometer] = useState('')
+  const [endOdometer, setEndOdometer] = useState('')
 
-  if (!assignment) {
+  const mastersQuery = useQuery({
+    queryKey: ['trips', 'masters'],
+    queryFn: fetchTripRequisitionMasterLists,
+    staleTime: 5 * 60_000,
+  })
+
+  const detailQuery = useQuery({
+    queryKey: ['trips', 'detail', tripId, mastersQuery.dataUpdatedAt],
+    queryFn: () =>
+      fetchTripDetail(tripId, {
+        tripTypes: mastersQuery.data?.tripTypes,
+        purposes: mastersQuery.data?.journeyPurposes,
+        vehicleTypes: mastersQuery.data?.vehicleTypes,
+      }),
+    enabled:
+      Boolean(tripId.trim()) && (mastersQuery.isSuccess || mastersQuery.isError),
+    staleTime: 30_000,
+  })
+
+  const showDriverRatingButton =
+    detailQuery.data?.hasFeedback === true || locationState?.hasFeedback === true
+
+  const feedbackQuery = useQuery({
+    queryKey: ['trips', 'feedback', tripId],
+    queryFn: () => fetchTripFeedback(tripId),
+    enabled: feedbackDialogOpen && showDriverRatingButton,
+    staleTime: 30_000,
+    retry: false,
+  })
+
+  const feedbackRatingStars = feedbackQuery.data
+    ? feedbackRatingToStars(feedbackQuery.data.rating)
+    : 0
+
+  const startMutation = useMutation({
+    mutationFn: (odometer: number) => startTrip(tripId, odometer),
+    onSuccess: async () => {
+      showSuccessToast('Trip started.')
+      setStartDialogOpen(false)
+      setStartOdometer('')
+      await queryClient.invalidateQueries({ queryKey: ['trips', 'detail', tripId] })
+      await queryClient.invalidateQueries({ queryKey: ['trips', 'driver-assignments'] })
+    },
+    onError: (error) => {
+      showErrorToast(error, 'Failed to start trip.')
+    },
+  })
+
+  const completeMutation = useMutation({
+    mutationFn: (odometer: number) => completeTrip(tripId, odometer),
+    onSuccess: async () => {
+      showSuccessToast('Trip completed.')
+      setCompleteDialogOpen(false)
+      setEndOdometer('')
+      await queryClient.invalidateQueries({ queryKey: ['trips', 'detail', tripId] })
+      await queryClient.invalidateQueries({ queryKey: ['trips', 'driver-assignments'] })
+    },
+    onError: (error) => {
+      showErrorToast(error, 'Failed to complete trip.')
+    },
+  })
+
+  if (detailQuery.isLoading || mastersQuery.isLoading) {
+    return (
+      <section className="space-y-5">
+        <PageHeader
+          title="Update Trip Status"
+          subtitle="Update the current trip status for the selected assignment."
+        />
+        <p className="text-sm text-[var(--fms-text-subheading)]">Loading assignment…</p>
+      </section>
+    )
+  }
+
+  if (detailQuery.isError || !detailQuery.data) {
     return (
       <section className="space-y-5">
         <PageHeader
@@ -57,7 +235,9 @@ export default function UpdateTripStatus() {
         />
         <Card className="rounded-xl border border-[var(--fms-strokes)] bg-white">
           <CardContent className="px-4 py-8 text-center text-[var(--fms-text-subheading)]">
-            Assignment not found.
+            {detailQuery.error instanceof Error
+              ? detailQuery.error.message
+              : 'Assignment not found.'}
             <div className="mt-4">
               <Button variant="outline" asChild>
                 <Link to="/trip/my-assignments">
@@ -72,26 +252,47 @@ export default function UpdateTripStatus() {
     )
   }
 
-  const currentStatus = assignment.status
-  const routeLabel = formatDriverRoute(assignment.origin, assignment.destination)
-  const canStart = currentStatus === 'Scheduled'
-  const canEnd = currentStatus === 'In Progress'
+  const trip = detailQuery.data
+  const routeLabel = formatDriverRoute(trip.origin, trip.destination)
+  const vehiclePlate =
+    trip.suggestedVehicle.plateNumber !== '—' ? trip.suggestedVehicle.plateNumber : '—'
+  const journeyStart = formatTripDateTime(trip.dateOfJourney, trip.timeOfJourney)
+  const journeyEnd = formatTripDateTime(trip.dateOfReturn ?? '', trip.timeOfReturn ?? '')
+  const canStart = canStartTrip(trip.statusCode)
+  const canEnd = canCompleteTrip(trip.statusCode)
+  const completed = isTripCompleted(trip.statusCode)
+  const startDisabledReason = completed
+    ? 'This trip is already completed.'
+    : canEnd
+      ? 'The trip is already in progress.'
+      : !canStart
+        ? `Start is available when status is Assigned or Planned (current: ${trip.status}).`
+        : null
 
-  const persistStatus = (next: DriverTripStatus) => {
-    setDriverAssignmentStatus(assignment.id, next)
-    setRefreshKey((key) => key + 1)
+  const parseOdometer = (value: string): number | null => {
+    const trimmed = value.trim()
+    if (!trimmed) return null
+    const parsed = Number(trimmed)
+    if (!Number.isFinite(parsed) || parsed < 0) return null
+    return parsed
   }
 
-  const handleStartTrip = () => {
-    if (!canStart) return
-    persistStatus('In Progress')
-    showSuccessToast('Trip started.')
+  const handleStartSubmit = () => {
+    const odometer = parseOdometer(startOdometer)
+    if (odometer == null) {
+      showErrorToast('Enter a valid start odometer reading.')
+      return
+    }
+    startMutation.mutate(odometer)
   }
 
-  const handleEndTrip = () => {
-    if (!canEnd) return
-    persistStatus('Completed')
-    showSuccessToast('Trip ended.')
+  const handleCompleteSubmit = () => {
+    const odometer = parseOdometer(endOdometer)
+    if (odometer == null) {
+      showErrorToast('Enter a valid end odometer reading.')
+      return
+    }
+    completeMutation.mutate(odometer)
   }
 
   return (
@@ -101,24 +302,44 @@ export default function UpdateTripStatus() {
           title="Update Trip Status"
           subtitle="Update the current trip status for the selected assignment."
         />
-        <Button variant="outline" className="w-full sm:w-auto" asChild>
-          <Link to="/trip/my-assignments">
-            <ArrowLeft className="mr-1 h-4 w-4" />
-            Back
-          </Link>
-        </Button>
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+          {showDriverRatingButton ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full sm:w-auto"
+              onClick={() => setFeedbackDialogOpen(true)}
+            >
+              View the driver rating
+            </Button>
+          ) : null}
+          <Button variant="outline" className="w-full sm:w-auto" asChild>
+            <Link to="/trip/my-assignments">
+              <ArrowLeft className="mr-1 h-4 w-4" />
+              Back
+            </Link>
+          </Button>
+        </div>
       </div>
 
       <Card className="rounded-xl border border-[var(--fms-strokes)] bg-white p-4 sm:p-6">
         <CardContent className="space-y-6 p-0">
-          <div className="grid gap-4 sm:grid-cols-3">
-            <FieldReadOnly label="Trip ID" value={assignment.requestId} />
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <FieldReadOnly label="Trip Type" value={trip.tripType} />
             <FieldReadOnly label="Route" value={routeLabel} />
-            <FieldReadOnly label="Vehicle" value={assignment.vehiclePlate} />
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <FieldReadOnly label="Scheduled Time" value={assignment.scheduledTime} />
-            <FieldReadOnly label="Current Status" value={currentStatus} />
+            <FieldReadOnly label="Vehicle" value={vehiclePlate} />
+            <FieldReadOnly label="Journey Start" value={journeyStart} />
+            <FieldReadOnly label="Journey End" value={journeyEnd} />
+            <FieldReadOnly label="Current Status" value={trip.status} />
+            {trip.startOdometer != null ? (
+              <FieldReadOnly
+                label="Start Odometer"
+                value={String(trip.startOdometer)}
+              />
+            ) : null}
+            {trip.endOdometer != null ? (
+              <FieldReadOnly label="End Odometer" value={String(trip.endOdometer)} />
+            ) : null}
           </div>
 
           <div className="rounded-xl border border-[var(--fms-strokes)] bg-[#f6f6f7] p-4 sm:p-5">
@@ -132,30 +353,111 @@ export default function UpdateTripStatus() {
               </p>
               <p className="mt-1 text-sm text-[var(--fms-text-header)]">{routeLabel}</p>
               <p className="mt-1 text-xs text-[var(--fms-text-subheading)]">
-                Vehicle: {assignment.vehiclePlate}
+                Vehicle: {vehiclePlate}
               </p>
             </div>
 
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <Button
-                type="button"
-                className="h-11 bg-[var(--fms-primary)] hover:bg-[var(--fms-primary)]/90"
-                disabled={!canStart}
-                onClick={handleStartTrip}
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <div
+                className={cn(
+                  'rounded-xl border-2 p-4 transition-colors',
+                  canStart
+                    ? 'border-[var(--fms-primary)] bg-[#eef4ff] shadow-sm'
+                    : 'border-[var(--fms-strokes)] bg-white',
+                )}
               >
-                Start Trip
-              </Button>
-              <Button
-                type="button"
-                className="h-11 border-transparent bg-[#86efac] text-[#14532d] hover:bg-[#4ade80]"
-                disabled={!canEnd}
-                onClick={handleEndTrip}
+                <div className="flex items-start gap-3">
+                  <div
+                    className={cn(
+                      'flex h-11 w-11 shrink-0 items-center justify-center rounded-full',
+                      canStart
+                        ? 'bg-[var(--fms-success-border)] text-white shadow-md'
+                        : 'bg-[#e8e8ea] text-[var(--fms-text-subheading)]',
+                    )}
+                  >
+                    <Play className={cn('h-5 w-5', canStart && 'ml-0.5 fill-current')} />
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <div>
+                      <p className="font-semibold text-[var(--fms-text-header)]">Start Trip</p>
+                      <p className="mt-0.5 text-xs text-[var(--fms-text-subheading)]">
+                        {canStart
+                          ? 'Record your starting odometer reading to begin this assignment.'
+                          : startDisabledReason}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      size="lg"
+                      variant={canStart ? 'default' : 'outline'}
+                      className={cn(
+                        'h-11 w-full font-semibold',
+                        canStart
+                          ? 'border-[var(--fms-success-border)] bg-[var(--fms-success-border)] text-white shadow-md'
+                          : 'border-[var(--fms-strokes)] bg-white text-[var(--fms-text-subheading)]',
+                      )}
+                      disabled={!canStart || startMutation.isPending}
+                      onClick={() => setStartDialogOpen(true)}
+                    >
+                      <Play className="mr-2 h-4 w-4 fill-current" />
+                      {startMutation.isPending ? 'Starting…' : 'Start Trip Now'}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              <div
+                className={cn(
+                  'rounded-xl border-2 p-4 transition-colors',
+                  canEnd
+                    ? 'border-[#22c55e] bg-[#f0fdf4] shadow-sm'
+                    : 'border-[var(--fms-strokes)] bg-white',
+                )}
               >
-                End Trip
-              </Button>
+                <div className="flex items-start gap-3">
+                  <div
+                    className={cn(
+                      'flex h-11 w-11 shrink-0 items-center justify-center rounded-full',
+                      canEnd
+                        ? 'bg-[#16a34a] text-white shadow-md'
+                        : 'bg-[#e8e8ea] text-[var(--fms-text-subheading)]',
+                    )}
+                  >
+                    <Flag className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <div>
+                      <p className="font-semibold text-[var(--fms-text-header)]">End Trip</p>
+                      <p className="mt-0.5 text-xs text-[var(--fms-text-subheading)]">
+                        {canEnd
+                          ? 'Record your ending odometer reading to complete this assignment.'
+                          : completed
+                            ? 'This trip has already been completed.'
+                            : 'End is available after the trip has been started.'}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      size="lg"
+                      variant={canEnd ? 'default' : 'outline'}
+                      className={cn(
+                        'h-11 w-full font-semibold',
+                        canEnd
+                          ? 'border-[#16a34a] bg-[#16a34a] text-white shadow-md hover:bg-[#15803d]'
+                          : 'border-[var(--fms-strokes)] bg-white text-[var(--fms-text-subheading)]',
+                      )}
+                      disabled={!canEnd || completeMutation.isPending}
+                      onClick={() => setCompleteDialogOpen(true)}
+                    >
+                      <Flag className="mr-2 h-4 w-4" />
+                      {completeMutation.isPending ? 'Completing…' : 'End Trip Now'}
+                    </Button>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            {currentStatus === 'Completed' ? (
+            {completed ? (
               <p className="mt-3 text-center text-xs text-[var(--fms-text-subheading)]">
                 This trip is completed.{' '}
                 <button
@@ -170,6 +472,81 @@ export default function UpdateTripStatus() {
           </div>
         </CardContent>
       </Card>
+
+      <OdometerDialog
+        open={startDialogOpen}
+        title="Start Trip"
+        label="Start Odometer"
+        value={startOdometer}
+        onValueChange={setStartOdometer}
+        onClose={() => {
+          setStartDialogOpen(false)
+          setStartOdometer('')
+        }}
+        onSubmit={handleStartSubmit}
+        isSubmitting={startMutation.isPending}
+        submitLabel="Start Trip"
+      />
+
+      <OdometerDialog
+        open={completeDialogOpen}
+        title="End Trip"
+        label="End Odometer"
+        value={endOdometer}
+        onValueChange={setEndOdometer}
+        onClose={() => {
+          setCompleteDialogOpen(false)
+          setEndOdometer('')
+        }}
+        onSubmit={handleCompleteSubmit}
+        isSubmitting={completeMutation.isPending}
+        submitLabel="End Trip"
+      />
+
+      <Dialog open={feedbackDialogOpen} onOpenChange={setFeedbackDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Driver Rating</DialogTitle>
+            <DialogDescription>
+              Feedback submitted for trip {trip.requestId}.
+            </DialogDescription>
+          </DialogHeader>
+          {feedbackQuery.isLoading ? (
+            <p className="text-sm text-[var(--fms-text-subheading)]">Loading feedback…</p>
+          ) : feedbackQuery.isError ? (
+            <p className="text-sm text-[var(--fms-text-subheading)]">
+              {feedbackQuery.error instanceof Error
+                ? feedbackQuery.error.message
+                : 'Could not load driver rating.'}
+            </p>
+          ) : feedbackQuery.data ? (
+            <div className="space-y-4">
+              <div className="space-y-2 rounded-lg border border-[var(--fms-strokes)] bg-[#f6f6f7] p-4">
+                <Label>Rating</Label>
+                <FeedbackStars value={feedbackRatingStars} />
+                <p className="text-sm text-[var(--fms-text-header)]">
+                  <span className="font-medium">{feedbackRatingStars} / 5 stars</span>
+                  <span className="text-[var(--fms-text-subheading)]"> · </span>
+                  <span>{getFeedbackRatingLabel(feedbackQuery.data.rating)}</span>
+                  <span className="text-[var(--fms-text-subheading)]"> · </span>
+                  <span>{getRatingLabel(feedbackRatingStars)}</span>
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label>Remarks</Label>
+                <div className="min-h-[96px] rounded-lg border border-[var(--fms-strokes)] bg-[#f8f8f9] px-3 py-2.5 text-sm text-[var(--fms-text-header)]">
+                  {feedbackQuery.data.reasonForRating.trim() || '—'}
+                </div>
+              </div>
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setFeedbackDialogOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   )
 }

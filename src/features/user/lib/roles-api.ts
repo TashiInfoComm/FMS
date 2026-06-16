@@ -145,8 +145,8 @@ export function mapRoleListRecord(record: ApiRecord): { roleName: string; descri
 export type AdminRoleOption = { roleName: string; description: string }
 
 /** Role names from GET `/admin/roles` for selects and autocompletes. */
-export async function fetchAdminRoleOptions(): Promise<AdminRoleOption[]> {
-  const payload = await apiGet<unknown>('/admin/roles?page_size=20')
+export async function fetchAdminRoleOptions(pageSize = 20): Promise<AdminRoleOption[]> {
+  const payload = await apiGet<unknown>(`/admin/roles?page=1&page_size=${pageSize}`)
   const seen = new Set<string>()
   const options: AdminRoleOption[] = []
   for (const row of rolesToArray(payload)) {
@@ -272,6 +272,16 @@ function actionsFromUnknown(actions: unknown): RoleActions {
   }
 }
 
+/** All granted action codes from a flat `actions` object (including cancel, approve, etc.). */
+export function grantedActionCodesFromActionsObject(actions: unknown): string[] {
+  if (!actions || typeof actions !== 'object' || Array.isArray(actions)) return []
+  const codes: string[] = []
+  for (const [key, value] of Object.entries(actions as ApiRecord)) {
+    if (normalizeAction(value) === 1) codes.push(normalizeActionCode(key))
+  }
+  return codes
+}
+
 function permissionsArrayFromRecord(record: ApiRecord): ApiRecord[] {
   const candidates = [record.permissions, record.permission_list, record.sub_menu_permissions]
   for (const candidate of candidates) {
@@ -335,6 +345,13 @@ export function parseRoleDetailPayload(payload: unknown, fallbackRoleName: strin
     for (const [sid, assign] of assignedActionsBySubMenu) {
       permissionsBySubMenu.set(sid, roleActionsFromAssignedCodes(assign))
     }
+  }
+
+  for (const row of permissionsArrayFromRecord(record ?? {})) {
+    const sid = toId(row.sub_menu_id ?? row.subMenuId ?? row.submenu_id)
+    if (!sid || assignedActionsBySubMenu.has(sid)) continue
+    const granted = grantedActionCodesFromActionsObject(row.actions)
+    if (granted.length > 0) assignedActionsBySubMenu.set(sid, granted)
   }
 
   return {

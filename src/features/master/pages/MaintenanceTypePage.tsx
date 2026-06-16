@@ -1,5 +1,6 @@
 // Manages maintenance type master data from API-backed CRUD endpoints.
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Plus, Search } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -15,6 +16,7 @@ import { DeleteDialog } from '@/shared/components/DeleteDialog'
 import { PageHeader } from '@/shared/components/PageHeader'
 import {
   DeleteRowActionButton,
+  DetailRowActionButton,
   EditRowActionButton,
   rowActionsContainerClassName,
 } from '@/shared/components/TableRowActionButtons'
@@ -31,6 +33,7 @@ type FormValues = {
 }
 type MaintenanceTypeRow = {
   serialNo: number
+  id: string
   code: string
   name: string
   description: string
@@ -54,9 +57,14 @@ function toArray(payload: unknown): ApiRecord[] {
   return []
 }
 
+function recordId(record: ApiRecord) {
+  return record.id != null && String(record.id).trim() !== '' ? String(record.id) : ''
+}
+
 function mapRows(records: ApiRecord[], serialStart: number): MaintenanceTypeRow[] {
   return records.map((record, index) => ({
     serialNo: serialStart + index + 1,
+    id: recordId(record),
     code: toText(record.code),
     name: toText(record.name),
     description: toText(record.description) || '-',
@@ -85,6 +93,7 @@ function listPath(search: string, page: number, pageSize: number) {
 
 /** Paginated CRUD for maintenance types (shared master-page implementation). */
 export function MaintenanceTypePage() {
+  const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
@@ -231,6 +240,21 @@ export function MaintenanceTypePage() {
       return
     }
     updateMutation.mutate({ code: row.code, payload: buildStatusPayload(row, checked) })
+  }
+
+  const onDetail = (row: MaintenanceTypeRow) => {
+    if (!crud.canRead) return
+    if (!row.code) {
+      showErrorToast('Missing code for problem category list')
+      return
+    }
+    const params = new URLSearchParams()
+    if (row.id) params.set('maintenanceTypeId', row.id)
+    if (row.name) params.set('name', row.name)
+    const query = params.toString()
+    navigate(
+      `/master/maintenance-type/${encodeURIComponent(row.code)}/problem-categories${query ? `?${query}` : ''}`,
+    )
   }
 
   return (
@@ -470,6 +494,12 @@ export function MaintenanceTypePage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className={rowActionsContainerClassName}>
+                          <DetailRowActionButton
+                            tooltip="View Problem Category"
+                            type="button"
+                            disabled={!crud.canRead}
+                            onClick={() => onDetail(row)}
+                          />
                           <EditRowActionButton
                             type="button"
                             disabled={!crud.canUpdate}

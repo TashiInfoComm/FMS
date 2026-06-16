@@ -38,7 +38,6 @@ export function EditUserFormPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const crud = useRouteCrudPermissions('/users')
-  const rolesCrud = useRouteCrudPermissions('/admin/roles')
 
   const [profile, setProfile] = useState<FetchedPerson | null>(null)
   const [username, setUsername] = useState('')
@@ -72,7 +71,7 @@ export function EditUserFormPage() {
     queryKey: ['admin-roles-user-form'],
     queryFn: fetchRealmRoleOptions,
     staleTime: 60_000,
-    enabled: crud.isResolved && crud.canRead && rolesCrud.isResolved && rolesCrud.canRead,
+    enabled: crud.isResolved && crud.canRead,
   })
 
   const updateMutation = useMutation({
@@ -85,13 +84,7 @@ export function EditUserFormPage() {
       const u = username.trim()
       if (!u) throw new Error('Username is required')
       const roles = [...selectedRoles]
-      if (rolesCrud.isResolved && rolesCrud.canRead) {
-        if (roles.length === 0) throw new Error('Select at least one role')
-      } else if (rolesCrud.isResolved && !rolesCrud.canRead && roles.length === 0) {
-        throw new Error(
-          'This account has no roles to keep. Assigning roles requires permission to view the role list.',
-        )
-      }
+      if (roles.length === 0) throw new Error('Select at least one role')
       const body = buildCreateUserPayload(profile, u, roles)
       return apiPut<unknown, typeof body>(`/admin/users/${encodeURIComponent(userId)}`, body)
     },
@@ -104,7 +97,7 @@ export function EditUserFormPage() {
       else navigate('/users')
     },
     onError: (err) => {
-      showErrorToast(err instanceof Error ? err.message : 'Failed to update user')
+      showErrorToast(err, 'Failed to update user')
     },
   })
 
@@ -250,33 +243,10 @@ export function EditUserFormPage() {
                     <p className="text-sm font-semibold text-[var(--fms-text-header)]">Roles</p>
                   </div>
                   <p className="text-xs text-[var(--fms-text-subheading)]">
-                    {rolesCrud.isResolved && !rolesCrud.canRead
-                      ? 'You can update contact and email. Realm roles stay as on the account (you do not have permission to load the full role list).'
-                      : 'Select one or more realm roles.'}
+                    Select one or more realm roles.
                   </p>
 
-                  {!rolesCrud.isResolved ? (
-                    <div className="max-h-64 space-y-2 overflow-y-auto rounded-md border border-[var(--fms-strokes)] p-3">
-                      {Array.from({ length: 4 }).map((_, i) => (
-                        <Skeleton key={`role-edit-sk-${i}`} className="h-14 w-full rounded-md" />
-                      ))}
-                    </div>
-                  ) : !rolesCrud.canRead ? (
-                    <div className="max-h-64 space-y-2 overflow-y-auto rounded-md border border-[var(--fms-strokes)] p-3">
-                      {[...selectedRoles].length ? (
-                        [...selectedRoles].map((name) => (
-                          <p
-                            key={name}
-                            className="rounded-md border border-[var(--fms-strokes)] bg-[#fafafa] px-3 py-2 text-sm font-semibold text-[var(--fms-text-header)]"
-                          >
-                            {formatRealmRoleDisplayName(name)}
-                          </p>
-                        ))
-                      ) : (
-                        <p className="text-sm text-[var(--fms-text-subheading)]">No roles on this account.</p>
-                      )}
-                    </div>
-                  ) : rolesQuery.isLoading ? (
+                  {rolesQuery.isLoading ? (
                     <div className="max-h-64 space-y-2 overflow-y-auto rounded-md border border-[var(--fms-strokes)] p-3">
                       {Array.from({ length: 4 }).map((_, i) => (
                         <Skeleton key={`role-edit-load-sk-${i}`} className="h-14 w-full rounded-md" />

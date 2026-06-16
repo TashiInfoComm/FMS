@@ -2,6 +2,7 @@
 import { clearCurrentProfileQueryCache } from "@/lib/query-client";
 import { useApiLoadingStore } from "@/services/api-loading-store";
 import { useUserStore } from "@/services/user-store";
+import { extractApiErrorMessageFromPayload } from "@/shared/lib/api-error";
 import { notifyRolePreferenceChanged } from "@/shared/lib/realm-role-mapping";
 
 const API_BASE_URL = (
@@ -189,33 +190,7 @@ function shouldSkipGlobalApiLoading(path: string): boolean {
 }
 
 function getErrorMessage(payload: unknown, status: number) {
-  if (typeof payload === "string") {
-    const trimmed = payload.trim();
-    return trimmed || `API Error: ${status}`;
-  }
-
-  if (payload && typeof payload === "object") {
-    const obj = payload as Record<string, unknown>;
-
-    const preferred = [obj.detail, obj.message, obj.error];
-    for (const value of preferred) {
-      if (typeof value === "string" && value.trim()) {
-        return value.trim();
-      }
-    }
-
-    const listCandidates = [obj.errors, obj.non_field_errors, obj.detail];
-    for (const value of listCandidates) {
-      if (Array.isArray(value) && value.length > 0) {
-        const first = value[0];
-        if (typeof first === "string" && first.trim()) {
-          return first.trim();
-        }
-      }
-    }
-  }
-
-  return `API Error: ${status}`;
+  return extractApiErrorMessageFromPayload(payload, status) ?? `API Error: ${status}`;
 }
 
 async function fetchWithAuthHandling<T>(
@@ -287,6 +262,65 @@ async function fetchWithAuthHandling<T>(
   return payload as T;
 }
 
+async function fetchBlobWithAuthHandling(
+  path: string,
+  init: RequestInit | undefined,
+  alreadyRetriedAfterRefresh: boolean,
+): Promise<{ blob: Blob; contentType: string }> {
+  const headers = new Headers(init?.headers);
+  const token = getAuthToken();
+
+  if (!headers.has("Accept")) {
+    headers.set("Accept", "*/*");
+    headers.set("ngrok-skip-browser-warning", "true");
+  }
+
+  if (token && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${token}`);
+    headers.set("ngrok-skip-browser-warning", "true");
+  }
+
+  const url = resolveUrl(path);
+  const response = await fetch(url, { ...init, headers });
+  const contentType = response.headers.get("content-type") ?? "";
+
+  if (!response.ok) {
+    const isJson = contentType.includes("application/json");
+    const payload = isJson ? await response.json() : await response.text();
+
+    const canAttemptRefresh =
+      response.status === 401 &&
+      !alreadyRetriedAfterRefresh &&
+      !isRefreshSkippedPath(path) &&
+      Boolean(getRefreshToken());
+
+    if (canAttemptRefresh) {
+      const refreshed = await tryRefreshAccessToken();
+      if (refreshed) {
+        return fetchBlobWithAuthHandling(path, init, true);
+      }
+    }
+
+    if (response.status === 401) {
+      await handleUnauthorized();
+    }
+    const message = getErrorMessage(payload, response.status);
+    throw new Error(message);
+  }
+
+  return { blob: await response.blob(), contentType };
+}
+
+export async function apiGetBlob(path: string, init?: RequestInit) {
+  const skipLoader = shouldSkipGlobalApiLoading(path);
+  if (!skipLoader) useApiLoadingStore.getState().begin();
+  try {
+    return await fetchBlobWithAuthHandling(path, init, false);
+  } finally {
+    if (!skipLoader) useApiLoadingStore.getState().end();
+  }
+}
+
 export async function apiClient<T>(
   path: string,
   init?: RequestInit,
@@ -333,6 +367,18 @@ export function apiPut<TResponse, TBody extends object>(
   return apiClient<TResponse>(path, {
     ...init,
     method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+export function apiPatch<TResponse, TBody extends object>(
+  path: string,
+  body: TBody,
+  init?: RequestInit,
+) {
+  return apiClient<TResponse>(path, {
+    ...init,
+    method: "PATCH",
     body: JSON.stringify(body),
   });
 }

@@ -6,6 +6,7 @@ import {
   CloudUpload,
   MapPin,
   Plus,
+  Search,
   Target,
   Trash2,
   User,
@@ -34,19 +35,18 @@ import {
   type CreateTripRequisitionResult,
 } from '@/features/trips/lib/trips-api'
 import {
-  isLocalOrPickDropTrip,
-  isLongTrip,
+  calculateTripDurationDays,
+  formatTripDurationDisplay,
+  formatTripDisplayTime,
+  isSameCalendarDay,
+  toIsoDatetime,
 } from '@/features/trips/lib/trip-form-utils'
 import {
+  categoryForMasterOption,
   fetchTripRequisitionMasterLists,
   labelForMasterOption,
 } from '@/features/trips/lib/trip-requisition-masters'
-import {
-  fetchEmployeeByCid,
-  fetchUserOrganogramDisplayNames,
-  mapUserDetailFields,
-  pickUserDetailOrganogramIds,
-} from '@/features/user/lib/users-api'
+import { mapUserDetailFields, searchUserByCid } from '@/features/user/lib/users-api'
 import type { ApiRecord } from '@/features/user/lib/roles-api'
 import { useUserStore } from '@/services/user-store'
 import { PageHeader } from '@/shared/components/PageHeader'
@@ -56,8 +56,10 @@ import { cn } from '@/lib/utils'
 
 type OfficialRow = {
   key: string
-  employeeCid: string
+  cid: string
   fullName: string
+  lookupLoading?: boolean
+  cidLocked?: boolean
 }
 
 type TripFormState = {
@@ -66,10 +68,8 @@ type TripFormState = {
   preferredVehicleType: string
   origin: string
   finalDestination: string
-  dateOfJourney: string
-  timeOfJourney: string
-  dateOfReturn: string
-  tripDurationDays: string
+  journeyStartDatetime: string
+  journeyEndDatetime: string
   pickupRequired: boolean
   remarks: string
   tripDetailsJustification: string
@@ -81,10 +81,8 @@ const emptyTripForm = (): TripFormState => ({
   preferredVehicleType: '',
   origin: '',
   finalDestination: '',
-  dateOfJourney: '',
-  timeOfJourney: '',
-  dateOfReturn: '',
-  tripDurationDays: '',
+  journeyStartDatetime: '',
+  journeyEndDatetime: '',
   pickupRequired: false,
   remarks: '',
   tripDetailsJustification: '',
@@ -252,25 +250,6 @@ function CreateTripRequisition() {
     null,
   )
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const officialLookupTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
-
-  const organogramIds = useMemo(
-    () => (record ? pickUserDetailOrganogramIds(record) : null),
-    [record],
-  )
-
-  const organogramNamesQuery = useQuery({
-    queryKey: [
-      'user-organogram-display-names',
-      organogramIds?.agencyId,
-      organogramIds?.departmentId,
-      organogramIds?.divisionId,
-      organogramIds?.subDivisionId,
-    ],
-    enabled: Boolean(record),
-    queryFn: () => fetchUserOrganogramDisplayNames(record!),
-    staleTime: 60_000,
-  })
 
   const mastersQuery = useQuery({
     queryKey: ['trips', 'requisition', 'masters'],
@@ -280,30 +259,22 @@ function CreateTripRequisition() {
 
   const applicant = useMemo(() => {
     if (!record) return null
-    const base = mapUserDetailFields(record)
-    const org = organogramNamesQuery.data
-    if (!org) return base
-    return {
-      ...base,
-      agency: org.agency,
-      department: org.department,
-      division: org.division,
-      subDivision: org.subDivision,
-    }
-  }, [record, organogramNamesQuery.data])
-
-  const organogramLoading = organogramNamesQuery.isLoading
+    return mapUserDetailFields(record)
+  }, [record])
 
   const selectedTripTypeLabel = useMemo(
     () => labelForMasterOption(mastersQuery.data?.tripTypes ?? [], tripForm.tripType),
     [mastersQuery.data?.tripTypes, tripForm.tripType],
   )
 
-  const showLocalFields = isLocalOrPickDropTrip(
-    selectedTripTypeLabel,
-    tripForm.tripType,
+  const tripTypeCategory = useMemo(
+    () => categoryForMasterOption(mastersQuery.data?.tripTypes ?? [], tripForm.tripType),
+    [mastersQuery.data?.tripTypes, tripForm.tripType],
   )
-  const showLongFields = isLongTrip(selectedTripTypeLabel, tripForm.tripType)
+
+  const showLongFields = tripTypeCategory === 'LONG'
+  const showLocalFields =
+    tripTypeCategory === 'LOCAL' || tripTypeCategory === 'PICK_DROP'
 
   useEffect(() => {
     if (!showLocalFields && tripForm.pickupRequired) {
@@ -318,11 +289,25 @@ function CreateTripRequisition() {
     }
   }, [showLongFields, movementOrderFile])
 
-  useEffect(() => {
-    return () => {
-      Object.values(officialLookupTimers.current).forEach(clearTimeout)
+  const tripDurationDisplay = useMemo(
+    () =>
+      formatTripDurationDisplay(
+        tripForm.journeyStartDatetime,
+        tripForm.journeyEndDatetime,
+      ),
+    [tripForm.journeyStartDatetime, tripForm.journeyEndDatetime],
+  )
+
+  const tripDurationLabel = useMemo(() => {
+    if (
+      tripForm.journeyStartDatetime &&
+      tripForm.journeyEndDatetime &&
+      isSameCalendarDay(tripForm.journeyStartDatetime, tripForm.journeyEndDatetime)
+    ) {
+      return 'Trip Duration'
     }
-  }, [])
+    return 'Trip Duration (Days)'
+  }, [tripForm.journeyStartDatetime, tripForm.journeyEndDatetime])
 
   const submitMutation = useMutation({
     mutationFn: async () => {
@@ -331,46 +316,51 @@ function CreateTripRequisition() {
         mastersQuery.data?.journeyPurposes ?? [],
         tripForm.purposeOfJourney,
       )
+      const journeyStartDatetime = toIsoDatetime(tripForm.journeyStartDatetime)
+      const journeyEndDatetime = toIsoDatetime(tripForm.journeyEndDatetime)
+      const tripDetailsJustification = showLongFields
+        ? tripForm.tripDetailsJustification.trim() || undefined
+        : tripForm.remarks.trim() || undefined
+
       return createTripRequisition({
         employeeId: applicant.employeeId === '-' ? '' : applicant.employeeId,
-        applicantName: applicant.name === '-' ? '' : applicant.name,
-        designation: applicant.designation === '-' ? '' : applicant.designation,
-        agency: applicant.agency === '-' ? '' : applicant.agency,
-        department: applicant.department === '-' ? '' : applicant.department,
-        contactNumber: applicant.contact === '-' ? '' : applicant.contact,
-        email: applicant.email === '-' ? '' : applicant.email,
-        tripType: tripForm.tripType,
-        purposeOfJourney: tripForm.purposeOfJourney,
-        preferredVehicleType: tripForm.preferredVehicleType,
+        tripTypeId: tripForm.tripType,
+        purposeId: tripForm.purposeOfJourney,
+        preferredVehicleTypeId: tripForm.preferredVehicleType,
+        journeyStartDatetime,
+        journeyEndDatetime,
+        tripDurationDays:
+          Number.parseInt(
+            calculateTripDurationDays(
+              tripForm.journeyStartDatetime,
+              tripForm.journeyEndDatetime,
+            ),
+            10,
+          ) || undefined,
         origin: tripForm.origin.trim(),
-        finalDestination: tripForm.finalDestination.trim(),
-        dateOfJourney: tripForm.dateOfJourney,
-        timeOfJourney: showLocalFields ? tripForm.timeOfJourney : undefined,
-        dateOfReturn: showLongFields ? tripForm.dateOfReturn : undefined,
-        tripDurationDays: showLongFields
-          ? Number.parseInt(tripForm.tripDurationDays, 10) || undefined
-          : undefined,
+        destinationDetails: tripForm.finalDestination.trim(),
         pickupRequired: showLocalFields ? tripForm.pickupRequired : undefined,
-        remarks: tripForm.remarks.trim() || undefined,
-        tripDetailsJustification: showLongFields
-          ? tripForm.tripDetailsJustification.trim() || undefined
-          : undefined,
+        isMovementOrderRequired: showLongFields,
+        tripDetailsJustification,
         accompanyingOfficials: officials
-          .filter((row) => row.employeeCid.trim() || row.fullName.trim())
+          .filter((row) => row.cid.trim() || row.fullName.trim())
           .map((row) => ({
-            employeeCid: row.employeeCid.trim(),
+            cid: row.cid.trim(),
             fullName: row.fullName.trim(),
           })),
-        movementOrderFile: showLongFields ? movementOrderFile : null,
+        movementOrderFile,
       }).then((result) => ({
         ...result,
         tripTypeLabel: result.tripTypeLabel || selectedTripTypeLabel,
         purposeOfJourney: result.purposeOfJourney || purposeLabel,
-        timeOfJourney: result.timeOfJourney || tripForm.timeOfJourney,
+        timeOfJourney:
+          result.timeOfJourney ||
+          formatTripDisplayTime(toIsoDatetime(tripForm.journeyStartDatetime)) ||
+          '',
       }))
     },
     onSuccess: (result) => {
-      void queryClient.invalidateQueries({ queryKey: ['trips', 'requisitions'] })
+      void queryClient.invalidateQueries({ queryKey: ['trips'] })
       if (showLocalFields) {
         setApprovalResult(result)
         setApprovalDialogOpen(true)
@@ -381,7 +371,7 @@ function CreateTripRequisition() {
       }
     },
     onError: (err) => {
-      showErrorToast(err instanceof Error ? err.message : 'Submit failed')
+      showErrorToast(err, 'Submit failed')
     },
   })
 
@@ -389,19 +379,31 @@ function CreateTripRequisition() {
     if (!tripForm.tripType) return 'Trip type is required.'
     if (!tripForm.purposeOfJourney) return 'Purpose of journey is required.'
     if (!tripForm.preferredVehicleType) return 'Preferred vehicle type is required.'
-    if (!tripForm.dateOfJourney) return 'Date of journey is required.'
-    if (showLocalFields && !tripForm.timeOfJourney) return 'Time of journey is required.'
-    if (showLongFields) {
-      if (!tripForm.dateOfReturn) return 'Date of return is required.'
-      if (!tripForm.tripDurationDays.trim()) return 'Trip duration is required.'
-      if (!movementOrderFile) return 'Movement order upload is required for long trips.'
+    if (!tripForm.journeyStartDatetime) return 'Journey start date and time is required.'
+    if (!tripForm.journeyEndDatetime) return 'Journey end date and time is required.'
+    if (
+      tripForm.journeyStartDatetime &&
+      tripForm.journeyEndDatetime &&
+      new Date(tripForm.journeyEndDatetime).getTime() <
+        new Date(tripForm.journeyStartDatetime).getTime()
+    ) {
+      return 'Journey end must be after journey start.'
+    }
+    if (!tripDurationDisplay.trim()) {
+      return 'Trip duration could not be calculated from the selected dates.'
+    }
+    if (showLongFields && !movementOrderFile) {
+      return 'Movement order upload is required for long trips.'
     }
     for (const row of officials) {
-      if (row.employeeCid.trim() && !row.fullName.trim()) {
+      if (row.lookupLoading) {
+        return 'Please wait for accompanying official lookup to finish.'
+      }
+      if (row.cid.trim() && !row.fullName.trim()) {
         return 'Full name is required for each accompanying official.'
       }
-      if (!row.employeeCid.trim() && row.fullName.trim()) {
-        return 'Employee CID is required for each accompanying official.'
+      if (!row.cid.trim() && row.fullName.trim()) {
+        return 'CID is required for each accompanying official.'
       }
     }
     const maxBytes = 5 * 1024 * 1024
@@ -423,7 +425,7 @@ function CreateTripRequisition() {
   const addOfficialRow = () => {
     setOfficials((prev) => [
       ...prev,
-      { key: `official-${Date.now()}-${prev.length}`, employeeCid: '', fullName: '' },
+      { key: `official-${Date.now()}-${prev.length}`, cid: '', fullName: '' },
     ])
   }
 
@@ -434,28 +436,33 @@ function CreateTripRequisition() {
   }
 
   const removeOfficialRow = (key: string) => {
-    if (officialLookupTimers.current[key]) {
-      clearTimeout(officialLookupTimers.current[key])
-      delete officialLookupTimers.current[key]
-    }
     setOfficials((prev) => prev.filter((row) => row.key !== key))
   }
 
-  const scheduleOfficialLookup = (key: string, cid: string) => {
-    if (officialLookupTimers.current[key]) {
-      clearTimeout(officialLookupTimers.current[key])
+  const searchOfficialByCid = async (key: string) => {
+    const row = officials.find((item) => item.key === key)
+    const trimmed = row?.cid.trim() ?? ''
+    if (!trimmed) {
+      showErrorToast('Enter a CID to search.')
+      return
     }
-    const trimmed = cid.trim()
-    if (trimmed.length < 5) return
-    officialLookupTimers.current[key] = setTimeout(() => {
-      void fetchEmployeeByCid(trimmed)
-        .then((person) => {
-          updateOfficialRow(key, { fullName: person.name || '' })
-        })
-        .catch(() => {
-          /* user may type name manually */
-        })
-    }, 400)
+
+    updateOfficialRow(key, { lookupLoading: true, fullName: '', cidLocked: false })
+    try {
+      const user = await searchUserByCid(trimmed)
+      if (!user) {
+        throw new Error('No user found for this CID.')
+      }
+      updateOfficialRow(key, {
+        cid: user.cid,
+        fullName: user.fullName,
+        lookupLoading: false,
+        cidLocked: true,
+      })
+    } catch (error) {
+      updateOfficialRow(key, { lookupLoading: false, fullName: '', cidLocked: false })
+      showErrorToast(error, 'Failed to find user by CID.')
+    }
   }
 
   if (crud.isResolved && !crud.canCreate) {
@@ -497,22 +504,10 @@ function CreateTripRequisition() {
                 label="Designation"
                 value={applicant?.designation}
               />
-              <FieldReadOnly
-                label="Agency"
-                value={organogramLoading ? 'Loading…' : applicant?.agency}
-              />
-              <FieldReadOnly
-                label="Department"
-                value={organogramLoading ? 'Loading…' : applicant?.department}
-              />
-              <FieldReadOnly
-                label="Division"
-                value={organogramLoading ? 'Loading…' : applicant?.division}
-              />
-              <FieldReadOnly
-                label="Sub Division"
-                value={organogramLoading ? 'Loading…' : applicant?.subDivision}
-              />
+              <FieldReadOnly label="Agency" value={applicant?.agency} />
+              <FieldReadOnly label="Department" value={applicant?.department} />
+              <FieldReadOnly label="Division" value={applicant?.division} />
+              <FieldReadOnly label="Sub Division" value={applicant?.subDivision} />
 
               <FieldReadOnly
                 label="Contact Number"
@@ -558,11 +553,11 @@ function CreateTripRequisition() {
                 }
               />
               <FormSelect
-                label="Preferred Vehicle Type"
+                label="Preferred Vehicle Category"
                 required
                 loading={mastersQuery.isLoading}
                 value={tripForm.preferredVehicleType}
-                placeholder="Select vehicle"
+                placeholder="Select vehicle category"
                 options={mastersQuery.data?.vehicleTypes ?? []}
                 onChange={(value) =>
                   setTripForm((prev) => ({
@@ -586,54 +581,29 @@ function CreateTripRequisition() {
                 }
               />
               <FormInput
-                label="Date of Journey"
+                label="Journey Start Date & Time"
                 required
-                type="date"
-                value={tripForm.dateOfJourney}
+                type="datetime-local"
+                value={tripForm.journeyStartDatetime}
                 onChange={(value) =>
-                  setTripForm((prev) => ({ ...prev, dateOfJourney: value }))
+                  setTripForm((prev) => ({ ...prev, journeyStartDatetime: value }))
                 }
               />
-
-              {showLocalFields ? (
-                <FormInput
-                  label="Time of Journey"
-                  required
-                  type="time"
-                  value={tripForm.timeOfJourney}
-                  onChange={(value) =>
-                    setTripForm((prev) => ({ ...prev, timeOfJourney: value }))
-                  }
-                />
-              ) : null}
-
-              {showLongFields ? (
-                <>
-                  <FormInput
-                    label="Date of Return"
-                    required
-                    type="date"
-                    value={tripForm.dateOfReturn}
-                    onChange={(value) =>
-                      setTripForm((prev) => ({ ...prev, dateOfReturn: value }))
-                    }
-                  />
-                  <FormInput
-                    label="Trip Duration"
-                    required
-                    type="number"
-                    min={1}
-                    value={tripForm.tripDurationDays}
-                    placeholder="Days"
-                    onChange={(value) =>
-                      setTripForm((prev) => ({
-                        ...prev,
-                        tripDurationDays: value,
-                      }))
-                    }
-                  />
-                </>
-              ) : null}
+              <FormInput
+                label="Journey End Date & Time"
+                required
+                type="datetime-local"
+                value={tripForm.journeyEndDatetime}
+                onChange={(value) =>
+                  setTripForm((prev) => ({ ...prev, journeyEndDatetime: value }))
+                }
+              />
+              <FormInput
+                label={tripDurationLabel}
+                value={tripDurationDisplay}
+                placeholder="Auto-calculated"
+                disabled
+              />
 
               {showLocalFields ? (
                 <div className="space-y-2">
@@ -748,48 +718,72 @@ function CreateTripRequisition() {
             ) : (
               <div className="space-y-3">
                 {officials.map((row) => (
-                  <div
-                    key={row.key}
-                    className="grid gap-3 md:grid-cols-[1fr_1fr_auto] md:items-end"
-                  >
-                    <div className="space-y-2">
-                      <Label>
-                        Employee CID <RequiredMark />
-                      </Label>
-                      <Input
-                        value={row.employeeCid}
-                        placeholder="Enter employee ID"
-                        onChange={(event) => {
-                          const value = event.target.value;
-                          updateOfficialRow(row.key, { employeeCid: value });
-                          scheduleOfficialLookup(row.key, value);
-                        }}
-                      />
+                  <div key={row.key} className="space-y-2">
+                    <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto] md:items-end">
+                      <div className="space-y-2">
+                        <Label>
+                          CID <RequiredMark />
+                        </Label>
+                        <div className="flex gap-2">
+                          <Input
+                            value={row.cid}
+                            placeholder="Enter CID"
+                            //readOnly={row.cidLocked}
+                            onChange={(event) => {
+                              const value = event.target.value
+                              updateOfficialRow(row.key, {
+                                cid: value,
+                                fullName: '',
+                                cidLocked: false,
+                              })
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') {
+                                event.preventDefault()
+                                void searchOfficialByCid(row.key)
+                              }
+                            }}
+                          />
+                          <Button
+                            type="button"
+                            className="shrink-0 gap-1.5 bg-[var(--fms-info-text)] text-white hover:bg-[var(--fms-info-text)]/90"
+                            disabled={
+                              row.lookupLoading || !row.cid.trim() || row.cidLocked
+                            }
+                            aria-label="Search user by CID"
+                            onClick={() => void searchOfficialByCid(row.key)}
+                          >
+                            <Search className="h-4 w-4" />
+                            {row.lookupLoading ? 'Searching…' : 'Search'}
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>
+                          Full Name <RequiredMark />
+                        </Label>
+                        <Input
+                          value={
+                            row.lookupLoading
+                              ? 'Searching users…'
+                              : row.fullName
+                          }
+                          readOnly
+                          placeholder="Auto Fetch"
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="text-[var(--fms-delete)]"
+                        aria-label="Remove official"
+                        onClick={() => removeOfficialRow(row.key)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </div>
-                    <div className="space-y-2">
-                      <Label>
-                        Full Name <RequiredMark />
-                      </Label>
-                      <Input
-                        value={row.fullName}
-                        placeholder="Auto fetch"
-                        onChange={(event) =>
-                          updateOfficialRow(row.key, {
-                            fullName: event.target.value,
-                          })
-                        }
-                      />
-                    </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="text-[var(--fms-delete)]"
-                      aria-label="Remove official"
-                      onClick={() => removeOfficialRow(row.key)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    
                   </div>
                 ))}
               </div>
@@ -855,14 +849,16 @@ function FormInput({
   type = 'text',
   placeholder,
   min,
+  disabled,
 }: {
   label: string
   value: string
-  onChange: (value: string) => void
+  onChange?: (value: string) => void
   required?: boolean
   type?: string
   placeholder?: string
   min?: number
+  disabled?: boolean
 }) {
   return (
     <div className="space-y-2">
@@ -874,7 +870,10 @@ function FormInput({
         min={min}
         value={value}
         placeholder={placeholder}
-        onChange={(event) => onChange(event.target.value)}
+        disabled={disabled}
+        readOnly={disabled}
+        className={disabled ? 'bg-[#f8f8f9] text-[var(--fms-text-header)]' : undefined}
+        onChange={onChange ? (event) => onChange(event.target.value) : undefined}
       />
     </div>
   )

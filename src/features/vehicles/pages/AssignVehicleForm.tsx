@@ -321,7 +321,7 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
       navigate('/assign-driver')
     },
     onError: (error) => {
-      showErrorToast(error instanceof Error ? error.message : 'Failed to save assignment')
+      showErrorToast(error, 'Failed to save assignment')
     },
   })
 

@@ -215,7 +215,7 @@ export function RoleFormPage() {
       navigate('/admin/roles')
     },
     onError: (error) => {
-      showErrorToast(error instanceof Error ? error.message : 'Could not save role')
+      showErrorToast(error, 'Could not save role')
     },
   })
 

@@ -1,32 +1,44 @@
-import { ArrowLeft, CloudUpload } from 'lucide-react'
-import { type FormEvent, useMemo, useRef, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { AlertTriangle, ArrowLeft, CloudUpload } from 'lucide-react'
+import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { FuelLogStatusCell } from '@/features/fuel/components/FuelLogStatusCell'
 import {
   createFuelLog,
-  FUEL_LOG_AUTO_DRIVER,
-  FUEL_LOG_AUTO_VEHICLE,
-  FUEL_LOG_LOCATION_OPTIONS,
+  fetchDriverVehicles,
+  fetchFuelLogById,
+  isFuelLogMtoReviewable,
+  openFuelLogReceipt,
+  reviewFuelLogMto,
+  type DriverVehicleOption,
+  type FuelLogMtoReviewAction,
+} from '@/features/fuel/lib/fuel-logs-api'
+import {
   formatFuelLogCost,
   formatFuelLogDate,
   formatFuelLogLiters,
   formatFuelLogOdometer,
   getFuelLogAutoDateIso,
-  getFuelLogAutoDateLabel,
-  getFuelLogById,
 } from '@/features/fuel/lib/fuel-log-mock-data'
+import type { ApiRecord } from '@/features/user/lib/roles-api'
+import { mapUserDetailFields } from '@/features/user/lib/users-api'
+import { formatFileSizeLabel } from '@/features/trips/lib/trip-form-utils'
 import { cn } from '@/lib/utils'
+import { useUserStore } from '@/services/user-store'
+import { SearchableAutocomplete } from '@/shared/components/SearchableAutocomplete'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
@@ -53,24 +65,83 @@ function DetailValueField({ label, value }: { label: string; value: string }) {
   )
 }
 
+function basenameFromObjectKey(value: string): string {
+  const trimmed = value.trim().split('?')[0]?.trim() ?? ''
+  if (!trimmed) return ''
+  const parts = trimmed.split(/[/\\]/).filter(Boolean)
+  return parts[parts.length - 1] ?? trimmed
+}
+
 function ReceiptUploadField({
   readOnly,
   fileName,
+  objectKey,
+  fileSizeLabel,
+  receiptLoading = false,
+  onReceiptClick,
   onFileChange,
 }: {
   readOnly?: boolean
   fileName: string
-  onFileChange?: (name: string) => void
+  objectKey?: string
+  fileSizeLabel?: string
+  receiptLoading?: boolean
+  onReceiptClick?: () => void
+  onFileChange?: (file: File | null) => void
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   if (readOnly) {
+    const displayName = fileName || (objectKey ? basenameFromObjectKey(objectKey) : '')
+    const canOpenReceipt = Boolean(onReceiptClick && (displayName || objectKey))
+    const receiptLabel = displayName || (objectKey ? 'View receipt' : '')
     return (
       <div className="space-y-2">
-        <Label>Upload Receipt</Label>
-        <div className="rounded-full bg-[#ddf2ff] px-4 py-2.5 text-sm font-medium text-[#0a72a5]">
-          {fileName || '—'}
-        </div>
+        <Label>{readOnly ? 'Uploaded Receipt' : 'Upload Receipt'}</Label>
+        {receiptLabel || objectKey ? (
+          <div className="space-y-2">
+            {receiptLabel ? (
+              canOpenReceipt ? (
+                <button
+                  type="button"
+                  disabled={receiptLoading}
+                  onClick={onReceiptClick}
+                  className={cn(
+                    'inline-flex items-center gap-2 rounded-full border border-[#bfdbfe] bg-[#eff6ff] px-3 py-2 text-sm text-[var(--fms-primary)] transition-colors',
+                    receiptLoading
+                      ? 'cursor-wait opacity-70'
+                      : 'cursor-pointer hover:bg-[#dbeafe]',
+                  )}
+                >
+                  <CloudUpload className="h-4 w-4 shrink-0" />
+                  <span className="font-medium underline-offset-2 hover:underline">
+                    {receiptLoading ? 'Opening receipt…' : receiptLabel}
+                  </span>
+                  {fileSizeLabel ? (
+                    <span className="text-[var(--fms-text-subheading)]">{fileSizeLabel}</span>
+                  ) : null}
+                </button>
+              ) : (
+                <div className="inline-flex items-center gap-2 rounded-full border border-[#bfdbfe] bg-[#eff6ff] px-3 py-2 text-sm text-[var(--fms-primary)]">
+                  <CloudUpload className="h-4 w-4 shrink-0" />
+                  <span className="font-medium">{receiptLabel}</span>
+                  {fileSizeLabel ? (
+                    <span className="text-[var(--fms-text-subheading)]">{fileSizeLabel}</span>
+                  ) : null}
+                </div>
+              )
+            ) : null}
+            {/* {objectKey ? (
+              <p className="break-all rounded-lg border border-[var(--fms-strokes)] bg-[#f8f8f9] px-4 py-2.5 font-mono text-xs text-[var(--fms-text-subheading)]">
+                {objectKey}
+              </p>
+            ) : null} */}
+          </div>
+        ) : (
+          <div className="rounded-full border border-[var(--fms-strokes)] bg-[#f8f8f9] px-4 py-2.5 text-sm text-[var(--fms-text-subheading)]">
+            —
+          </div>
+        )}
       </div>
     )
   }
@@ -84,23 +155,38 @@ function ReceiptUploadField({
         accept=".jpg,.jpeg,.png,.pdf"
         className="sr-only"
         onChange={(event) => {
-          const file = event.target.files?.[0]
-          onFileChange?.(file?.name ?? '')
+          const file = event.target.files?.[0] ?? null
+          onFileChange?.(file)
         }}
       />
-      <button
-        type="button"
-        onClick={() => fileInputRef.current?.click()}
-        className={cn(
-          'flex w-full items-center justify-center gap-2 rounded-full border border-[var(--fms-strokes)] px-4 py-2.5 text-sm transition-colors',
-          fileName
-            ? 'bg-[#ddf2ff] font-medium text-[#0a72a5]'
-            : 'bg-[#f8fbff] text-[var(--fms-text-subheading)] hover:bg-[#eef6ff]',
-        )}
-      >
-        <CloudUpload className="h-4 w-4 shrink-0" />
-        {fileName || 'Upload receipt in Jpg.,png,......'}
-      </button>
+      {fileName ? (
+        <div className="inline-flex items-center gap-2 rounded-full border border-[#bfdbfe] bg-[#eff6ff] px-3 py-2 text-sm text-[var(--fms-primary)]">
+          <CloudUpload className="h-4 w-4 shrink-0" />
+          <span className="font-medium">{fileName}</span>
+          {fileSizeLabel ? (
+            <span className="text-[var(--fms-text-subheading)]">{fileSizeLabel}</span>
+          ) : null}
+          <button
+            type="button"
+            className="ml-1 text-xs font-medium text-[var(--fms-primary)] underline"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            Change
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className={cn(
+            'flex w-full items-center justify-center gap-2 rounded-full border border-[var(--fms-strokes)] px-4 py-2.5 text-sm transition-colors',
+            'bg-[#f8fbff] text-[var(--fms-text-subheading)] hover:bg-[#eef6ff]',
+          )}
+        >
+          <CloudUpload className="h-4 w-4 shrink-0" />
+          Upload receipt in Jpg., png, pdf
+        </button>
+      )}
     </div>
   )
 }
@@ -109,17 +195,27 @@ type FuelLogFormProps = {
   mode: 'create' | 'detail'
   driverName: string
   vehicleNumber: string
-  dateLabel: string
+  vehicleId?: string
+  vehicleOptions?: DriverVehicleOption[]
+  vehiclesLoading?: boolean
+  onVehicleChange?: (value: string) => void
+  logDate: string
   fuelLiters: string
   totalCost: string
   odometer: string
   location: string
+  status?: string
   receiptFileName: string
+  receiptObjectKey?: string
+  receiptFileSizeLabel?: string
+  receiptLoading?: boolean
+  onReceiptClick?: () => void
+  onLogDateChange?: (value: string) => void
   onFuelLitersChange?: (value: string) => void
   onTotalCostChange?: (value: string) => void
   onOdometerChange?: (value: string) => void
   onLocationChange?: (value: string) => void
-  onReceiptChange?: (value: string) => void
+  onReceiptChange?: (file: File | null) => void
   onSubmit?: (event: FormEvent) => void
   submitDisabled?: boolean
 }
@@ -128,12 +224,22 @@ function FuelLogForm({
   mode,
   driverName,
   vehicleNumber,
-  dateLabel,
+  vehicleId = '',
+  vehicleOptions = [],
+  vehiclesLoading = false,
+  onVehicleChange,
+  logDate,
   fuelLiters,
   totalCost,
   odometer,
   location,
+  status = '—',
   receiptFileName,
+  receiptObjectKey,
+  receiptFileSizeLabel,
+  receiptLoading = false,
+  onReceiptClick,
+  onLogDateChange,
   onFuelLitersChange,
   onTotalCostChange,
   onOdometerChange,
@@ -153,15 +259,18 @@ function FuelLogForm({
   const odometerDisplay = isDetail
     ? formatFuelLogOdometer(Number(odometer) || 0)
     : odometer
+  const dateDisplay = isDetail ? formatFuelLogDate(logDate) : logDate
 
   return (
     <Card className="rounded-xl border border-[var(--fms-strokes)] bg-white">
       <CardContent className="space-y-5 p-4 sm:p-6">
         <div className="space-y-1">
           <h2 className="text-lg font-semibold text-[var(--fms-text-header)]">
-            Add Fuel Log
+            {isDetail ? 'Fuel Log Details' : 'Add Fuel Log'}
           </h2>
-          <p className="text-sm text-[var(--fms-text-subheading)]">Fuel Log Form</p>
+          {!isDetail && (
+            <p className="text-sm text-[var(--fms-text-subheading)]">Fuel Log Form</p>
+          )}
         </div>
 
         <form
@@ -184,13 +293,34 @@ function FuelLogForm({
             {isDetail ? (
               <DetailValueField label="Vehicle Number" value={vehicleNumber} />
             ) : (
-              <AutoPopulateField label="Vehicle Number" value={vehicleNumber} />
+              <div className="space-y-2">
+                <Label>Vehicle Number</Label>
+                <SearchableAutocomplete
+                  value={vehicleId}
+                  onChange={(value) => onVehicleChange?.(value)}
+                  options={vehicleOptions}
+                  loading={vehiclesLoading}
+                  disabled={vehiclesLoading || vehicleOptions.length === 0}
+                  placeholder="Select vehicle"
+                  searchPlaceholder="Search vehicle number…"
+                  emptyMessage="No assigned vehicles found."
+                />
+              </div>
             )}
 
             {isDetail ? (
-              <DetailValueField label="Date" value={dateLabel} />
+              <DetailValueField label="Date" value={dateDisplay} />
             ) : (
-              <AutoPopulateField label="Date" value={dateLabel} />
+              <div className="space-y-2">
+                <Label htmlFor="log-date">Fuel Log Date</Label>
+                <Input
+                  id="log-date"
+                  type="date"
+                  value={logDate}
+                  onChange={(event) => onLogDateChange?.(event.target.value)}
+                  className="rounded-full"
+                />
+              </div>
             )}
 
             {isDetail ? (
@@ -200,6 +330,9 @@ function FuelLogForm({
                 <Label htmlFor="fuel-liters">Fuel Refill Liters</Label>
                 <Input
                   id="fuel-liters"
+                  type="number"
+                  min={0}
+                  step="any"
                   value={fuelLiters}
                   onChange={(event) => onFuelLitersChange?.(event.target.value)}
                   placeholder="Fuel refill liters"
@@ -246,31 +379,36 @@ function FuelLogForm({
               <DetailValueField label="Location" value={location} />
             ) : (
               <div className="space-y-2">
-                <Label>Location</Label>
-                <Select
-                  value={location || undefined}
-                  onValueChange={(value) => onLocationChange?.(value)}
-                >
-                  <SelectTrigger className="w-full rounded-full">
-                    <SelectValue placeholder="Select Location" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {FUEL_LOG_LOCATION_OPTIONS.map((option) => (
-                      <SelectItem key={option} value={option}>
-                        {option}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label htmlFor="location">Location</Label>
+                <Input
+                  id="location"
+                  value={location}
+                  onChange={(event) => onLocationChange?.(event.target.value)}
+                  placeholder="Enter location"
+                  className="rounded-full"
+                />
               </div>
             )}
 
-            <ReceiptUploadField
-              readOnly={isDetail}
-              fileName={receiptFileName}
-              onFileChange={onReceiptChange}
-            />
+            {isDetail ? (
+              <div className="space-y-2">
+                <Label>Status</Label>
+                <div className="rounded-full border border-[var(--fms-strokes)] bg-white px-4 py-2.5">
+                  <FuelLogStatusCell status={status} />
+                </div>
+              </div>
+            ) : null}
           </div>
+
+          <ReceiptUploadField
+            readOnly={isDetail}
+            fileName={receiptFileName}
+            objectKey={receiptObjectKey}
+            fileSizeLabel={receiptFileSizeLabel}
+            receiptLoading={receiptLoading}
+            onReceiptClick={onReceiptClick}
+            onFileChange={onReceiptChange}
+          />
 
           {!isDetail ? (
             <div className="flex justify-end pt-2">
@@ -291,20 +429,92 @@ function FuelLogForm({
 
 function CreateFuelLogPage() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const crud = useRouteCrudPermissions('/fuel/create-fuel-log')
+  const user = useUserStore((state) => state.user)
 
+  const profileRecord = useMemo((): ApiRecord | null => {
+    if (user && typeof user === 'object' && !Array.isArray(user)) {
+      return user as ApiRecord
+    }
+    return null
+  }, [user])
+
+  const profile = useMemo(
+    () => (profileRecord ? mapUserDetailFields(profileRecord) : null),
+    [profileRecord],
+  )
+
+  const driverId = useMemo(() => {
+    if (profile?.id && profile.id !== '-') return profile.id
+    if (profileRecord) {
+      const rawId = profileRecord.id ?? profileRecord.user_id ?? profileRecord.uuid
+      if (typeof rawId === 'string' && rawId.trim()) return rawId.trim()
+    }
+    return ''
+  }, [profile?.id, profileRecord])
+
+  const driverName =
+    profile?.name && profile.name !== '-' ? profile.name : '—'
+
+  const vehiclesQuery = useQuery({
+    queryKey: ['fuel-logs', 'driver-vehicles', driverId],
+    queryFn: () => fetchDriverVehicles(driverId),
+    enabled: Boolean(driverId) && (!crud.isResolved || crud.canCreate),
+    staleTime: 60_000,
+  })
+
+  const vehicleOptions = vehiclesQuery.data ?? []
+
+  const [vehicleId, setVehicleId] = useState('')
+  const [logDate, setLogDate] = useState(getFuelLogAutoDateIso())
   const [fuelLiters, setFuelLiters] = useState('')
   const [totalCost, setTotalCost] = useState('')
   const [odometer, setOdometer] = useState('')
   const [location, setLocation] = useState('')
-  const [receiptFileName, setReceiptFileName] = useState('')
+  const [receiptFile, setReceiptFile] = useState<File | null>(null)
+
+  useEffect(() => {
+    if (vehicleId || vehiclesQuery.isLoading) return
+    if (vehicleOptions.length === 1) {
+      setVehicleId(vehicleOptions[0].value)
+    }
+  }, [vehicleId, vehicleOptions, vehiclesQuery.isLoading])
+
+  const selectedVehicleLabel =
+    vehicleOptions.find((option) => option.value === vehicleId)?.label ?? ''
 
   const canSubmit =
+    Boolean(vehicleId) &&
+    logDate.trim() !== '' &&
     Number(fuelLiters) > 0 &&
     Number(totalCost) > 0 &&
     Number(odometer) > 0 &&
     location.trim() !== '' &&
-    receiptFileName.trim() !== ''
+    receiptFile !== null
+
+  const createMutation = useMutation({
+    mutationFn: () => {
+      if (!receiptFile) throw new Error('Receipt is required.')
+      return createFuelLog({
+        vehicleId,
+        logDate,
+        fuelRefillLiters: Number(fuelLiters),
+        totalCost: Number(totalCost),
+        odometerReading: Number(odometer),
+        location,
+        receiptFile,
+      })
+    },
+    onSuccess: async () => {
+      showSuccessToast('Fuel log saved')
+      await queryClient.invalidateQueries({ queryKey: ['fuel-logs'] })
+      navigate('/fuel/logs')
+    },
+    onError: (error) => {
+      showErrorToast(error, 'Failed to save fuel log')
+    },
+  })
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault()
@@ -313,19 +523,7 @@ function CreateFuelLogPage() {
       showErrorToast('Fill in all required fuel log fields')
       return
     }
-
-    createFuelLog({
-      driver: FUEL_LOG_AUTO_DRIVER,
-      vehicle: FUEL_LOG_AUTO_VEHICLE,
-      date: getFuelLogAutoDateIso(),
-      liters: Number(fuelLiters),
-      totalCost: Number(totalCost),
-      location,
-      odometerKm: Number(odometer),
-      receiptFileName,
-    })
-    showSuccessToast('Fuel log saved')
-    navigate('/fuel/logs')
+    createMutation.mutate()
   }
 
   if (crud.isResolved && !crud.canCreate) {
@@ -350,23 +548,35 @@ function CreateFuelLogPage() {
         <PageHeader title="Add Fuel Log" />
       </div>
 
+      {vehiclesQuery.isLoading ? (
+        <p className="text-sm text-[var(--fms-text-subheading)]">Loading assigned vehicles…</p>
+      ) : null}
+
       <FuelLogForm
         mode="create"
-        driverName={FUEL_LOG_AUTO_DRIVER}
-        vehicleNumber={FUEL_LOG_AUTO_VEHICLE}
-        dateLabel={getFuelLogAutoDateLabel()}
+        driverName={driverName}
+        vehicleNumber={selectedVehicleLabel}
+        vehicleId={vehicleId}
+        vehicleOptions={vehicleOptions}
+        vehiclesLoading={vehiclesQuery.isLoading}
+        onVehicleChange={setVehicleId}
+        logDate={logDate}
         fuelLiters={fuelLiters}
         totalCost={totalCost}
         odometer={odometer}
         location={location}
-        receiptFileName={receiptFileName}
+        receiptFileName={receiptFile?.name ?? ''}
+        receiptFileSizeLabel={
+          receiptFile ? formatFileSizeLabel(receiptFile.size) : undefined
+        }
+        onLogDateChange={setLogDate}
         onFuelLitersChange={setFuelLiters}
         onTotalCostChange={setTotalCost}
         onOdometerChange={setOdometer}
         onLocationChange={setLocation}
-        onReceiptChange={setReceiptFileName}
+        onReceiptChange={setReceiptFile}
         onSubmit={handleSubmit}
-        submitDisabled={!canSubmit}
+        submitDisabled={!canSubmit || createMutation.isPending || vehiclesQuery.isLoading}
       />
     </section>
   )
@@ -374,12 +584,97 @@ function CreateFuelLogPage() {
 
 function FuelLogDetailPage() {
   const { logId = '' } = useParams<{ logId: string }>()
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const crud = useRouteCrudPermissions('/fuel/logs')
+  const [reviewDialogOpen, setReviewDialogOpen] = useState(false)
+  const [reviewAction, setReviewAction] = useState<FuelLogMtoReviewAction | null>(null)
+  const [reviewRemarks, setReviewRemarks] = useState('')
 
-  const record = useMemo(
-    () => (logId ? getFuelLogById(logId) : undefined),
-    [logId],
-  )
+  const detailQuery = useQuery({
+    queryKey: ['fuel-logs', 'detail', logId],
+    queryFn: () => fetchFuelLogById(logId),
+    enabled: Boolean(logId.trim()) && (!crud.isResolved || crud.canRead),
+    staleTime: 30_000,
+  })
+
+  const record = detailQuery.data
+
+  const receiptMutation = useMutation({
+    mutationFn: () => {
+      if (!logId.trim()) throw new Error('Missing fuel log id')
+      return openFuelLogReceipt(
+        logId,
+        record?.receiptFileName || record?.receiptObjectKey || '',
+      )
+    },
+    onError: (error) => {
+      showErrorToast(error, 'Could not open receipt')
+    },
+  })
+
+  const handleReceiptClick = () => {
+    receiptMutation.mutate()
+  }
+
+  const isReviewable = record ? isFuelLogMtoReviewable(record.status) : false
+  const showApproveButton = isReviewable && crud.isResolved && crud.canApprove
+  const showRejectButton = isReviewable && crud.isResolved && crud.canReject
+  const showReviewActions = showApproveButton || showRejectButton
+
+  const reviewMutation = useMutation({
+    mutationFn: ({
+      action,
+      remarks,
+    }: {
+      action: FuelLogMtoReviewAction
+      remarks: string
+    }) => {
+      if (!logId.trim()) throw new Error('Missing fuel log id')
+      return reviewFuelLogMto(logId, action, remarks)
+    },
+    onSuccess: async (_data, variables) => {
+      showSuccessToast(
+        variables.action === 'approve' ? 'Fuel log approved' : 'Fuel log rejected',
+      )
+      setReviewDialogOpen(false)
+      setReviewAction(null)
+      setReviewRemarks('')
+      await queryClient.invalidateQueries({ queryKey: ['fuel-logs'] })
+      navigate('/fuel/logs')
+    },
+    onError: (error) => {
+      showErrorToast(error, 'Failed to review fuel log')
+    },
+  })
+
+  const openReviewDialog = (action: FuelLogMtoReviewAction) => {
+    if (reviewMutation.isPending) return
+    if (action === 'approve' && !showApproveButton) return
+    if (action === 'reject' && !showRejectButton) return
+    setReviewAction(action)
+    setReviewRemarks('')
+    setReviewDialogOpen(true)
+  }
+
+  const closeReviewDialog = () => {
+    if (reviewMutation.isPending) return
+    setReviewDialogOpen(false)
+    setReviewAction(null)
+    setReviewRemarks('')
+  }
+
+  const confirmReview = () => {
+    if (!reviewAction) return
+    const remarks = reviewRemarks.trim()
+    if (!remarks) {
+      showErrorToast('Remarks are required.')
+      return
+    }
+    reviewMutation.mutate({ action: reviewAction, remarks })
+  }
+
+  const reviewActionBusy = reviewMutation.isPending
 
   if (crud.isResolved && !crud.canRead) {
     return (
@@ -392,7 +687,15 @@ function FuelLogDetailPage() {
     )
   }
 
-  if (!record) {
+  if (detailQuery.isLoading) {
+    return (
+      <section className="space-y-5">
+        <PageHeader title="Fuel Log Details" subtitle="Loading fuel log…" />
+      </section>
+    )
+  }
+
+  if (detailQuery.isError || !record) {
     return (
       <section className="space-y-5">
         <div className="flex items-center gap-3">
@@ -403,6 +706,11 @@ function FuelLogDetailPage() {
           </Button>
           <PageHeader title="Fuel Log Details" subtitle="Record not found" />
         </div>
+        <p className="text-sm text-[var(--fms-text-subheading)]">
+          {detailQuery.error instanceof Error
+            ? detailQuery.error.message
+            : `No fuel log matches "${logId}".`}
+        </p>
         <Button variant="outline" asChild>
           <Link to="/fuel/logs">Back to Fuel Log</Link>
         </Button>
@@ -425,17 +733,114 @@ function FuelLogDetailPage() {
         mode="detail"
         driverName={record.driver}
         vehicleNumber={record.vehicle}
-        dateLabel={formatFuelLogDate(record.date)}
+        logDate={record.date}
         fuelLiters={String(record.liters)}
         totalCost={String(record.totalCost)}
         odometer={String(record.odometerKm)}
         location={record.location}
+        status={record.status}
         receiptFileName={record.receiptFileName}
+        receiptObjectKey={record.receiptObjectKey}
+        receiptFileSizeLabel={record.receiptFileSizeLabel}
+        receiptLoading={receiptMutation.isPending}
+        onReceiptClick={handleReceiptClick}
       />
+
+      {showReviewActions ? (
+        <div className="flex flex-wrap gap-3">
+          {showApproveButton ? (
+            <Button
+              type="button"
+              className="bg-[var(--fms-success-text)] text-white hover:bg-[var(--fms-success-text)]/90"
+              disabled={reviewActionBusy}
+              onClick={() => openReviewDialog('approve')}
+            >
+              Approve
+            </Button>
+          ) : null}
+          {showRejectButton ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="border-[#ed8936] text-[#c05621]"
+              disabled={reviewActionBusy}
+              onClick={() => openReviewDialog('reject')}
+            >
+              Reject
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
 
       <Button variant="outline" asChild>
         <Link to="/fuel/logs">Back to Fuel Log</Link>
       </Button>
+
+      <Dialog open={reviewDialogOpen} onOpenChange={(open) => !open && closeReviewDialog()}>
+        <DialogContent className="max-w-md">
+          <DialogHeader className="items-center text-center">
+            {reviewAction === 'reject' ? (
+              <div className="mb-2 rounded-full bg-[var(--fms-error-fill)] p-2.5">
+                <AlertTriangle className="h-5 w-5 text-[var(--fms-delete)]" />
+              </div>
+            ) : null}
+            <DialogTitle>
+              {reviewAction === 'approve' ? 'Approve Fuel Log' : 'Reject Fuel Log'}
+            </DialogTitle>
+            <DialogDescription>
+              {reviewAction === 'approve'
+                ? 'Enter remarks before approving this fuel log.'
+                : 'Enter remarks before rejecting this fuel log.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="fuel-log-review-remarks">
+              Remarks <span className="text-[var(--fms-delete)]">*</span>
+            </Label>
+            <textarea
+              id="fuel-log-review-remarks"
+              value={reviewRemarks}
+              onChange={(event) => setReviewRemarks(event.target.value)}
+              placeholder={
+                reviewAction === 'approve'
+                  ? 'Enter approval remarks'
+                  : 'Provide a reason for rejecting this fuel log'
+              }
+              rows={4}
+              disabled={reviewActionBusy}
+              className="min-h-[96px] w-full rounded-lg border border-[var(--fms-strokes)] bg-transparent px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+            />
+          </div>
+          <DialogFooter className="justify-center gap-2 sm:justify-center">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={reviewActionBusy}
+              onClick={closeReviewDialog}
+            >
+              Close
+            </Button>
+            <Button
+              type="button"
+              className={
+                reviewAction === 'approve'
+                  ? 'bg-[var(--fms-success-text)] text-white hover:bg-[var(--fms-success-text)]/90'
+                  : 'bg-[var(--fms-delete)] text-white hover:bg-[#c70009]'
+              }
+              disabled={reviewActionBusy}
+              onClick={confirmReview}
+            >
+              {reviewActionBusy
+                ? reviewAction === 'approve'
+                  ? 'Approving…'
+                  : 'Rejecting…'
+                : reviewAction === 'approve'
+                  ? 'Confirm Approve'
+                  : 'Confirm Reject'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   )
 }

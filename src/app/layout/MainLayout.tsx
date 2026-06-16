@@ -200,7 +200,7 @@ export function MainLayout() {
       "bg-[var(--fms-info-fill)] text-[var(--fms-text-header)]";
 
     return (
-      <nav className="space-y-2">
+      <nav className="flex min-h-0 flex-1 flex-col space-y-2 overflow-y-auto">
         <Link
           to="/dashboard"
           onClick={() => setIsSidebarOpen(false)}
@@ -312,8 +312,8 @@ export function MainLayout() {
   };
 
   return (
-    <div className="flex h-screen w-full flex-col bg-[#f4f4f5]">
-      <header className="flex w-full flex-wrap items-center justify-between gap-3 border-b border-[var(--fms-strokes)] py-3 px-5 sm:py-4">
+    <div className="grid h-dvh w-full grid-rows-[auto_1fr] overflow-hidden bg-[#f4f4f5]">
+      <header className="flex w-full shrink-0 flex-wrap items-center justify-between gap-3 border-b border-[var(--fms-strokes)] py-3 px-5 sm:py-4">
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -423,17 +423,27 @@ export function MainLayout() {
         </div>
       </header>
 
-      <div className="grid flex-1 min-h-0 grid-cols-1 lg:grid-cols-[240px_1fr]">
+      <div className="flex min-h-0 overflow-hidden">
+        {isSidebarOpen ? (
+          <button
+            type="button"
+            aria-label="Close sidebar"
+            className="fixed inset-0 z-30 bg-black/30 lg:hidden"
+            onClick={() => setIsSidebarOpen(false)}
+          />
+        ) : null}
         <aside
           className={cn(
-            "overflow-y-auto border-r border-[var(--fms-strokes)] bg-white p-4 lg:block",
-            isSidebarOpen ? "block" : "hidden",
+            "z-40 flex h-full w-[280px] shrink-0 flex-col overflow-hidden border-r border-[var(--fms-strokes)] bg-white p-4",
+            isSidebarOpen
+              ? "fixed bottom-0 left-0 top-14 flex lg:static lg:top-auto"
+              : "hidden lg:flex",
           )}
         >
           {renderNavigation()}
         </aside>
 
-        <main className="min-w-0 overflow-y-auto bg-[#f8f8f9] py-3 px-5 sm:py-6">
+        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto bg-[#f8f8f9] py-3 px-5 sm:py-6">
           <div className="mb-3 inline-flex items-center gap-2 rounded-md bg-[var(--fms-info-fill)] px-2 py-1 text-xs text-[var(--fms-text-header)]">
             <RoleIcon className="h-3.5 w-3.5" />
             {formatRealmRoleDisplayName(role || DEFAULT_ROLE)} Permissions Applied

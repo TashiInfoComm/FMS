@@ -28,7 +28,7 @@ export function directoryUserRegistrationSchema(isAdmin: boolean) {
         .refine((s) => s !== '' && s !== '-', { message: 'Designation is required' }),
       agencyId: z.string().trim().min(1, 'Agency is required'),
       departmentId: z.string().trim().min(1, 'Department is required'),
-      divisionId: z.string().trim().min(1, 'Division is required'),
+      divisionId: z.string().trim(),
       subDivisionId: z.string().trim(),
       roles: z.array(z.string()),
     })
@@ -128,7 +128,7 @@ export function directoryUserFormValuesToOrgIds(
   return {
     agency_id: orgSelection.agencyId,
     department_id: orgSelection.departmentId,
-    division_id: orgSelection.divisionId,
+    division_id: orgSelection.divisionId || undefined,
     sub_division_id: orgSelection.subDivisionId || undefined,
   }
 }

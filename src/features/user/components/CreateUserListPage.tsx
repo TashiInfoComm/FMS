@@ -1,5 +1,5 @@
 /**
- * Users list at `/users`: loads `GET /admin/users` with search, optional `status`, and pagination,
+ * Users list at `/users`: loads `GET /admin/users` with search, optional `status`, optional `role_name`, and pagination,
  * maps flexible API shapes to table rows, respects CRUD flags from `useRouteCrudPermissions('/users')`,
  * and wires Detail / Edit / Delete navigation (links avoid Radix `asChild` + Router issues).
  */
@@ -26,6 +26,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { realmRoleNamesFromUserRecord } from "@/features/user/lib/users-api";
+import { fetchAdminRoleOptions } from "@/features/user/lib/roles-api";
 import { apiDelete, apiGet } from "@/services/apiClient";
 import { cn } from "@/lib/utils";
 import { DeleteDialog } from "@/shared/components/DeleteDialog";
@@ -286,10 +287,11 @@ const USER_STATUS_FILTER_OPTIONS = [
 /** Sentinel for Radix Select (no empty `value` on items); maps to omitted `status` query param. */
 const USER_STATUS_FILTER_ALL = "__all__";
 
-/** Builds the list query path; omits `search` / `status` when empty so strict backends do not error. */
+/** Builds the list query path; omits `search` / `status` / `role_name` when empty so strict backends do not error. */
 function usersListPath(
   search: string,
   status: string,
+  roleName: string,
   page: number,
   pageSize: number,
 ) {
@@ -298,6 +300,8 @@ function usersListPath(
   if (q) path += `&search=${encodeURIComponent(q)}`;
   const st = status.trim();
   if (st) path += `&status=${encodeURIComponent(st)}`;
+  const role = roleName.trim();
+  if (role) path += `&role=${encodeURIComponent(role)}`;
   return path;
 }
 
@@ -394,6 +398,16 @@ function UsersMobileCardSkeleton({ rowCount }: { rowCount: number }) {
   );
 }
 
+/** Sentinel for Radix Select (no empty `value` on items); maps to omitted `role_name` query param. */
+const USER_ROLE_FILTER_ALL = "__all_roles__";
+
+type UserRoleFilterSelectProps = {
+  value: string;
+  onValueChange: (roleName: string) => void;
+  options: { roleName: string; description: string }[];
+  loading?: boolean;
+};
+
 /** Status filter dropdown (`Approved` / `Pending` / `Rejected`, or all). */
 function UserStatusFilterSelect({
   value,
@@ -424,12 +438,45 @@ function UserStatusFilterSelect({
   );
 }
 
+/** Role filter dropdown from GET `/admin/roles`; sends `role_name` to the users list API. */
+function UserRoleFilterSelect({
+  value,
+  onValueChange,
+  options,
+  loading,
+}: UserRoleFilterSelectProps) {
+  const selectValue = value.trim() === "" ? USER_ROLE_FILTER_ALL : value.trim();
+
+  return (
+    <Select
+      value={selectValue}
+      onValueChange={(next) =>
+        onValueChange(next === USER_ROLE_FILTER_ALL ? "" : next)
+      }
+      disabled={loading}
+    >
+      <SelectTrigger className="w-full max-w-[220px]">
+        <SelectValue placeholder={loading ? "Loading roles…" : "Filter by role…"} />
+      </SelectTrigger>
+      <SelectContent align="end">
+        <SelectItem value={USER_ROLE_FILTER_ALL}>All roles</SelectItem>
+        {options.map((o) => (
+          <SelectItem key={o.roleName} value={o.roleName}>
+            {formatRealmRoleDisplayName(o.roleName)}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
 /**
  * Route: `/users`. Fetches user list, applies server/client pagination metadata, gates UI by `canRead`/`canCreate`/`canDelete`.
  */
 export function CreateUserListPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [roleFilter, setRoleFilter] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -438,11 +485,18 @@ export function CreateUserListPage() {
   const crud = useRouteCrudPermissions("/users");
   const navigate = useNavigate();
 
+  const rolesQuery = useQuery({
+    queryKey: ["admin-roles", "user-list-filter"],
+    queryFn: () => fetchAdminRoleOptions(),
+    staleTime: 60_000,
+    enabled: !crud.isResolved || crud.canRead,
+  });
+
   const listQuery = useQuery({
-    queryKey: ["admin-users", search, statusFilter, page, pageSize],
+    queryKey: ["admin-users", search, statusFilter, roleFilter, page, pageSize],
     queryFn: async () => {
       const payload = await apiGet<unknown>(
-        usersListPath(search, statusFilter, page, pageSize),
+        usersListPath(search, statusFilter, roleFilter, page, pageSize),
       );
       const records = mapUserRows(toArray(payload));
       const paged = applyPagination(payload, records, page, pageSize, {
@@ -520,7 +574,7 @@ export function CreateUserListPage() {
     <section className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <PageHeader
-          title="Create User"
+          title="User Management"
           subtitle="Manage user records and configurations"
         />
         {crud.canCreate ? (
@@ -536,6 +590,15 @@ export function CreateUserListPage() {
       <Card className="min-w-0 rounded-xl border border-[var(--fms-strokes)] bg-white p-2 sm:p-4">
         <CardContent className="min-w-0 space-y-4 p-0">
           <div className="flex flex-col gap-2 sm:flex-row sm:justify-end sm:gap-3">
+            <UserRoleFilterSelect
+              value={roleFilter}
+              options={rolesQuery.data ?? []}
+              loading={rolesQuery.isLoading}
+              onValueChange={(next) => {
+                setRoleFilter(next);
+                setPage(1);
+              }}
+            />
             <UserStatusFilterSelect
               value={statusFilter}
               onValueChange={(next) => {
