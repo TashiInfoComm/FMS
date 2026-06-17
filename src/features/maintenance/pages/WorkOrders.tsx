@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query'
 import { Plus, Search } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
@@ -7,11 +8,16 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import {
-  filterWorkOrders,
-  WORK_ORDER_MOCK_ROWS,
-  type WorkOrderListItem,
-} from '@/features/maintenance/lib/maintenance-mock-data'
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import type { WorkOrderListItem } from '@/features/maintenance/lib/maintenance-mock-data'
+import { WORK_ORDER_STATUS_OPTIONS } from '@/features/maintenance/lib/maintenance-mock-data'
 import { workOrderStatusBadgeClass } from '@/features/maintenance/lib/maintenance-ui'
+import { fetchWorkOrdersPage } from '@/features/maintenance/lib/work-orders-api'
 import { PageHeader } from '@/shared/components/PageHeader'
 import {
   DetailRowActionButton,
@@ -37,34 +43,35 @@ export default function WorkOrders() {
   const navigate = useNavigate()
   const crud = useRouteCrudPermissions('/maintenance/work-orders')
   const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
 
-  const filtered = useMemo(
-    () => filterWorkOrders(WORK_ORDER_MOCK_ROWS, search),
-    [search],
-  )
+  const listQuery = useQuery({
+    queryKey: ['maintenance-work-orders', search, statusFilter, page, pageSize],
+    queryFn: () => fetchWorkOrdersPage(search, statusFilter, page, pageSize),
+    enabled: !crud.isResolved || crud.canRead,
+    staleTime: 30_000,
+  })
 
-  const totalCount = filtered.length
-  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
-
-  const serialBase = (page - 1) * pageSize
-
-  const rows = useMemo(() => {
-    const start = serialBase
-    return filtered.slice(start, start + pageSize)
-  }, [filtered, pageSize, serialBase])
+  const rows = useMemo(() => listQuery.data?.rows ?? [], [listQuery.data?.rows])
+  const totalCount = listQuery.data?.totalCount ?? rows.length
+  const effectivePageSize = listQuery.data?.effectivePageSize ?? pageSize
+  const totalPages =
+    listQuery.data?.totalPages ??
+    Math.max(1, Math.ceil(totalCount / Math.max(1, effectivePageSize)))
+  const serialBase = listQuery.data?.serialBase ?? (page - 1) * pageSize
 
   useEffect(() => {
     setPage(1)
-  }, [search, pageSize])
+  }, [search, statusFilter, pageSize])
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages)
   }, [page, totalPages])
 
-  const openDetail = (workOrderId: string) => {
-    navigate(`/maintenance/work-orders/${encodeURIComponent(workOrderId)}`)
+  const openDetail = (id: string) => {
+    navigate(`/maintenance/work-orders/${encodeURIComponent(id)}`)
   }
 
   return (
@@ -86,15 +93,35 @@ export default function WorkOrders() {
 
       <Card className="rounded-xl border border-[var(--fms-strokes)] bg-white p-2 sm:p-4">
         <CardContent className="space-y-4 p-0">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--fms-text-subheading)]" />
-            <Input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search work order ID, vehicle, status…"
-              className="h-10 pl-9"
-              aria-label="Search work orders"
-            />
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <Select
+              value={statusFilter}
+              onValueChange={(next) => {
+                setStatusFilter(next)
+                setPage(1)
+              }}
+            >
+              <SelectTrigger className="h-10 w-full sm:w-[220px]">
+                <SelectValue placeholder="All statuses" />
+              </SelectTrigger>
+              <SelectContent>
+                {WORK_ORDER_STATUS_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="relative min-w-0 flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--fms-text-subheading)]" />
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search work order ID, vehicle, status…"
+                className="h-10 pl-9"
+                aria-label="Search work orders"
+              />
+            </div>
           </div>
 
           <div className="overflow-hidden rounded-lg border border-[var(--fms-strokes)]">
@@ -125,13 +152,35 @@ export default function WorkOrders() {
                       You do not have permission to view work orders.
                     </td>
                   </tr>
+                ) : listQuery.isLoading ? (
+                  <tr className="border-t border-[var(--fms-strokes)]">
+                    <td
+                      colSpan={6}
+                      className="px-4 py-6 text-center text-[var(--fms-text-subheading)]"
+                    >
+                      Loading work orders…
+                    </td>
+                  </tr>
+                ) : listQuery.isError ? (
+                  <tr className="border-t border-[var(--fms-strokes)]">
+                    <td
+                      colSpan={6}
+                      className="px-4 py-6 text-center text-[var(--fms-text-subheading)]"
+                    >
+                      {listQuery.error instanceof Error
+                        ? listQuery.error.message
+                        : 'Could not load work orders.'}
+                    </td>
+                  </tr>
                 ) : rows.length === 0 ? (
                   <tr className="border-t border-[var(--fms-strokes)]">
                     <td
                       colSpan={6}
                       className="px-4 py-6 text-center text-[var(--fms-text-subheading)]"
                     >
-                      No work orders match your search.
+                      {search.trim() || statusFilter !== 'all'
+                        ? 'No work orders match your filters.'
+                        : 'No work orders found.'}
                     </td>
                   </tr>
                 ) : (
@@ -165,7 +214,7 @@ export default function WorkOrders() {
                             type="button"
                             tooltip="View details"
                             aria-label={`View work order ${row.workOrderId}`}
-                            onClick={() => openDetail(row.workOrderId)}
+                            onClick={() => openDetail(row.id)}
                           />
                         </div>
                       </td>

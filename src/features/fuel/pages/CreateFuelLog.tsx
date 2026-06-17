@@ -22,6 +22,7 @@ import {
   fetchFuelLogById,
   isFuelLogMtoReviewable,
   openFuelLogReceipt,
+  resubmitFuelLog,
   reviewFuelLogMto,
   type DriverVehicleOption,
   type FuelLogMtoReviewAction,
@@ -40,6 +41,7 @@ import { cn } from '@/lib/utils'
 import { useUserStore } from '@/services/user-store'
 import { SearchableAutocomplete } from '@/shared/components/SearchableAutocomplete'
 import { PageHeader } from '@/shared/components/PageHeader'
+import { useAccessControl } from '@/shared/hooks/useAccessControl'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
 
@@ -587,9 +589,17 @@ function FuelLogDetailPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const crud = useRouteCrudPermissions('/fuel/logs')
+  const { apiRoleName } = useAccessControl()
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false)
   const [reviewAction, setReviewAction] = useState<FuelLogMtoReviewAction | null>(null)
   const [reviewRemarks, setReviewRemarks] = useState('')
+  const [resubmitDialogOpen, setResubmitDialogOpen] = useState(false)
+  const [resubmitLogDate, setResubmitLogDate] = useState('')
+  const [resubmitFuelLiters, setResubmitFuelLiters] = useState('')
+  const [resubmitTotalCost, setResubmitTotalCost] = useState('')
+  const [resubmitOdometer, setResubmitOdometer] = useState('')
+  const [resubmitLocation, setResubmitLocation] = useState('')
+  const [resubmitReceiptFile, setResubmitReceiptFile] = useState<File | null>(null)
 
   const detailQuery = useQuery({
     queryKey: ['fuel-logs', 'detail', logId],
@@ -599,6 +609,8 @@ function FuelLogDetailPage() {
   })
 
   const record = detailQuery.data
+  const normalizedRole = apiRoleName?.trim().toLowerCase() ?? ''
+  const isDriverRole = normalizedRole.includes('driver')
 
   const receiptMutation = useMutation({
     mutationFn: () => {
@@ -621,6 +633,13 @@ function FuelLogDetailPage() {
   const showApproveButton = isReviewable && crud.isResolved && crud.canApprove
   const showRejectButton = isReviewable && crud.isResolved && crud.canReject
   const showReviewActions = showApproveButton || showRejectButton
+  const normalizedStatus = record?.status.trim().toUpperCase() ?? ''
+  const isRejectedStatus =
+    normalizedStatus === 'REJECTED' ||
+    normalizedStatus === 'DECLINED' ||
+    normalizedStatus === 'MTO_REJECTED' ||
+    normalizedStatus === 'FINANCE_REJECTED'
+  const showResubmitButton = isDriverRole && isRejectedStatus && crud.isResolved && crud.canCreate
 
   const reviewMutation = useMutation({
     mutationFn: ({
@@ -675,6 +694,45 @@ function FuelLogDetailPage() {
   }
 
   const reviewActionBusy = reviewMutation.isPending
+
+  const resubmitMutation = useMutation({
+    mutationFn: () => {
+      return resubmitFuelLog(logId, {
+        logDate: resubmitLogDate,
+        fuelRefillLiters: Number(resubmitFuelLiters),
+        totalCost: Number(resubmitTotalCost),
+        odometerReading: Number(resubmitOdometer),
+        location: resubmitLocation.trim(),
+        receiptFile: resubmitReceiptFile,
+      })
+    },
+    onSuccess: async () => {
+      showSuccessToast('Fuel log resubmitted')
+      setResubmitDialogOpen(false)
+      await queryClient.invalidateQueries({ queryKey: ['fuel-logs'] })
+      await queryClient.invalidateQueries({ queryKey: ['fuel-logs', 'detail', logId] })
+      navigate('/fuel/logs')
+    },
+    onError: (error) => {
+      showErrorToast(error, 'Failed to resubmit fuel log')
+    },
+  })
+
+  const openResubmitDialog = () => {
+    if (!record || resubmitMutation.isPending) return
+    setResubmitLogDate(record.date)
+    setResubmitFuelLiters(String(record.liters))
+    setResubmitTotalCost(String(record.totalCost))
+    setResubmitOdometer(String(record.odometerKm))
+    setResubmitLocation(record.location === '—' ? '' : record.location)
+    setResubmitReceiptFile(null)
+    setResubmitDialogOpen(true)
+  }
+
+  const closeResubmitDialog = () => {
+    if (resubmitMutation.isPending) return
+    setResubmitDialogOpen(false)
+  }
 
   if (crud.isResolved && !crud.canRead) {
     return (
@@ -772,6 +830,17 @@ function FuelLogDetailPage() {
         </div>
       ) : null}
 
+      {showResubmitButton ? (
+        <Button
+          type="button"
+          className="bg-[var(--fms-button)] hover:bg-[var(--fms-button-hover)]"
+          disabled={resubmitMutation.isPending}
+          onClick={openResubmitDialog}
+        >
+          Resubmit
+        </Button>
+      ) : null}
+
       <Button variant="outline" asChild>
         <Link to="/fuel/logs">Back to Fuel Log</Link>
       </Button>
@@ -837,6 +906,98 @@ function FuelLogDetailPage() {
                 : reviewAction === 'approve'
                   ? 'Confirm Approve'
                   : 'Confirm Reject'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={resubmitDialogOpen} onOpenChange={(open) => !open && closeResubmitDialog()}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Resubmit Fuel Log</DialogTitle>
+            <DialogDescription>
+              Update required fields and upload a new receipt before resubmitting.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="resubmit-log-date">Fuel Log Date</Label>
+              <Input
+                id="resubmit-log-date"
+                type="date"
+                value={resubmitLogDate}
+                onChange={(event) => setResubmitLogDate(event.target.value)}
+                disabled={resubmitMutation.isPending}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="resubmit-fuel-liters">Fuel Refill Liters</Label>
+              <Input
+                id="resubmit-fuel-liters"
+                type="number"
+                min={0}
+                step="any"
+                value={resubmitFuelLiters}
+                onChange={(event) => setResubmitFuelLiters(event.target.value)}
+                disabled={resubmitMutation.isPending}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="resubmit-total-cost">Total Cost</Label>
+              <Input
+                id="resubmit-total-cost"
+                type="number"
+                min={0}
+                value={resubmitTotalCost}
+                onChange={(event) => setResubmitTotalCost(event.target.value)}
+                disabled={resubmitMutation.isPending}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="resubmit-odometer">Odometer</Label>
+              <Input
+                id="resubmit-odometer"
+                type="number"
+                min={0}
+                value={resubmitOdometer}
+                onChange={(event) => setResubmitOdometer(event.target.value)}
+                disabled={resubmitMutation.isPending}
+              />
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor="resubmit-location">Location</Label>
+              <Input
+                id="resubmit-location"
+                value={resubmitLocation}
+                onChange={(event) => setResubmitLocation(event.target.value)}
+                disabled={resubmitMutation.isPending}
+              />
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <ReceiptUploadField
+                fileName={resubmitReceiptFile?.name ?? ''}
+                fileSizeLabel={
+                  resubmitReceiptFile ? formatFileSizeLabel(resubmitReceiptFile.size) : undefined
+                }
+                onFileChange={setResubmitReceiptFile}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={resubmitMutation.isPending}
+              onClick={closeResubmitDialog}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="bg-[var(--fms-button)] hover:bg-[var(--fms-button-hover)]"
+              onClick={() => resubmitMutation.mutate()}
+            >
+              {resubmitMutation.isPending ? 'Resubmitting…' : 'Resubmit'}
             </Button>
           </DialogFooter>
         </DialogContent>

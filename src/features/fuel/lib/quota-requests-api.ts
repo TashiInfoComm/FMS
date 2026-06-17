@@ -2,7 +2,7 @@ import type { ApiRecord } from '@/features/user/lib/roles-api'
 import { toText } from '@/features/user/lib/users-api'
 import { fetchDriverVehicleAssignmentByVehicleId } from '@/features/vehicles/lib/driver-vehicle-assignments-api'
 import { fetchVehicleById } from '@/features/vehicles/lib/vehicles-api'
-import { apiDelete, apiGet } from '@/services/apiClient'
+import { apiClient, apiDelete, apiGet, apiPatch } from '@/services/apiClient'
 import { extractMasterList } from '@/shared/lib/organogram-master-lookup'
 import { applyPagination } from '@/shared/utils/pagination'
 
@@ -32,6 +32,9 @@ export type QuotaRequestsPageResult = {
   serialBase: number
 }
 
+export type QuotaRequestMtoReviewAction = 'forward' | 'reject'
+export type QuotaRequestFinanceReviewAction = 'approve' | 'reject'
+
 function pickScalar(record: ApiRecord, keys: string[]): string {
   for (const key of keys) {
     const value = record[key]
@@ -56,7 +59,12 @@ function toNullableNumber(value: unknown): number | null {
 
 function normalizeQuotaRequestStatus(value: unknown): QuotaRequestStatus {
   const status = toText(value).trim().toUpperCase()
+  if (status === 'FORWARDED') return 'FORWARDED'
   if (status === 'APPROVED') return 'APPROVED'
+  if (status === 'COMPLETED') return 'COMPLETED'
+  if (status === 'TOPPED_UP') return 'TOPPED_UP'
+  if (status === 'MTO_REJECTED') return 'MTO_REJECTED'
+  if (status === 'FINANCE_REJECTED') return 'FINANCE_REJECTED'
   if (status === 'REJECTED' || status === 'DECLINED') return 'REJECTED'
   return 'PENDING'
 }
@@ -256,6 +264,25 @@ async function enrichQuotaRequestRowsWithVehicleNames(
   })
 }
 
+function unwrapQuotaRequestDetail(payload: unknown): ApiRecord | null {
+  if (!payload || typeof payload !== 'object') return null
+  const root = payload as ApiRecord
+  const data = root.data
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    const dataObj = data as ApiRecord
+    const nested = dataObj.quota_request ?? dataObj.quotaRequest
+    if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+      return nested as ApiRecord
+    }
+    return dataObj
+  }
+  const nested = root.quota_request ?? root.quotaRequest
+  if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+    return nested as ApiRecord
+  }
+  return root
+}
+
 function extractQuotaRequestList(payload: unknown): ApiRecord[] {
   const records = extractMasterList(payload)
   if (records.length > 0) return records
@@ -329,4 +356,92 @@ export async function deleteQuotaRequest(id: string): Promise<unknown> {
   const trimmed = id.trim()
   if (!trimmed) throw new Error('Missing quota request id')
   return apiDelete<unknown>(`/fuel/quota-requests/${encodeURIComponent(trimmed)}`)
+}
+
+export async function fetchQuotaRequestById(requestId: string): Promise<QuotaRequestListRow> {
+  const trimmed = requestId.trim()
+  if (!trimmed) throw new Error('Missing quota request id')
+  const payload = await apiGet<unknown>(`/fuel/quota-requests/${encodeURIComponent(trimmed)}`)
+  const record = unwrapQuotaRequestDetail(payload)
+  if (!record) throw new Error('Invalid quota request response')
+  const mapped = mapQuotaRequestListRow(record)
+  if (!mapped) throw new Error('Invalid quota request response')
+  const [enriched] = await enrichQuotaRequestRowsWithVehicleNames([mapped])
+  return enriched
+}
+
+export async function reviewQuotaRequestMto(
+  requestId: string,
+  action: QuotaRequestMtoReviewAction,
+  approvedAmount: number,
+  remarks: string,
+): Promise<void> {
+  const trimmedId = requestId.trim()
+  const trimmedRemarks = remarks.trim()
+  if (!trimmedId) throw new Error('Quota request id is required')
+  if (!Number.isFinite(approvedAmount) || approvedAmount <= 0) {
+    throw new Error('Approved amount must be greater than 0')
+  }
+  if (!trimmedRemarks) throw new Error('Remarks are required')
+  await apiPatch<
+    unknown,
+    { action: QuotaRequestMtoReviewAction; approved_amount: number; remarks: string }
+  >(`/fuel/quota-requests/${encodeURIComponent(trimmedId)}/mto-review`, {
+    action,
+    approved_amount: approvedAmount,
+    remarks: trimmedRemarks,
+  })
+}
+
+export async function reviewQuotaRequestFinance(
+  requestId: string,
+  action: QuotaRequestFinanceReviewAction,
+  approvedAmount: number,
+  remarks: string,
+): Promise<void> {
+  const trimmedId = requestId.trim()
+  const trimmedRemarks = remarks.trim()
+  if (!trimmedId) throw new Error('Quota request id is required')
+  if (!Number.isFinite(approvedAmount) || approvedAmount <= 0) {
+    throw new Error('Approved amount must be greater than 0')
+  }
+  if (!trimmedRemarks) throw new Error('Remarks are required')
+  await apiPatch<
+    unknown,
+    { action: QuotaRequestFinanceReviewAction; approved_amount: number; remarks: string }
+  >(`/fuel/quota-requests/${encodeURIComponent(trimmedId)}/finance-review`, {
+    action,
+    approved_amount: approvedAmount,
+    remarks: trimmedRemarks,
+  })
+}
+
+export async function resubmitQuotaRequestMto(
+  requestId: string,
+  approvedAmount: number,
+  remarks: string,
+): Promise<void> {
+  const trimmedId = requestId.trim()
+  const trimmedRemarks = remarks.trim()
+  if (!trimmedId) throw new Error('Quota request id is required')
+  if (!Number.isFinite(approvedAmount) || approvedAmount <= 0) {
+    throw new Error('Approved amount must be greater than 0')
+  }
+  if (!trimmedRemarks) throw new Error('Remarks are required')
+  await apiPatch<
+    unknown,
+    { approved_amount: number; remarks: string }
+  >(`/fuel/quota-requests/${encodeURIComponent(trimmedId)}/resubmit`, {
+    approved_amount: approvedAmount,
+    remarks: trimmedRemarks,
+  })
+}
+
+export async function topUpQuotaRequest(requestId: string): Promise<unknown> {
+  const trimmedId = requestId.trim()
+  if (!trimmedId) throw new Error('Quota request id is required')
+  return apiClient<unknown>(
+    `/fuel/quota-requests/${encodeURIComponent(trimmedId)}/topup`,
+    { method: 'PATCH' },
+  )
 }

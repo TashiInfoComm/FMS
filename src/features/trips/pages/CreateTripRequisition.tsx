@@ -52,7 +52,18 @@ import { useUserStore } from '@/services/user-store'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
+import { isUuidLike } from '@/shared/lib/organogram-master-lookup'
 import { cn } from '@/lib/utils'
+
+function preferFormMasterLabel(apiValue: string, formLabel: string): string {
+  const trimmedFormLabel = formLabel.trim()
+  if (trimmedFormLabel) return trimmedFormLabel
+  const trimmedApiValue = apiValue.trim()
+  if (trimmedApiValue && trimmedApiValue !== '—' && !isUuidLike(trimmedApiValue)) {
+    return trimmedApiValue
+  }
+  return trimmedFormLabel || trimmedApiValue || '—'
+}
 
 type OfficialRow = {
   key: string
@@ -178,6 +189,11 @@ function TripApprovedDialog({
               <MapPin className="h-4 w-4 text-[var(--fms-primary)]" />
               <span className="text-[var(--fms-text-subheading)]">Destination:</span>
               {result.destination}
+            </li>
+            <li className="flex items-center gap-2">
+              <Car className="h-4 w-4 text-[var(--fms-primary)]" />
+              <span className="text-[var(--fms-text-subheading)]">Trip Type:</span>
+              {result.tripTypeLabel}
             </li>
             <li className="flex items-center gap-2">
               <Target className="h-4 w-4 text-[var(--fms-primary)]" />
@@ -351,8 +367,8 @@ function CreateTripRequisition() {
         movementOrderFile,
       }).then((result) => ({
         ...result,
-        tripTypeLabel: result.tripTypeLabel || selectedTripTypeLabel,
-        purposeOfJourney: result.purposeOfJourney || purposeLabel,
+        tripTypeLabel: preferFormMasterLabel(result.tripTypeLabel, selectedTripTypeLabel),
+        purposeOfJourney: preferFormMasterLabel(result.purposeOfJourney, purposeLabel),
         timeOfJourney:
           result.timeOfJourney ||
           formatTripDisplayTime(toIsoDatetime(tripForm.journeyStartDatetime)) ||

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Pencil } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -19,13 +19,11 @@ import {
   type QuotaRequestStatus,
 } from "@/features/fuel/lib/quota-request-mock-data";
 import {
-  deleteQuotaRequest,
   fetchQuotaRequestsPage,
   formatQuotaRequestSource,
   type QuotaRequestListRow,
 } from "@/features/fuel/lib/quota-requests-api";
 import { cn } from "@/lib/utils";
-import { DeleteDialog } from "@/shared/components/DeleteDialog";
 import {
   ListPanelMessage,
   MobileListCard,
@@ -33,14 +31,13 @@ import {
 } from "@/shared/components/MobileListCard";
 import { PageHeader } from "@/shared/components/PageHeader";
 import {
-  DeleteRowActionButton,
   DetailRowActionButton,
   editRowActionButtonClassName,
   rowActionsContainerClassName,
 } from "@/shared/components/TableRowActionButtons";
 import { TablePagination } from "@/shared/components/TablePagination";
+import { useAccessControl } from "@/shared/hooks/useAccessControl";
 import { useRouteCrudPermissions } from "@/shared/hooks/useRouteCrudPermissions";
-import { showErrorToast, showSuccessToast } from "@/shared/lib/toast";
 
 const TABLE_COLUMNS = [
   "Sl.No",
@@ -67,6 +64,41 @@ function QuotaRequestStatusCell({ status }: { status: QuotaRequestStatus }) {
       </span>
     );
   }
+  if (status === "COMPLETED") {
+    return (
+      <span className="rounded-full  px-2 py-1 text-xs  text-[#0f8e5c]">
+        COMPLETED
+      </span>
+    );
+  }
+  if (status === "TOPPED_UP") {
+    return (
+      <span className="rounded-full bg-[#d1fae5] px-2 py-1 text-xs font-semibold text-[#047857]">
+        TOPPED UP
+      </span>
+    );
+  }
+  if (status === "FORWARDED") {
+    return (
+      <span className="rounded-full  px-2 py-1 text-xs  text-[#6b46c1]">
+        FORWARDED
+      </span>
+    );
+  }
+  if (status === "MTO_REJECTED") {
+    return (
+      <span className="rounded-full  px-2 py-1 text-xs  text-[#b83280]">
+        MTO REJECTED
+      </span>
+    );
+  }
+  if (status === "FINANCE_REJECTED") {
+    return (
+      <span className="rounded-full  px-2 py-1 text-xs  text-[#c53030]">
+        FINANCE REJECTED
+      </span>
+    );
+  }
   return (
     <span className="rounded-full  px-2 py-1 text-xs  text-[#c53030]">
       REJECTED
@@ -76,36 +108,18 @@ function QuotaRequestStatusCell({ status }: { status: QuotaRequestStatus }) {
 
 export default function QuotaRequestList() {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const crud = useRouteCrudPermissions("/fuel/quota-request-list");
+  const { apiRoleName } = useAccessControl();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [selectedDeleteId, setSelectedDeleteId] = useState<string | null>(null);
 
   const listQuery = useQuery({
     queryKey: ["fuel-quota-requests", search, statusFilter, page, pageSize],
     queryFn: () => fetchQuotaRequestsPage(search, statusFilter, page, pageSize),
     enabled: !crud.isResolved || crud.canRead,
     staleTime: 30_000,
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => {
-      if (!crud.canDelete) {
-        throw new Error("You do not have permission to delete quota requests.");
-      }
-      return deleteQuotaRequest(id);
-    },
-    onSuccess: () => {
-      showSuccessToast("Quota request deleted");
-      queryClient.invalidateQueries({ queryKey: ["fuel-quota-requests"] });
-    },
-    onError: (error) => {
-      showErrorToast(error, "Failed to delete quota request");
-    },
   });
 
   const rows = useMemo(
@@ -118,6 +132,12 @@ export default function QuotaRequestList() {
     listQuery.data?.totalPages ??
     Math.max(1, Math.ceil(totalCount / Math.max(1, effectivePageSize)));
   const serialBase = listQuery.data?.serialBase ?? (page - 1) * pageSize;
+  const normalizedRole = apiRoleName?.trim().toLowerCase() ?? "";
+  const isMto = normalizedRole.includes("mto");
+  const isFinanceOfficer =
+    normalizedRole.includes("finance-officer") ||
+    normalizedRole.includes("finance_officer") ||
+    normalizedRole.includes("finance officer");
 
   useEffect(() => {
     setPage(1);
@@ -137,16 +157,11 @@ export default function QuotaRequestList() {
     );
   };
 
-  const onDeleteRequest = (row: QuotaRequestListRow) => {
-    setSelectedDeleteId(row.id);
-    setDeleteOpen(true);
-  };
-
-  const onConfirmDelete = () => {
-    if (!selectedDeleteId) return;
-    deleteMutation.mutate(selectedDeleteId, {
-      onSettled: () => setSelectedDeleteId(null),
-    });
+  const canOpenReplenish = (row: QuotaRequestListRow) => {
+    if (!crud.canUpdate) return false;
+    if (isMto) return row.status === "PENDING" || row.status === "FINANCE_REJECTED";
+    if (isFinanceOfficer) return row.status === "FORWARDED";
+    return false;
   };
 
   return (
@@ -288,16 +303,12 @@ export default function QuotaRequestList() {
                             variant="outline"
                             size="sm"
                             className={editRowActionButtonClassName}
-                            disabled={
-                              row.status !== "PENDING" ||
-                              (!crud.canUpdate)
-                            }
+                            disabled={!canOpenReplenish(row)}
                             onClick={() => openReplenish(row)}
                           >
                             <Pencil aria-hidden />
                             Replenish
                           </Button>
-                          <DeleteRowActionButton type="button" disabled={!crud.canDelete && crud.isResolved} onClick={() => onDeleteRequest(row)} />
                         </div>
                       </td>
                     </tr>
@@ -368,19 +379,13 @@ export default function QuotaRequestList() {
                       variant="outline"
                       size="sm"
                       className={editRowActionButtonClassName}
-                      disabled={
-                        row.status !== "PENDING" || !crud.canUpdate
-                      }
+                      disabled={!canOpenReplenish(row)}
                       onClick={() => openReplenish(row)}
                     >
                       <Pencil aria-hidden />
                       Replenish
                     </Button>
-                    <DeleteRowActionButton
-                      type="button"
-                      disabled={!crud.canDelete && crud.isResolved}
-                      onClick={() => onDeleteRequest(row)}
-                    />
+                    
                   </div>
                 </MobileListCard>
               ))
@@ -403,13 +408,7 @@ export default function QuotaRequestList() {
         </CardContent>
       </Card>
 
-      <DeleteDialog
-        open={deleteOpen}
-        onOpenChange={setDeleteOpen}
-        onConfirm={onConfirmDelete}
-        title="Delete Quota Request"
-        description="Are you sure you want to delete this quota request? This action cannot be undone."
-      />
+      
     </section>
   );
 }

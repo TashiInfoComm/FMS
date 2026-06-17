@@ -30,6 +30,7 @@ import type {
 } from '@/features/trips/lib/trip-request-mock-data'
 import {
   approveTripAssign,
+  callTripPickup,
   fetchTripFeedback,
   openTripMovementOrder,
   overrideTripAssignment,
@@ -283,6 +284,7 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
   const canApproveTrip = showApproveButton
   const canRejectTrip = showRejectButton
   const showReviewActions = showApproveButton || showRejectButton
+  const showCallForPickupButton = mode === 'requisition' && trip.pickupRequired === true
 
   const movementOrderMutation = useMutation({
     mutationFn: () =>
@@ -376,6 +378,18 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
     },
   })
 
+  const pickupMutation = useMutation({
+    mutationFn: () => callTripPickup(trip.id, trip.employeeId),
+    onSuccess: async () => {
+      showSuccessToast('Pickup request sent successfully.')
+      await queryClient.invalidateQueries({ queryKey: ['trips'] })
+      await queryClient.invalidateQueries({ queryKey: ['trips', 'detail', trip.id] })
+    },
+    onError: (error) => {
+      showErrorToast(error, 'Failed to call for pickup')
+    },
+  })
+
   const hasSuggestedAssignment = Boolean(
     trip.systemSuggestedDriverId || trip.systemSuggestedVehicleId,
   )
@@ -429,8 +443,20 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
     overrideMutation.mutate()
   }
 
+  const handleCallForPickup = () => {
+    const employeeId = trip.employeeId.trim()
+    if (!employeeId || employeeId === '—') {
+      showErrorToast('Applicant employee ID is not available for this trip.')
+      return
+    }
+    pickupMutation.mutate()
+  }
+
   const reviewActionBusy =
-    approveMutation.isPending || rejectMutation.isPending || overrideMutation.isPending
+    approveMutation.isPending ||
+    rejectMutation.isPending ||
+    overrideMutation.isPending ||
+    pickupMutation.isPending
 
   const backLabel =
     mode === 'requisition' ? 'Back to my trips' : 'Back to trip requests'
@@ -654,6 +680,16 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
         </div>
       ) : (
         <div className="flex flex-wrap gap-3 pt-2">
+          {showCallForPickupButton ? (
+            <Button
+              type="button"
+              className="bg-[var(--fms-button)] text-white hover:bg-[var(--fms-button-hover)]"
+              disabled={pickupMutation.isPending}
+              onClick={handleCallForPickup}
+            >
+              {pickupMutation.isPending ? 'Calling…' : 'Call for Pickup'}
+            </Button>
+          ) : null}
           <Button type="button" variant="outline" asChild>
             <Link to={backPath}>{backLabel}</Link>
           </Button>

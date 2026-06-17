@@ -178,6 +178,52 @@ function resolvePurposeLabel(
   return lookupKey
 }
 
+function pickPurposeDisplayLabel(
+  record: ApiRecord,
+  fallback?: string,
+): string {
+  const directLabel = pickScalar(record, [
+    'purpose_name',
+    'purpose_of_journey_name',
+    'purposeOfJourneyName',
+    'journey_purpose_name',
+    'purpose_label',
+    'purposeLabel',
+  ])
+  if (directLabel) return directLabel
+
+  const nestedLabel = pickScalar(record, [
+    'purpose_of_journey',
+    'purposeOfJourney',
+    'journey_purpose',
+    'journeyPurpose',
+  ])
+  if (nestedLabel && !isUuidLike(nestedLabel)) return nestedLabel
+
+  const fallbackLabel = (fallback ?? '').trim()
+  if (fallbackLabel && !isUuidLike(fallbackLabel)) return fallbackLabel
+  return '—'
+}
+
+function pickTripTypeDisplayLabel(
+  record: ApiRecord,
+  fallback?: string,
+): string {
+  const directLabel = pickScalar(record, [
+    'trip_type_name',
+    'tripTypeName',
+    'trip_type_label',
+    'tripTypeLabel',
+  ])
+  if (directLabel) return directLabel
+
+  const fallbackLabel = (fallback ?? '').trim()
+  if (fallbackLabel && fallbackLabel !== '—' && !isUuidLike(fallbackLabel)) {
+    return fallbackLabel
+  }
+  return '—'
+}
+
 function readJourneyStartDatetime(record: ApiRecord): string {
   return pickScalar(record, [
     'journey_start_datetime',
@@ -1398,6 +1444,24 @@ export async function cancelTrip(
   )
 }
 
+export type CallTripPickupBody = {
+  employee_id: string
+}
+
+export async function callTripPickup(
+  tripId: string,
+  employeeId: string,
+): Promise<void> {
+  const trimmed = tripId.trim()
+  const employee_id = employeeId.trim()
+  if (!trimmed) throw new Error('Trip ID is required')
+  if (!employee_id) throw new Error('Applicant employee ID is required')
+  await apiPost<unknown, CallTripPickupBody>(
+    `/trips/${encodeURIComponent(trimmed)}/pickup`,
+    { employee_id },
+  )
+}
+
 export type RejectTripBody = {
   remarks: string
 }
@@ -2038,10 +2102,7 @@ export function mapCreateTripRequisitionResult(
     pickScalar(record, ['status', 'approval_status', 'trip_status']) ||
     fallback.status ||
     '—'
-  const tripTypeLabel =
-    pickScalar(record, ['trip_type_name', 'tripTypeName', 'trip_type_label', 'tripTypeLabel']) ||
-    fallback.tripTypeLabel ||
-    '—'
+  const tripTypeLabel = pickTripTypeDisplayLabel(record, fallback.tripTypeLabel)
   const journeyStartRaw = readJourneyStartDatetime(record) || fallback.dateOfJourney || ''
   const dateOfJourney = formatTripDisplayDate(journeyStartRaw)
   const timeOfJourney = formatTripDisplayTime(
@@ -2055,10 +2116,7 @@ export function mapCreateTripRequisitionResult(
     pickScalar(record, ['destination_details', 'destinationDetails', 'destination', 'final_destination']) ||
     fallback.destination ||
     '—'
-  const purposeOfJourney =
-    pickScalar(record, ['purpose_name', 'purpose_of_journey_name']) ||
-    fallback.purposeOfJourney ||
-    '—'
+  const purposeOfJourney = pickPurposeDisplayLabel(record, fallback.purposeOfJourney)
   const autoApproved =
     record.auto_approved === true ||
     record.autoApproved === true ||
@@ -2201,7 +2259,7 @@ export async function createTripRequisition(
     timeOfJourney: formatTripDisplayTime(journeyStart),
     origin: input.origin,
     destination: input.destinationDetails,
-    purposeOfJourney: input.purposeId,
+    purposeOfJourney: '',
     autoApproved: input.pickupRequired !== undefined,
   })
 }

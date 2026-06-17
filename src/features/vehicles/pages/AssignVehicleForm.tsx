@@ -12,13 +12,14 @@ import {
   ASSIGNMENT_PRIORITY_OPTIONS,
   createDriverVehicleAssignment,
   fetchDriverVehicleAssignmentById,
+  priorityLabelFromValue,
   updateDriverVehicleAssignment,
   type CreateDriverVehicleAssignmentBody,
 } from '@/features/vehicles/lib/driver-vehicle-assignments-api'
-import { fetchVehicles, type VehicleListRow } from '@/features/vehicles/lib/vehicles-api'
+import { fetchVehicles } from '@/features/vehicles/lib/vehicles-api'
 import { apiGet } from '@/services/apiClient'
 import { PageHeader } from '@/shared/components/PageHeader'
-import { SearchableAutocomplete } from '@/shared/components/SearchableAutocomplete'
+import { isUuidLike } from '@/shared/lib/organogram-master-lookup'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
 
@@ -216,7 +217,10 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
       licenseExpiryDate: assignment.expiry !== '—' ? assignment.expiry : '',
       assignedVehicle: assignment.vehicleId !== '—' ? assignment.vehicleId : '',
       assignedVehicleLabel: assignment.assignedVehicle !== '—' ? assignment.assignedVehicle : '',
-      priority: assignment.priority !== '—' ? assignment.priority : '',
+      priority:
+        assignment.priority !== '—'
+          ? priorityLabelFromValue(assignment.priority)
+          : '',
     })
     if (driver?.citizenId || assignment.cid) {
       setCidLocked(true)
@@ -276,16 +280,11 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
   })
 
   const vehicleRows = useMemo(() => vehiclesQuery.data ?? [], [vehiclesQuery.data])
-  const vehicleOptions = useMemo(
-    () =>
-      vehicleRows.map((vehicle: VehicleListRow) => ({
-        value: vehicle.id,
-        label: vehicle.registration_number,
-        description: `${vehicle.makeModel} • ${vehicle.status}`,
-        searchText: `${vehicle.registration_number} ${vehicle.makeModel} ${vehicle.status}`,
-      })),
-    [vehicleRows],
-  )
+  const findVehicleById = (vehicleId: string) => {
+    const trimmed = vehicleId.trim()
+    if (!trimmed) return undefined
+    return vehicleRows.find((vehicle) => vehicle.id === trimmed)
+  }
 
   const handleCitizenIdSearch = () => {
     if (!trimmedCitizenId || cidLocked || isEdit) return
@@ -298,10 +297,15 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
       const driverId = isEdit
         ? resolvedDriverId || editDriverQuery.data?.userId || assignmentQuery.data?.driverId || ''
         : driverLookupQuery.data?.userId ?? resolvedDriverId
+      const vehicleId =
+        findVehicleById(formValues.assignedVehicle)?.id ?? formValues.assignedVehicle.trim()
+      if (!isUuidLike(vehicleId)) {
+        throw new Error('Please select a valid vehicle.')
+      }
       const payload: CreateDriverVehicleAssignmentBody = {
-        vehicle_id: formValues.assignedVehicle.trim(),
+        vehicle_id: vehicleId,
         driver_id: driverId,
-        priority: Number.parseInt(formValues.priority, 10),
+        priority: formValues.priority.trim(),
         license: {
           license_number: formValues.licenseNumber.trim(),
         },
@@ -481,15 +485,14 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
                 </p>
               </div>
               <div className="grid gap-4 md:grid-cols-3">
-                <div className="space-y-2">
+                <div className="space-y-2 md:col-span-2">
                   <Label htmlFor="assigned-vehicle">
                     Assigned Vehicle <span className="text-[var(--fms-delete)]">*</span>
                   </Label>
-                  <SearchableAutocomplete
-                    id="assigned-vehicle"
+                  <Select
                     value={formValues.assignedVehicle}
-                    onChange={(vehicleId) => {
-                      const selectedVehicle = vehicleRows.find((vehicle) => vehicle.id === vehicleId)
+                    onValueChange={(vehicleId) => {
+                      const selectedVehicle = findVehicleById(vehicleId)
                       setFormValues((prev) => ({
                         ...prev,
                         assignedVehicle: vehicleId,
@@ -498,13 +501,36 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
                           : '',
                       }))
                     }}
-                    options={vehicleOptions}
-                    loading={vehiclesQuery.isLoading}
-                    disabled={!crud.canRead}
-                    placeholder="Select vehicle"
-                    searchPlaceholder="Search by vehicle number or model"
-                    emptyMessage={vehiclesQuery.isError ? 'Failed to load vehicles.' : 'No vehicles found.'}
-                  />
+                    disabled={!crud.canRead || vehiclesQuery.isLoading}
+                  >
+                    <SelectTrigger id="assigned-vehicle" className="h-8 w-full">
+                      <SelectValue
+                        placeholder={
+                          vehiclesQuery.isLoading ? 'Loading vehicles…' : 'Select vehicle'
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {vehiclesQuery.isError ? (
+                        <SelectItem value="__error" disabled>
+                          Failed to load vehicles.
+                        </SelectItem>
+                      ) : vehicleRows.length === 0 ? (
+                        <SelectItem value="__empty" disabled>
+                          No vehicles found.
+                        </SelectItem>
+                      ) : (
+                        vehicleRows.map((vehicle) => (
+                          <SelectItem
+                            key={`${vehicle.id}-${vehicle.registration_number}`}
+                            value={vehicle.id}
+                          >
+                            {vehicle.registration_number} — {vehicle.makeModel}
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="priority">
@@ -519,7 +545,7 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
                     </SelectTrigger>
                     <SelectContent>
                       {ASSIGNMENT_PRIORITY_OPTIONS.map((priority) => (
-                        <SelectItem key={priority.value} value={String(priority.value)}>
+                        <SelectItem key={priority.label} value={priority.label}>
                           {priority.label}
                         </SelectItem>
                       ))}

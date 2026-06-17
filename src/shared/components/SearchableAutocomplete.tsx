@@ -21,6 +21,8 @@ export type SearchableAutocompleteOption = {
   description?: string
   /** Extra text included when filtering (e.g. raw API id). */
   searchText?: string
+  /** Optional stable key when value alone is not unique. */
+  key?: string
 }
 
 export type SearchableAutocompleteProps = {
@@ -251,11 +253,11 @@ export function SearchableAutocomplete({
                       {emptyMessage}
                     </p>
                   ) : (
-                    filtered.map((option) => {
+                    filtered.map((option, index) => {
                       const isSelected = option.value === value
                       return (
                         <button
-                          key={option.value}
+                          key={option.key ?? `${option.value}-${index}`}
                           type="button"
                           role="option"
                           aria-selected={isSelected}

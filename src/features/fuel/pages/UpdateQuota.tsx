@@ -1,34 +1,18 @@
-import { type FormEvent, useEffect, useMemo, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useMemo, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { FuelTableListToolbar } from '@/features/fuel/components/FuelTableListToolbar'
 import {
-  formatCurrentQuota,
   formatNuDisplay,
+  type QuotaRequestStatus,
 } from '@/features/fuel/lib/quota-request-mock-data'
 import {
-  filterQuotaUpdatePending,
-  getQuotaUpdatePendingList,
-  getQuotaUpdateVehicleOptions,
-  removeQuotaUpdatePending,
-  type QuotaUpdatePendingRecord,
-} from '@/features/fuel/lib/update-quota-mock-data'
+  fetchQuotaRequestsPage,
+  topUpQuotaRequest,
+  type QuotaRequestListRow,
+} from '@/features/fuel/lib/quota-requests-api'
 import { PageHeader } from '@/shared/components/PageHeader'
 import {
   ListPanelMessage,
@@ -37,11 +21,10 @@ import {
 } from '@/shared/components/MobileListCard'
 import { TablePagination } from '@/shared/components/TablePagination'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
-import { showSuccessToast } from '@/shared/lib/toast'
+import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
 
 const TABLE_COLUMNS = [
   'Sl.No',
-  'Request ID',
   'Driver',
   'Vehicle',
   'Current Quota',
@@ -49,50 +32,102 @@ const TABLE_COLUMNS = [
   'Status',
 ] as const
 
-function ReadyUpdateStatusBadge() {
+function UpdateQuotaStatusCell({ status }: { status: QuotaRequestStatus }) {
+  if (status === 'APPROVED') {
+    return (
+      <span className="rounded-full bg-[#ddf2ff] px-2 py-1 text-xs font-semibold text-[#0a72a5]">
+        APPROVED
+      </span>
+    )
+  }
+  if (status === 'COMPLETED') {
+    return (
+      <span className="rounded-full bg-[#d1fae5] px-2 py-1 text-xs font-semibold text-[#0f8e5c]">
+        COMPLETED
+      </span>
+    )
+  }
+  if (status === 'TOPPED_UP') {
+    return (
+      <span className="rounded-full bg-[#d1fae5] px-2 py-1 text-xs font-semibold text-[#047857]">
+        TOPPED UP
+      </span>
+    )
+  }
+  if (status === 'FORWARDED') {
+    return (
+      <span className="rounded-full px-2 py-1 text-xs text-[#6b46c1]">
+        FORWARDED
+      </span>
+    )
+  }
+  if (status === 'PENDING') {
+    return (
+      <span className="rounded-full px-2 py-1 text-xs text-[#0a72a5]">
+        PENDING
+      </span>
+    )
+  }
   return (
-    <span className="rounded-full bg-[#ddf2ff] px-2 py-1 text-xs font-semibold text-[#0a72a5]">
-      READY UPDATE
+    <span className="rounded-full px-2 py-1 text-xs text-[var(--fms-text-subheading)]">
+      {status.replace(/_/g, ' ')}
     </span>
   )
 }
 
+function isCompletedStatus(status: QuotaRequestStatus): boolean {
+  return status === 'COMPLETED'
+}
+
+function isUpdateQuotaStatus(status: QuotaRequestStatus): boolean {
+  return status === 'APPROVED'
+}
+
 export default function UpdateQuota() {
+  const queryClient = useQueryClient()
   const crud = useRouteCrudPermissions('/fuel/update-quota')
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
-  const [refreshKey, setRefreshKey] = useState(0)
-  const [dialogOpen, setDialogOpen] = useState(false)
-  const [selectedRow, setSelectedRow] = useState<QuotaUpdatePendingRecord | null>(
-    null,
-  )
-  const [vehicle, setVehicle] = useState('')
-  const [newPrepaidAmount, setNewPrepaidAmount] = useState('')
+  const [pendingRequestId, setPendingRequestId] = useState<string | null>(null)
 
-  const allRows = useMemo(() => {
-    void refreshKey
-    return getQuotaUpdatePendingList()
-  }, [refreshKey])
+  const listQuery = useQuery({
+    queryKey: ['fuel-quota-requests', 'update-quota', search, page, pageSize],
+    queryFn: () => fetchQuotaRequestsPage(search, 'all', page, pageSize),
+    enabled: !crud.isResolved || crud.canRead,
+    staleTime: 30_000,
+  })
 
-  const filteredRows = useMemo(
-    () => filterQuotaUpdatePending(allRows, search),
-    [allRows, search],
-  )
+  const topUpMutation = useMutation({
+    mutationFn: ({
+      requestId,
+      mode,
+    }: {
+      requestId: string
+      mode: 'update' | 'topup'
+    }) => topUpQuotaRequest(requestId).then(() => mode),
+    onSuccess: (mode) => {
+      showSuccessToast(
+        mode === 'topup' ? 'Quota topped up successfully' : 'Quota updated successfully',
+      )
+      void queryClient.invalidateQueries({ queryKey: ['fuel-quota-requests'] })
+      setPendingRequestId(null)
+    },
+    onError: (error) => {
+      showErrorToast(
+        error instanceof Error ? error.message : 'Could not update quota.',
+      )
+      setPendingRequestId(null)
+    },
+  })
 
-  const vehicleOptions = useMemo(
-    () => getQuotaUpdateVehicleOptions(allRows),
-    [allRows],
-  )
-
-  const totalCount = filteredRows.length
-  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
-  const serialBase = (page - 1) * pageSize
-
-  const rows = useMemo(() => {
-    const start = serialBase
-    return filteredRows.slice(start, start + pageSize)
-  }, [filteredRows, pageSize, serialBase])
+  const rows = useMemo(() => listQuery.data?.rows ?? [], [listQuery.data?.rows])
+  const totalCount = listQuery.data?.totalCount ?? rows.length
+  const effectivePageSize = listQuery.data?.effectivePageSize ?? pageSize
+  const totalPages =
+    listQuery.data?.totalPages ??
+    Math.max(1, Math.ceil(totalCount / Math.max(1, effectivePageSize)))
+  const serialBase = listQuery.data?.serialBase ?? (page - 1) * pageSize
 
   useEffect(() => {
     setPage(1)
@@ -102,30 +137,41 @@ export default function UpdateQuota() {
     if (page > totalPages) setPage(totalPages)
   }, [page, totalPages])
 
-  const openUpdateDialog = (row: QuotaUpdatePendingRecord) => {
-    setSelectedRow(row)
-    setVehicle(row.vehicle)
-    setNewPrepaidAmount(String(row.financeApprovedAmount))
-    setDialogOpen(true)
+  const handleTopUp = (row: QuotaRequestListRow, mode: 'update' | 'topup') => {
+    setPendingRequestId(row.id)
+    topUpMutation.mutate({ requestId: row.id, mode })
   }
 
-  const closeDialog = () => {
-    setDialogOpen(false)
-    setSelectedRow(null)
-    setVehicle('')
-    setNewPrepaidAmount('')
-  }
+  const renderRowAction = (row: QuotaRequestListRow) => {
+    const isPending = pendingRequestId === row.id && topUpMutation.isPending
 
-  const canSubmitUpdate =
-    vehicle.trim() !== '' && Number(newPrepaidAmount) > 0
-
-  const onSubmitUpdate = (event: FormEvent) => {
-    event.preventDefault()
-    if (!selectedRow || !canSubmitUpdate) return
-    removeQuotaUpdatePending(selectedRow.id)
-    setRefreshKey((key) => key + 1)
-    showSuccessToast('Quota updated successfully')
-    closeDialog()
+    if (isCompletedStatus(row.status)) {
+      return (
+        <Button
+          type="button"
+          size="sm"
+          className="rounded-full bg-[var(--fms-button)] px-4 hover:bg-[var(--fms-button-hover)]"
+          disabled={(!crud.canUpdate && crud.isResolved) || isPending}
+          onClick={() => handleTopUp(row, 'topup')}
+        >
+          {isPending ? 'Topping up…' : 'TopUp'}
+        </Button>
+      )
+    }
+    if (isUpdateQuotaStatus(row.status)) {
+      return (
+        <Button
+          type="button"
+          size="sm"
+          className="rounded-full bg-[var(--fms-button)] px-4 hover:bg-[var(--fms-button-hover)]"
+          disabled={(!crud.canUpdate && crud.isResolved) || isPending}
+          onClick={() => handleTopUp(row, 'update')}
+        >
+          {isPending ? 'Updating…' : 'Update Quota'}
+        </Button>
+      )
+    }
+    return <span className="text-[var(--fms-text-subheading)]">—</span>
   }
 
   return (
@@ -181,13 +227,35 @@ export default function UpdateQuota() {
                       You do not have permission to view quota updates.
                     </td>
                   </tr>
+                ) : listQuery.isLoading ? (
+                  <tr className="border-t border-[var(--fms-strokes)]">
+                    <td
+                      colSpan={TABLE_COLUMNS.length + 1}
+                      className="px-4 py-6 text-center text-[var(--fms-text-subheading)]"
+                    >
+                      Loading quota requests…
+                    </td>
+                  </tr>
+                ) : listQuery.isError ? (
+                  <tr className="border-t border-[var(--fms-strokes)]">
+                    <td
+                      colSpan={TABLE_COLUMNS.length + 1}
+                      className="px-4 py-6 text-center text-[var(--fms-text-subheading)]"
+                    >
+                      {listQuery.error instanceof Error
+                        ? listQuery.error.message
+                        : 'Could not load quota requests.'}
+                    </td>
+                  </tr>
                 ) : rows.length === 0 ? (
                   <tr className="border-t border-[var(--fms-strokes)]">
                     <td
                       colSpan={TABLE_COLUMNS.length + 1}
                       className="px-4 py-6 text-center text-[var(--fms-text-subheading)]"
                     >
-                      No pending quota updates.
+                      {search.trim()
+                        ? 'No quota requests match your search.'
+                        : 'No quota requests found.'}
                     </td>
                   </tr>
                 ) : (
@@ -199,34 +267,24 @@ export default function UpdateQuota() {
                       <td className="px-4 py-3 tabular-nums text-[var(--fms-text-subheading)]">
                         {serialBase + index + 1}
                       </td>
-                      <td className="px-4 py-3 font-medium text-[var(--fms-text-header)]">
-                        {row.requestId}
-                      </td>
+
                       <td className="px-4 py-3 text-[var(--fms-text-header)]">
-                        {row.driver}
+                        {row.driverName}
                       </td>
                       <td className="px-4 py-3 text-[var(--fms-text-header)]">
                         {row.vehicle}
                       </td>
                       <td className="px-4 py-3 text-[var(--fms-text-subheading)]">
-                        {formatCurrentQuota(row.quotaUsed, row.quotaTotal)}
+                        {`${formatNuDisplay(row.balanceAtRequest)} / ${formatNuDisplay(row.recommendedAmount)}`}
                       </td>
                       <td className="px-4 py-3 font-semibold text-[#0a72a5]">
-                        {formatNuDisplay(row.financeApprovedAmount)}
+                        {formatNuDisplay(row.financeApprovedAmount ?? 0)}
                       </td>
                       <td className="px-4 py-3">
-                        <ReadyUpdateStatusBadge />
+                        <UpdateQuotaStatusCell status={row.status} />
                       </td>
                       <td className="px-4 py-3 text-center">
-                        <Button
-                          type="button"
-                          size="sm"
-                          className="rounded-full bg-[var(--fms-button)] px-4 hover:bg-[var(--fms-button-hover)]"
-                          disabled={!crud.canUpdate && crud.isResolved}
-                          onClick={() => openUpdateDialog(row)}
-                        >
-                          Update Quota
-                        </Button>
+                        {renderRowAction(row)}
                       </td>
                     </tr>
                   ))
@@ -240,38 +298,40 @@ export default function UpdateQuota() {
               <ListPanelMessage>
                 You do not have permission to view quota updates.
               </ListPanelMessage>
+            ) : listQuery.isLoading ? (
+              <ListPanelMessage>Loading quota requests…</ListPanelMessage>
+            ) : listQuery.isError ? (
+              <ListPanelMessage tone="error">
+                {listQuery.error instanceof Error
+                  ? listQuery.error.message
+                  : 'Could not load quota requests.'}
+              </ListPanelMessage>
             ) : rows.length === 0 ? (
-              <ListPanelMessage>No pending quota updates.</ListPanelMessage>
+              <ListPanelMessage>
+                {search.trim()
+                  ? 'No quota requests match your search.'
+                  : 'No quota requests found.'}
+              </ListPanelMessage>
             ) : (
               rows.map((row, index) => (
                 <MobileListCard key={row.id}>
                   <MobileListField label="Sl.No">{serialBase + index + 1}</MobileListField>
-                  <MobileListField label="Request ID">{row.requestId}</MobileListField>
-                  <MobileListField label="Driver">{row.driver}</MobileListField>
+                  <MobileListField label="Request ID">{row.id}</MobileListField>
+                  <MobileListField label="Driver">{row.driverName}</MobileListField>
                   <MobileListField label="Vehicle">{row.vehicle}</MobileListField>
                   <MobileListField label="Current Quota">
-                    {formatCurrentQuota(row.quotaUsed, row.quotaTotal)}
+                    {`${formatNuDisplay(row.balanceAtRequest)} / ${formatNuDisplay(row.recommendedAmount)}`}
                   </MobileListField>
                   <MobileListField label="Finance Approved Amount">
                     <span className="font-semibold text-[#0a72a5]">
-                      {formatNuDisplay(row.financeApprovedAmount)}
+                      {formatNuDisplay(row.financeApprovedAmount ?? 0)}
                     </span>
                   </MobileListField>
                   <p className="text-sm text-[var(--fms-text-subheading)]">
                     <span className="font-medium text-[var(--fms-text-header)]">Status:</span>{' '}
-                    <ReadyUpdateStatusBadge />
+                    <UpdateQuotaStatusCell status={row.status} />
                   </p>
-                  <div className="mt-3">
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="w-full rounded-full bg-[var(--fms-button)] hover:bg-[var(--fms-button-hover)] sm:w-auto"
-                      disabled={!crud.canUpdate && crud.isResolved}
-                      onClick={() => openUpdateDialog(row)}
-                    >
-                      Update Quota
-                    </Button>
-                  </div>
+                  <div className="mt-3">{renderRowAction(row)}</div>
                 </MobileListCard>
               ))
             )}
@@ -292,66 +352,6 @@ export default function UpdateQuota() {
           />
         </CardContent>
       </Card>
-
-      <Dialog
-        open={dialogOpen}
-        onOpenChange={(open) => {
-          if (!open) closeDialog()
-          else setDialogOpen(true)
-        }}
-      >
-        <DialogContent className="max-w-3xl sm:max-w-3xl">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-semibold text-[var(--fms-text-header)]">
-              Update Quota Pending List
-            </DialogTitle>
-          </DialogHeader>
-
-          <form
-            className="flex flex-col gap-4 sm:flex-row sm:items-end"
-            onSubmit={onSubmitUpdate}
-          >
-            <div className="min-w-0 flex-1 space-y-2">
-              <Label>Select Vehicle</Label>
-              <Select
-                value={vehicle || undefined}
-                onValueChange={setVehicle}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select Vehicle" />
-                </SelectTrigger>
-                <SelectContent>
-                  {vehicleOptions.map((option) => (
-                    <SelectItem key={option} value={option}>
-                      {option}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="min-w-0 flex-1 space-y-2">
-              <Label htmlFor="new-prepaid-amount">New Prepaid Amount</Label>
-              <Input
-                id="new-prepaid-amount"
-                type="number"
-                min={1}
-                value={newPrepaidAmount}
-                onChange={(event) => setNewPrepaidAmount(event.target.value)}
-                placeholder="Enter Amount"
-              />
-            </div>
-
-            <Button
-              type="submit"
-              disabled={!canSubmitUpdate}
-              className="w-full shrink-0 rounded-full bg-[var(--fms-button)] px-6 hover:bg-[var(--fms-button-hover)] sm:w-auto"
-            >
-              Update Quota
-            </Button>
-          </form>
-        </DialogContent>
-      </Dialog>
     </section>
   )
 }

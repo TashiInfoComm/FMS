@@ -52,7 +52,6 @@ import WorkOrders from '@/features/maintenance/pages/WorkOrders'
 import WorkOrderDetail from '@/features/maintenance/pages/WorkOrderDetail'
 import CreateWorkOrder from '@/features/maintenance/pages/CreateWorkOrder'
 import ServiceRecord from '@/features/maintenance/pages/ServiceRecord'
-import ServiceRecordDetail from '@/features/maintenance/pages/ServiceRecordDetail'
 import QuotaConfiguration from '@/features/fuel/pages/QuotaConfiguration'
 import QuotaRequestList from '@/features/fuel/pages/QuotaRequestList'
 import QuotaRequestDetailPage from '@/features/fuel/pages/QuotaRequestDetailPage'
@@ -178,10 +177,6 @@ export function AppRoutes() {
           <Route path="/maintenance/work-orders/create" element={<CreateWorkOrder />} />
           <Route path="/maintenance/work-orders/:workOrderId" element={<WorkOrderDetail />} />
           <Route path="/maintenance/records" element={<ServiceRecord />} />
-          <Route
-            path="/maintenance/records/:recordId"
-            element={<ServiceRecordDetail />}
-          />
         </Route>
       </Routes>
     </BrowserRouter>

@@ -76,16 +76,17 @@ export default function FuelLog() {
     <section className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <PageHeader title="Fuel Log" subtitle="View and manage fuel refill records." />
-        <Button
-          asChild
-          className="w-full bg-[var(--fms-button)] hover:bg-[var(--fms-button-hover)] sm:w-auto"
-          disabled={!crud.canCreate && crud.isResolved}
-        >
-          <Link to="/fuel/create-fuel-log">
-            <Plus className="mr-1 h-4 w-4" />
-            Add Fuel Log
-          </Link>
-        </Button>
+        {crud.canCreate ? (
+          <Button
+            asChild
+            className="w-full bg-[var(--fms-button)] hover:bg-[var(--fms-button-hover)] sm:w-auto"
+          >
+            <Link to="/fuel/create-fuel-log">
+              <Plus className="mr-1 h-4 w-4" />
+              Add Fuel Log
+            </Link>
+          </Button>
+        ) : null}
       </div>
 
       <Card className="min-w-0 rounded-xl border border-[var(--fms-strokes)] bg-white p-2 sm:p-4">

@@ -204,7 +204,7 @@ export async function fetchDriverVehicleAssignments(search = ''): Promise<Driver
 export type CreateDriverVehicleAssignmentBody = {
   vehicle_id: string
   driver_id: string
-  priority: number
+  priority: string
   license: {
     license_number: string
   }
@@ -297,7 +297,10 @@ export const ASSIGNMENT_PRIORITY_OPTIONS = [
 ] as const
 
 export function priorityLabelFromValue(value: string | number): string {
-  const numeric = typeof value === 'number' ? value : Number.parseInt(String(value), 10)
+  const text = String(value).trim().toUpperCase()
+  const byLabel = ASSIGNMENT_PRIORITY_OPTIONS.find((option) => option.label === text)
+  if (byLabel) return byLabel.label
+  const numeric = typeof value === 'number' ? value : Number.parseInt(text, 10)
   const match = ASSIGNMENT_PRIORITY_OPTIONS.find((option) => option.value === numeric)
   return match?.label ?? (value ? String(value) : '—')
 }

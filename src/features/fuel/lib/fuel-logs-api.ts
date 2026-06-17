@@ -45,6 +45,15 @@ export type CreateFuelLogApiInput = {
   receiptFile: File
 }
 
+export type ResubmitFuelLogApiInput = {
+  logDate: string
+  fuelRefillLiters: number
+  totalCost: number
+  odometerReading: number
+  location: string
+  receiptFile?: File | null
+}
+
 export type DriverVehicleOption = {
   value: string
   label: string
@@ -510,10 +519,33 @@ function buildFuelLogFormData(input: CreateFuelLogApiInput): FormData {
   return form
 }
 
+function buildFuelLogResubmitFormData(input: ResubmitFuelLogApiInput): FormData {
+  const form = new FormData()
+  form.append('log_date', input.logDate)
+  form.append('fuel_refill_liters', String(input.fuelRefillLiters))
+  form.append('total_cost', String(input.totalCost))
+  form.append('odometer_reading', String(input.odometerReading))
+  form.append('location', input.location)
+  if (input.receiptFile) {
+    form.append('receipt', input.receiptFile, input.receiptFile.name)
+  }
+  return form
+}
+
 export async function createFuelLog(input: CreateFuelLogApiInput): Promise<unknown> {
   return apiClient<unknown>('/fuel/fuel-logs', {
     method: 'POST',
     body: buildFuelLogFormData(input),
+  })
+}
+
+export async function resubmitFuelLog(
+  fuelLogId: string,
+  input: ResubmitFuelLogApiInput,
+): Promise<unknown> {
+  return apiClient<unknown>(`/fuel/fuel-logs/${encodeURIComponent(fuelLogId.trim())}/resubmit`, {
+    method: 'PATCH',
+    body: buildFuelLogResubmitFormData(input),
   })
 }
 

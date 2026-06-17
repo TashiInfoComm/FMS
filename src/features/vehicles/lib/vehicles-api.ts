@@ -58,28 +58,101 @@ function resolveStatusLabel(
   return fromName || id || ''
 }
 
+function pickVehicleListId(record: ApiRecord): string {
+  return pickScalar(record, [
+    'id',
+    'uuid',
+    'vehicleId',
+    'vehicle_uuid',
+    'vehicleUuid',
+    'vehicle_id',
+  ])
+}
+
+function pickVehicleRegistrationNumber(record: ApiRecord): string {
+  return pickScalar(record, [
+    'registration_number',
+    'registrationNumber',
+    'vehicle_number',
+    'vehicleNumber',
+    'plate_number',
+    'plateNumber',
+    'vehicle_name',
+    'vehicleName',
+  ])
+}
+
+function flattenVehicleRecord(record: ApiRecord): ApiRecord {
+  const vehicleBlock =
+    record.vehicle && typeof record.vehicle === 'object' && !Array.isArray(record.vehicle)
+      ? (record.vehicle as ApiRecord)
+      : null
+  return vehicleBlock ? { ...record, ...vehicleBlock } : record
+}
+
+function extractVehicleList(payload: unknown): ApiRecord[] {
+  const fromMaster = extractMasterList(payload)
+  if (fromMaster.length > 0) return fromMaster
+
+  if (!payload || typeof payload !== 'object') return []
+  const root = payload as ApiRecord
+  const data = root.data
+  const dataObj =
+    data && typeof data === 'object' && !Array.isArray(data) ? (data as ApiRecord) : null
+
+  const candidates: unknown[] = [
+    root.vehicles,
+    dataObj?.vehicles,
+    root.vehicle_list,
+    dataObj?.vehicle_list,
+  ]
+
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) {
+      return candidate.filter((item): item is ApiRecord => !!item && typeof item === 'object')
+    }
+  }
+
+  return []
+}
+
+function pickVehicleVin(record: ApiRecord): string {
+  return pickScalar(record, ['vin', 'VIN'])
+}
+
+function resolveVehicleRowIdentity(record: ApiRecord): { id: string; registration_number: string } {
+  const flat = flattenVehicleRecord(record)
+  const registration_number = pickVehicleRegistrationNumber(flat)
+  const vin = pickVehicleVin(flat)
+  const primaryId = pickVehicleListId(flat)
+  return {
+    id: primaryId,
+    registration_number: registration_number || vin || '—',
+  }
+}
+
 export function mapVehicleRecordToListRow(
   record: ApiRecord,
   lookups?: VehicleListStatusLookups,
 ): VehicleListRow {
-  const id = pickScalar(record, ['id', 'vehicle_id', 'vehicleId', 'uuid'])
-  const registration_number = pickScalar(record, ['registration_number', 'vehicle_number', 'vehicle_name', 'vehicle_id', 'vehicle_id'])
-  const make = pickScalar(record, ['make', 'vehicle_make'])
-  const model = pickScalar(record, ['model', 'vehicle_model'])
-  const year = pickScalar(record, ['manufacturing_year', 'year', 'manufacturingYear', 'model_year'])
-  let makeModel = pickScalar(record, ['make_model', 'makeModel', 'vehicle_name', 'name', 'title'])
+  const flat = flattenVehicleRecord(record)
+  const { id, registration_number } = resolveVehicleRowIdentity(record)
+  const make = pickScalar(flat, ['make', 'vehicle_make'])
+  const model = pickScalar(flat, ['model', 'vehicle_model'])
+  const year = pickScalar(flat, ['manufacturing_year', 'year', 'manufacturingYear', 'model_year'])
+  let makeModel = pickScalar(flat, ['make_model', 'makeModel', 'vehicle_name', 'name', 'title'])
   if (!makeModel && (make || model)) {
     makeModel = [make, model].filter(Boolean).join(' ')
     if (year) makeModel = `${makeModel} (${year})`
   }
   const status = lookups
     ? resolveStatusLabel(
-        record,
+        flat,
         ['status_id', 'statusId', 'vehicle_status_id', 'vehicleStatusId'],
         ['vehicle_status_name', 'status_name', 'status', 'vehicle_status', 'vehicleStatus'],
         lookups.vehicleStatuses,
       )
-    : pickScalar(record, [
+    : pickScalar(flat, [
         'vehicle_status_name',
         'status_name',
         'status',
@@ -88,7 +161,7 @@ export function mapVehicleRecordToListRow(
       ])
   const movement = lookups
     ? resolveStatusLabel(
-        record,
+        flat,
         ['movement_status_id', 'movementStatusId', 'vehicle_movement_status_id'],
         [
           'vehicle_movement_status_name',
@@ -99,29 +172,29 @@ export function mapVehicleRecordToListRow(
         ],
         lookups.vehicleMovementStatuses,
       )
-    : pickScalar(record, [
+    : pickScalar(flat, [
         'vehicle_movement_status_name',
         'movement_status_name',
         'movement_status',
         'vehicle_movement_status',
         'vehicleMovementStatus',
       ])
-  const odoRaw = pickScalar(record, [
+  const odoRaw = pickScalar(flat, [
     "odometer_reading",
     "current_odometer_km",
     "odometer",
     "odo_meter",
   ]);
   const odometer = odoRaw ? (/\bkm\b/i.test(odoRaw) ? odoRaw : `${odoRaw} km`) : ''
-const color = pickScalar(record, ['color', 'vehicle_color'])
-  const quotaInitialized = pickBoolean(record, [
+const color = pickScalar(flat, ['color', 'vehicle_color'])
+  const quotaInitialized = pickBoolean(flat, [
     'quota_initialized',
     'quotaInitialized',
   ])
   return {
     id,
     color: color || '—',
-    registration_number: registration_number || '—',
+    registration_number,
     makeModel: makeModel || '—',
     status: status || '—',
     movement: movement || '—',
@@ -151,10 +224,10 @@ export async function fetchVehiclesPage(
   lookups?: VehicleListStatusLookups,
 ): Promise<VehiclesListPageResult> {
   const payload = await apiGet<unknown>(vehiclesListPath(search, page, pageSize))
-  const records = extractMasterList(payload)
+  const records = extractVehicleList(payload)
   const rows = records
     .map((record) => mapVehicleRecordToListRow(record, lookups))
-    .filter((row) => Boolean(row.id))
+    .filter((row) => Boolean(row.id.trim()) && isUuidLike(row.id))
   const paged = applyPagination(payload, rows, page, pageSize, {
     page,
     pageSize,
@@ -169,7 +242,15 @@ export async function fetchVehiclesPage(
 }
 
 export async function fetchVehicles(): Promise<VehicleListRow[]> {
-  const { rows } = await fetchVehiclesPage('', 1, 100)
+  const pageSize = 100
+  const firstPage = await fetchVehiclesPage('', 1, pageSize)
+  const rows = [...firstPage.rows]
+  if (firstPage.totalPages > 1) {
+    for (let page = 2; page <= firstPage.totalPages; page += 1) {
+      const nextPage = await fetchVehiclesPage('', page, pageSize)
+      rows.push(...nextPage.rows)
+    }
+  }
   return rows
 }
 

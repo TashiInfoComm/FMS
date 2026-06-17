@@ -197,11 +197,6 @@ export function canCancelTrip(statusCode: string): boolean {
   return code === 'DRAFT' || code === 'PLANNED' || code === 'ASSIGNED'
 }
 
-export function isTripPendingReview(statusCode: string): boolean {
-  const code = normalizeTripStatusCode(statusCode)
-  return code === 'PLANNED' || code === 'ASSIGNED'
-}
-
 export function isTripPlanned(statusCode: string): boolean {
   return normalizeTripStatusCode(statusCode) === 'PLANNED'
 }
