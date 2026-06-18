@@ -16,6 +16,7 @@ export type MasterDataSelectProps = {
   error?: boolean
   errorMessage?: string
   onValueChange: (value: string) => void
+  side?: 'top' | 'bottom'
 }
 
 /** Single-select for vehicle create master-data lists with searchable options. */
@@ -30,9 +31,8 @@ export function MasterDataSelect({
   error = false,
   errorMessage,
   onValueChange,
+  side = 'bottom',
 }: MasterDataSelectProps) {
-  const busy = disabled || loading
-
   return (
     <div className="min-w-0 space-y-2">
       <Label htmlFor={id}>{label}</Label>
@@ -41,11 +41,12 @@ export function MasterDataSelect({
         value={value}
         onChange={onValueChange}
         options={options}
-        disabled={busy}
+        disabled={disabled}
         loading={loading}
         error={error}
         placeholder={loading ? 'Loading…' : placeholder}
         searchPlaceholder="Type to search…"
+        side={side}
       />
       {errorMessage ? (
         <p className="text-xs font-normal text-[var(--fms-error-text)]">{errorMessage}</p>

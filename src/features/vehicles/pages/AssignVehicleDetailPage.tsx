@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { Skeleton } from '@/components/ui/skeleton'
+import { DetailInlineValueSkeleton } from '@/shared/components/detail-loading'
 import {
   fetchDriverVehicleAssignmentById,
   priorityLabelFromValue,
@@ -93,7 +93,7 @@ async function fetchVehicleDetailById(vehicleId: string): Promise<string> {
   return registration || makeModel || '—'
 }
 
-type DetailField = { label: string; value: string }
+type DetailField = { label: string; value: string; loading?: boolean }
 
 function DetailSection({ title, subtitle, fields }: { title: string; subtitle: string; fields: DetailField[] }) {
   return (
@@ -107,7 +107,13 @@ function DetailSection({ title, subtitle, fields }: { title: string; subtitle: s
           {fields.map((field) => (
             <div key={field.label} className="space-y-1">
               <dt className="text-xs font-medium text-[var(--fms-text-subheading)]">{field.label}</dt>
-              <dd className="text-sm text-[var(--fms-text-header)]">{field.value || '—'}</dd>
+              <dd className="text-sm text-[var(--fms-text-header)]">
+                {field.loading ? (
+                  <DetailInlineValueSkeleton />
+                ) : (
+                  field.value || '—'
+                )}
+              </dd>
             </div>
           ))}
         </dl>
@@ -182,10 +188,36 @@ export function AssignVehicleDetailPage() {
       </div>
 
       {assignmentQuery.isLoading ? (
-        <div className="space-y-4 rounded-xl border border-[var(--fms-strokes)] bg-white p-4">
-          <Skeleton className="h-28 w-full" />
-          <Skeleton className="h-28 w-full" />
-          <Skeleton className="h-28 w-full" />
+        <div className="space-y-5 rounded-xl border border-[var(--fms-strokes)] bg-white p-4">
+          <DetailSection
+            title="Personal Details"
+            subtitle="Basic information about the driver."
+            fields={[
+              { label: 'Citizen ID', value: '', loading: true },
+              { label: 'Full Name', value: '', loading: true },
+              { label: 'Employee ID', value: '', loading: true },
+              { label: 'Contact Number', value: '', loading: true },
+            ]}
+          />
+          <DetailSection
+            title="License Information"
+            subtitle="Driver license and certification details."
+            fields={[
+              { label: 'License Number', value: '', loading: true },
+              { label: 'License Expiry Date', value: '', loading: true },
+            ]}
+          />
+          <DetailSection
+            title="Assignment & Priority"
+            subtitle="Vehicle assignment and driver availability."
+            fields={[
+              { label: 'Assigned Vehicle', value: '', loading: true },
+              { label: 'Priority', value: '', loading: true },
+              { label: 'Assignment Status', value: '', loading: true },
+              { label: 'Available Status', value: '', loading: true },
+              { label: 'Rating', value: '', loading: true },
+            ]}
+          />
         </div>
       ) : assignmentQuery.isError || !assignment ? (
         <Card className="border border-[var(--fms-strokes)] bg-white">
@@ -199,10 +231,18 @@ export function AssignVehicleDetailPage() {
             title="Personal Details"
             subtitle="Basic information about the driver."
             fields={[
-              { label: 'Citizen ID', value: driverCid },
-              { label: 'Full Name', value: driverName },
-              { label: 'Employee ID', value: driverQuery.data?.employeeId ?? '—' },
-              { label: 'Contact Number', value: driverQuery.data?.contactNumber ?? '—' },
+              { label: 'Citizen ID', value: driverCid, loading: driverQuery.isLoading },
+              { label: 'Full Name', value: driverName, loading: driverQuery.isLoading },
+              {
+                label: 'Employee ID',
+                value: driverQuery.data?.employeeId ?? '—',
+                loading: driverQuery.isLoading,
+              },
+              {
+                label: 'Contact Number',
+                value: driverQuery.data?.contactNumber ?? '—',
+                loading: driverQuery.isLoading,
+              },
             ]}
           />
           <DetailSection
@@ -217,7 +257,11 @@ export function AssignVehicleDetailPage() {
             title="Assignment & Priority"
             subtitle="Vehicle assignment and driver availability."
             fields={[
-              { label: 'Assigned Vehicle', value: assignedVehicle },
+              {
+                label: 'Assigned Vehicle',
+                value: assignedVehicle,
+                loading: vehicleQuery.isLoading,
+              },
               { label: 'Priority', value: priorityLabelFromValue(assignment.priority) },
               { label: 'Assignment Status', value: assignment.status },
               { label: 'Available Status', value: assignment.availability_status },

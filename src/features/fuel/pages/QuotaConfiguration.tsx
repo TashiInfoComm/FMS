@@ -23,7 +23,6 @@ import { FuelTableListToolbar } from '@/features/fuel/components/FuelTableListTo
 import {
   buildFuelQuotaOrgIds,
   createFuelQuota,
-  deleteFuelQuota,
   fetchFuelQuotasPage,
   fetchFuelTypeOptions,
   fetchQuotaAssetNameOptions,
@@ -47,11 +46,9 @@ import {
   mapUserDetailFields,
 } from '@/features/user/lib/users-api'
 import { useUserStore } from '@/services/user-store'
-import { DeleteDialog } from '@/shared/components/DeleteDialog'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { SearchableAutocomplete } from '@/shared/components/SearchableAutocomplete'
 import {
-  DeleteRowActionButton,
   EditRowActionButton,
   rowActionsContainerClassName,
 } from '@/shared/components/TableRowActionButtons'
@@ -164,9 +161,7 @@ export default function QuotaConfiguration() {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [deleteOpen, setDeleteOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [selectedDeleteId, setSelectedDeleteId] = useState<string | null>(null)
   const [form, setForm] = useState<QuotaFormValues>(() => emptyFormValues())
 
   const organogramNamesQuery = useQuery({
@@ -325,18 +320,6 @@ export default function QuotaConfiguration() {
     },
   })
 
-  const deleteQuotaMutation = useMutation({
-    mutationFn: deleteFuelQuota,
-    onSuccess: () => {
-      showSuccessToast('Quota configuration deleted')
-      invalidateQuotas()
-      setDeleteOpen(false)
-      setSelectedDeleteId(null)
-    },
-    onError: (err) => {
-      showErrorToast(err, 'Could not delete quota configuration')
-    },
-  })
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages)
@@ -367,15 +350,6 @@ export default function QuotaConfiguration() {
     setDialogOpen(true)
   }
 
-  const onDeleteRequest = (row: FuelQuotaListRow) => {
-    setSelectedDeleteId(row.id)
-    setDeleteOpen(true)
-  }
-
-  const onConfirmDelete = () => {
-    if (!selectedDeleteId) return
-    deleteQuotaMutation.mutate(selectedDeleteId)
-  }
 
   const onSaveConfiguration = () => {
     const vehicleCategory = form.vehicleCategory.trim()
@@ -544,14 +518,14 @@ export default function QuotaConfiguration() {
                             disabled={!crud.canUpdate && crud.isResolved}
                             onClick={() => openEditDialog(row)}
                           />
-                          <DeleteRowActionButton
+                          {/* <DeleteRowActionButton
                             type="button"
                             disabled={
                               (!crud.canDelete && crud.isResolved) ||
                               deleteQuotaMutation.isPending
                             }
                             onClick={() => onDeleteRequest(row)}
-                          />
+                          /> */}
                         </div>
                       </td>
                     </tr>
@@ -711,13 +685,7 @@ export default function QuotaConfiguration() {
         </DialogContent>
       </Dialog>
 
-      <DeleteDialog
-        open={deleteOpen}
-        onOpenChange={setDeleteOpen}
-        onConfirm={onConfirmDelete}
-        title="Delete Quota Configuration"
-        description="Are you sure you want to delete this quota configuration? This action cannot be undone."
-      />
+
     </section>
   )
 }

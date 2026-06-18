@@ -119,9 +119,37 @@ export type DriverVehicleAssignmentRow = {
   availability_status: string;
 };
 
+function pickPersonName(record: ApiRecord): string {
+  const firstName = toText(record.first_name) || toText(record.firstName)
+  const middleName = toText(record.middle_name) || toText(record.middleName)
+  const lastName = toText(record.last_name) || toText(record.lastName)
+  const composed = [firstName, middleName, lastName].filter(Boolean).join(' ').trim()
+  return (
+    toText(record.full_name) ||
+    toText(record.driver_name) ||
+    toText(record.name) ||
+    composed
+  )
+}
+
+function pickDriverName(
+  record: ApiRecord,
+  nestedDriver: ApiRecord | null,
+  nestedDriverUser: ApiRecord | null,
+  nestedUser: ApiRecord | null,
+): string {
+  for (const candidate of [record, nestedDriver, nestedDriverUser, nestedUser]) {
+    if (!candidate) continue
+    const name = pickPersonName(candidate)
+    if (name) return name
+  }
+  return '—'
+}
+
 function mapDriverVehicleAssignment(record: ApiRecord): DriverVehicleAssignmentRow | null {
   const nestedDriver = getNestedRecord(record, 'driver')
   const nestedDriverUser = nestedDriver ? getNestedRecord(nestedDriver, 'user') : null
+  const nestedUser = getNestedRecord(record, 'user')
   const nestedVehicle = getNestedRecord(record, 'vehicle')
   const nestedLicense = getNestedRecord(record, 'license')
   const id = toText(record.id) || toText(record.assignment_id) || toText(record.uuid)
@@ -141,7 +169,7 @@ function mapDriverVehicleAssignment(record: ApiRecord): DriverVehicleAssignmentR
     driverId,
     vehicleId,
     priority,
-    name: toText(record.full_name) || toText(record.driver_name) || toText(record.name) || '—',
+    name: pickDriverName(record, nestedDriver, nestedDriverUser, nestedUser),
     cid: pickCid(record) || pickCid(nestedDriver ?? {}) || pickCid(nestedDriverUser ?? {}) || '—',
     license:
       toText(record.license_number) ||
@@ -169,19 +197,24 @@ export type DriverVehicleAssignmentsPageResult = {
   effectivePageSize: number
 }
 
-function driverAssignmentsPath(search: string, page: number, pageSize: number) {
-  let path = `/drivers/vehicle_assignments?page=${page}&page_size=${pageSize}`
+function driverAssignmentsPath(vehicleId: string, search: string, page: number, pageSize: number) {
+  let path = `/drivers/vehicle_assignments/by-vehicle/${encodeURIComponent(vehicleId)}?page=${page}&page_size=${pageSize}`
   const q = search.trim()
   if (q) path += `&search=${encodeURIComponent(q)}`
   return path
 }
 
 export async function fetchDriverVehicleAssignmentsPage(
+  vehicleId: string,
   search: string,
   page: number,
   pageSize: number,
 ): Promise<DriverVehicleAssignmentsPageResult> {
-  const payload = await apiGet<unknown>(driverAssignmentsPath(search, page, pageSize))
+  const trimmedVehicleId = vehicleId.trim()
+  if (!trimmedVehicleId) {
+    return { rows: [], totalCount: 0, totalPages: 1, effectivePageSize: pageSize }
+  }
+  const payload = await apiGet<unknown>(driverAssignmentsPath(trimmedVehicleId, search, page, pageSize))
   const rows = toArray(payload).map(mapDriverVehicleAssignment).filter((row): row is DriverVehicleAssignmentRow => row !== null)
   const paged = applyPagination(payload, rows, page, pageSize, {
     page,
@@ -196,8 +229,11 @@ export async function fetchDriverVehicleAssignmentsPage(
   }
 }
 
-export async function fetchDriverVehicleAssignments(search = ''): Promise<DriverVehicleAssignmentRow[]> {
-  const { rows } = await fetchDriverVehicleAssignmentsPage(search, 1, 100)
+export async function fetchDriverVehicleAssignments(
+  vehicleId: string,
+  search = '',
+): Promise<DriverVehicleAssignmentRow[]> {
+  const { rows } = await fetchDriverVehicleAssignmentsPage(vehicleId, search, 1, 100)
   return rows
 }
 
@@ -239,8 +275,7 @@ export async function fetchDriverVehicleAssignmentById(id: string): Promise<Driv
     if (!record) return null
     return mapDriverVehicleAssignment(record)
   } catch {
-    const { rows } = await fetchDriverVehicleAssignmentsPage('', 1, 500)
-    return rows.find((row) => row.id === trimmedId) ?? null
+    return null
   }
 }
 

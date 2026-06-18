@@ -436,7 +436,7 @@ export function DirectoryUserRegistrationForm({
         }
       />
 
-      <Card className="rounded-xl border border-[var(--fms-strokes)] bg-white">
+      <Card className="overflow-visible rounded-xl border border-[var(--fms-strokes)] bg-white">
         <CardContent className="space-y-6 pt-5">
           {!isNdiSignupBootstrap ? (
             <div className="space-y-3">

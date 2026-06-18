@@ -165,25 +165,32 @@ function resolveUrl(path: string) {
   return `${API_BASE_URL}${normalizedPath}`;
 }
 
-/** NDI QR / callback polling — no full-screen global loader (avoids flicker during long polls). */
+/** Paths that must not trigger the full-screen loader (long polls, etc.). */
 const GLOBAL_API_LOADING_SKIP_SUFFIXES = [
   "/ndi/proof_request",
   "/ndi/login_callback_response",
   "/ndi/check_callback_response",
 ] as const;
 
-function shouldSkipGlobalApiLoading(path: string): boolean {
-  const pathname = /^https?:\/\//.test(path)
-    ? (() => {
-        try {
-          return new URL(path).pathname;
-        } catch {
-          return path;
-        }
-      })()
-    : path.startsWith("/")
-      ? path
-      : `/${path}`;
+function normalizeRequestPath(path: string): string {
+  if (/^https?:\/\//.test(path)) {
+    try {
+      return new URL(path).pathname;
+    } catch {
+      return path;
+    }
+  }
+  return path.startsWith("/") ? path : `/${path}`;
+}
+
+function shouldSkipGlobalApiLoading(path: string, method = "GET"): boolean {
+  const normalizedMethod = method.toUpperCase();
+  // Reads use route/query skeletons; don't block the entire app for one GET.
+  if (normalizedMethod === "GET" || normalizedMethod === "HEAD") {
+    return true;
+  }
+
+  const pathname = normalizeRequestPath(path);
   return GLOBAL_API_LOADING_SKIP_SUFFIXES.some(
     (suffix) => pathname === suffix || pathname.endsWith(suffix),
   );
@@ -312,7 +319,10 @@ async function fetchBlobWithAuthHandling(
 }
 
 export async function apiGetBlob(path: string, init?: RequestInit) {
-  const skipLoader = shouldSkipGlobalApiLoading(path);
+  const skipLoader = shouldSkipGlobalApiLoading(
+    path,
+    init?.method ?? "GET",
+  );
   if (!skipLoader) useApiLoadingStore.getState().begin();
   try {
     return await fetchBlobWithAuthHandling(path, init, false);
@@ -325,7 +335,10 @@ export async function apiClient<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
-  const skipLoader = shouldSkipGlobalApiLoading(path);
+  const skipLoader = shouldSkipGlobalApiLoading(
+    path,
+    init?.method ?? "GET",
+  );
   if (!skipLoader) useApiLoadingStore.getState().begin();
   try {
     return await fetchWithAuthHandling<T>(path, init, false);

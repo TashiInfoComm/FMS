@@ -1,6 +1,11 @@
 import type { ApiRecord } from '@/features/user/lib/roles-api'
-import { fetchUserById, mapUserDetailFields, toText } from '@/features/user/lib/users-api'
-import { apiClient, apiGet } from '@/services/apiClient'
+import { toText } from '@/features/user/lib/users-api'
+import { fetchVehicleById, mapVehicleRecordToListRow } from '@/features/vehicles/lib/vehicles-api'
+import { apiClient, apiGet, apiGetBlob } from '@/services/apiClient'
+import {
+  closeBrowserTab,
+  navigateBrowserTab,
+} from '@/shared/lib/open-in-new-tab'
 import { extractMasterList } from '@/shared/lib/organogram-master-lookup'
 import { applyPagination } from '@/shared/utils/pagination'
 import { formatFileSizeLabel } from '@/features/trips/lib/trip-form-utils'
@@ -14,6 +19,7 @@ import type {
   WorkOrderListItem,
   WorkOrderProblemReport,
   WorkOrderProofAttachment,
+  WorkOrderServiceRecord,
 } from '@/features/maintenance/lib/maintenance-mock-data'
 
 export type WorkOrdersPageResult = {
@@ -274,6 +280,31 @@ function mapProofFile(record: ApiRecord): MaintenanceProofFile | undefined {
   }
 }
 
+function mapServiceRecord(value: unknown): WorkOrderServiceRecord | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const record = value as ApiRecord
+  const id = pickScalar(record, ['id'])
+  if (!id) return undefined
+
+  const laborHoursRaw = record.labor_hours ?? record.laborHours
+  const laborHours =
+    laborHoursRaw === null || laborHoursRaw === undefined || laborHoursRaw === ''
+      ? undefined
+      : toNumber(laborHoursRaw, Number.NaN)
+  const invoiceUrl = pickScalar(record, ['invoice_url', 'invoiceUrl']) || undefined
+
+  return {
+    id,
+    workOrderId: pickScalar(record, ['work_order_id', 'workOrderId']) || undefined,
+    invoiceNumber: pickScalar(record, ['invoice_number', 'invoiceNumber']) || '—',
+    invoiceDate: pickScalar(record, ['invoice_date', 'invoiceDate']) || '—',
+    invoiceUrl,
+    notes: pickScalar(record, ['notes']) || undefined,
+    laborHours: Number.isFinite(laborHours) ? laborHours : undefined,
+    createdAt: pickScalar(record, ['created_at', 'createdAt']) || undefined,
+  }
+}
+
 function extractWorkOrderList(payload: unknown): ApiRecord[] {
   const records = extractMasterList(payload)
   if (records.length > 0) return records
@@ -378,6 +409,7 @@ export function mapWorkOrderDetail(record: ApiRecord): WorkOrderDetail | null {
     maintenanceType:
       maintenanceTypeLabel !== '—' ? maintenanceTypeLabel : listRow.maintenanceType,
     reportedById: pickScalar(record, ['reported_by', 'reportedBy']),
+    maintenanceTypeId: pickScalar(record, ['maintenance_type_id', 'maintenanceTypeId']) || undefined,
     driverName: pickDriverName(record),
     vehicleModel: vehicleModel !== '—' ? vehicleModel : listRow.vehiclePlate,
     triggerType: pickScalar(record, ['trigger_type', 'triggerType']) || '—',
@@ -424,6 +456,7 @@ export function mapWorkOrderDetail(record: ApiRecord): WorkOrderDetail | null {
         'previous_service_date',
         'previousServiceDate',
       ]) || undefined,
+    serviceRecord: mapServiceRecord(record.service_record ?? record.serviceRecord),
   }
 }
 
@@ -515,43 +548,154 @@ export async function fetchWorkOrderById(workOrderId: string): Promise<WorkOrder
   if (!record) throw new Error('Invalid work order response')
   const mapped = mapWorkOrderDetail(record)
   if (!mapped) throw new Error('Invalid work order response')
-  return enrichWorkOrderDetail(mapped, record)
+  return mapped
 }
 
-async function enrichWorkOrderDetail(
-  detail: WorkOrderDetail,
+export type DriverAssignedVehicleOption = {
+  value: string
+  label: string
+  searchText?: string
+}
+
+function extractDriverVehicleIds(payload: unknown): string[] {
+  const idsFromArray = (items: unknown[]): string[] =>
+    items
+      .map((item) => {
+        if (typeof item === 'string') return item.trim()
+        if (item && typeof item === 'object') {
+          return pickDriverAssignedVehicleId(item as ApiRecord)
+        }
+        return ''
+      })
+      .filter(Boolean)
+
+  if (Array.isArray(payload)) {
+    return idsFromArray(payload)
+  }
+
+  const records = extractDriverVehicleRecords(payload)
+  const fromRecords = records
+    .map((record) => pickDriverAssignedVehicleId(record))
+    .filter(Boolean)
+  if (fromRecords.length > 0) return fromRecords
+
+  if (!payload || typeof payload !== 'object') return []
+
+  const root = payload as ApiRecord
+  const data = root.data
+  const dataObj =
+    data && typeof data === 'object' && !Array.isArray(data) ? (data as ApiRecord) : null
+  const candidates = [
+    root.vehicles,
+    root.vehicle_ids,
+    root.vehicleIds,
+    dataObj?.vehicles,
+    dataObj?.vehicle_ids,
+    dataObj?.vehicleIds,
+  ]
+
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) {
+      const ids = idsFromArray(candidate)
+      if (ids.length > 0) return ids
+    }
+  }
+
+  return []
+}
+
+function extractDriverVehicleRecords(payload: unknown): ApiRecord[] {
+  const records = extractMasterList(payload)
+  if (records.length > 0) return records
+
+  if (Array.isArray(payload)) {
+    return payload.filter((item): item is ApiRecord => !!item && typeof item === 'object')
+  }
+
+  if (!payload || typeof payload !== 'object') return []
+
+  const root = payload as ApiRecord
+  const data = root.data
+  const dataObj =
+    data && typeof data === 'object' && !Array.isArray(data) ? (data as ApiRecord) : null
+  const candidates = [root.vehicles, dataObj?.vehicles]
+
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) {
+      return candidate.filter((item): item is ApiRecord => !!item && typeof item === 'object')
+    }
+  }
+
+  return []
+}
+
+function pickDriverAssignedVehicleId(record: ApiRecord): string {
+  return (
+    pickScalar(record, ['vehicle_id', 'vehicleId']) ||
+    pickScalar(pickVehicleBlock(record), ['vehicle_id', 'vehicleId', 'id', 'uuid']) ||
+    pickScalar(record, ['id', 'uuid']) ||
+    ''
+  )
+}
+
+function mapVehicleDetailToAssignedOption(
   record: ApiRecord,
-): Promise<WorkOrderDetail> {
-  let next = { ...detail }
+  fallbackId: string,
+): DriverAssignedVehicleOption {
+  const row = mapVehicleRecordToListRow(record)
+  const id = row.id || fallbackId
+  const vehicle = pickVehicleBlock(record)
+  const vehicleName = pickScalar(vehicle, ['vehicle_name', 'vehicleName', 'name'])
+  const make = pickScalar(vehicle, ['make', 'vehicle_make', 'vehicleMake'])
+  const model = pickScalar(vehicle, ['model', 'vehicle_model', 'vehicleModel'])
+  const registration =
+    row.registration_number !== '—' && row.registration_number !== id
+      ? row.registration_number
+      : pickVehiclePlate(record) !== '—'
+        ? pickVehiclePlate(record)
+        : ''
+  const makeModel =
+    row.makeModel !== '—'
+      ? row.makeModel
+      : [make, model].filter(Boolean).join(' ').trim()
 
-  const maintenanceTypeId = pickScalar(record, ['maintenance_type_id', 'maintenanceTypeId'])
-  if (maintenanceTypeId && (next.maintenanceType === 'Minor' || next.maintenanceType === 'Major' || next.maintenanceType === '—')) {
-    try {
-      const maintenanceTypes = await fetchMaintenanceTypes()
-      const match = maintenanceTypes.find((option) => option.value === maintenanceTypeId)
-      if (match?.label) {
-        next = { ...next, maintenanceType: match.label }
+  const title = vehicleName || registration || makeModel || id
+  const detail = makeModel && makeModel !== title ? makeModel : ''
+  const label = detail ? `${title} (${detail})` : title
+
+  return {
+    value: id,
+    label,
+    searchText: [vehicleName, registration, make, model, makeModel, label, id]
+      .filter(Boolean)
+      .join(' '),
+  }
+}
+
+export async function fetchDriverAssignedVehicles(
+  driverId: string,
+): Promise<DriverAssignedVehicleOption[]> {
+  const trimmed = driverId.trim()
+  if (!trimmed) return []
+
+  const payload = await apiGet<unknown>(`/drivers/${encodeURIComponent(trimmed)}/vehicles`)
+  const vehicleIds = extractDriverVehicleIds(payload)
+  if (vehicleIds.length === 0) return []
+
+  const details = await Promise.all(
+    vehicleIds.map(async (vehicleId) => {
+      try {
+        const record = await fetchVehicleById(vehicleId)
+        return mapVehicleDetailToAssignedOption(record, vehicleId)
+      } catch {
+        return null
       }
-    } catch {
-      // Keep mapped maintenance type fallback.
-    }
-  }
+    }),
+  )
 
-  const reportedById = next.reportedById.trim()
-  if (!reportedById) return next
-  if (next.driverName !== '—' && next.driverName.trim() !== '') return next
-
-  try {
-    const user = await fetchUserById(reportedById)
-    const profile = mapUserDetailFields(user)
-    if (profile.name && profile.name !== '-') {
-      next = { ...next, driverName: profile.name }
-    }
-  } catch {
-    // Keep fallback driver label.
-  }
-
-  return next
+  return details.filter(
+    (option): option is DriverAssignedVehicleOption => option !== null,
+  )
 }
 
 export type SubmitWorkOrderProblem = {
@@ -684,6 +828,25 @@ export type CompleteWorkOrderInput = {
   final_odometer_km: number
 }
 
+export type VerifyWorkOrderInput = {
+  invoice_number: string
+  invoice_date: string
+  remarks?: string
+  invoice_file?: File | null
+}
+
+function buildVerifyWorkOrderFormData(input: VerifyWorkOrderInput): FormData {
+  const form = new FormData()
+  form.append('invoice_number', input.invoice_number.trim())
+  form.append('invoice_date', input.invoice_date.trim())
+  const remarks = input.remarks?.trim()
+  if (remarks) form.append('remarks', remarks)
+  if (input.invoice_file) {
+    form.append('invoice_file', input.invoice_file, input.invoice_file.name)
+  }
+  return form
+}
+
 export async function completeWorkOrder(
   workOrderId: string,
   input: CompleteWorkOrderInput,
@@ -708,12 +871,85 @@ export async function completeWorkOrder(
   )
 }
 
-export async function verifyWorkOrder(workOrderId: string): Promise<unknown> {
+export async function verifyWorkOrder(
+  workOrderId: string,
+  input: VerifyWorkOrderInput,
+): Promise<unknown> {
   const trimmedId = workOrderId.trim()
   if (!trimmedId) throw new Error('Work order id is required')
+  if (!input.invoice_number.trim()) throw new Error('Invoice number is required')
+  if (!input.invoice_date.trim()) throw new Error('Invoice date is required')
 
   return apiClient<unknown>(
     `/maintenance/work-orders/${encodeURIComponent(trimmedId)}/verify`,
-    { method: 'POST' },
+    {
+      method: 'POST',
+      body: buildVerifyWorkOrderFormData(input),
+    },
   )
+}
+
+function pickInvoiceUrlFromPayload(payload: unknown): string {
+  if (!payload || typeof payload !== 'object') return ''
+  const root = payload as ApiRecord
+  const data =
+    root.data && typeof root.data === 'object' && !Array.isArray(root.data)
+      ? (root.data as ApiRecord)
+      : null
+
+  return (
+    pickScalar(data ?? root, [
+      'url',
+      'download_url',
+      'downloadUrl',
+      'invoice_url',
+      'invoiceUrl',
+      'signed_url',
+      'signedUrl',
+    ]) || ''
+  )
+}
+
+function guessInvoiceMimeType(fileName: string): string {
+  const lower = fileName.trim().toLowerCase()
+  if (lower.endsWith('.pdf')) return 'application/pdf'
+  if (lower.endsWith('.png')) return 'image/png'
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg'
+  return 'application/octet-stream'
+}
+
+/** GET `/maintenance/work-orders/{id}/invoice` and open the invoice in a new browser tab. */
+export async function openWorkOrderInvoice(
+  workOrderId: string,
+  fileName = '',
+  targetWindow?: Window | null,
+): Promise<void> {
+  const trimmed = workOrderId.trim()
+  if (!trimmed) throw new Error('Work order id is required')
+
+  try {
+    const { blob, contentType } = await apiGetBlob(
+      `/maintenance/work-orders/${encodeURIComponent(trimmed)}/invoice`,
+    )
+
+    if (contentType.includes('application/json')) {
+      const payload = JSON.parse(await blob.text()) as unknown
+      const url = pickInvoiceUrlFromPayload(payload)
+      if (!url) throw new Error('Invoice URL not found')
+      navigateBrowserTab(targetWindow, url)
+      return
+    }
+
+    const mimeType =
+      contentType && contentType !== 'application/octet-stream'
+        ? contentType
+        : guessInvoiceMimeType(fileName)
+    const fileBlob = mimeType === blob.type ? blob : blob.slice(0, blob.size, mimeType)
+    const objectUrl = URL.createObjectURL(fileBlob)
+    navigateBrowserTab(targetWindow, objectUrl)
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000)
+  } catch (error) {
+    closeBrowserTab(targetWindow)
+    throw error
+  }
 }

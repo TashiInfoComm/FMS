@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { Button } from '@/components/ui/button'
@@ -16,7 +16,6 @@ import {
   updateDriverVehicleAssignment,
   type CreateDriverVehicleAssignmentBody,
 } from '@/features/vehicles/lib/driver-vehicle-assignments-api'
-import { fetchVehicles } from '@/features/vehicles/lib/vehicles-api'
 import { apiGet } from '@/services/apiClient'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { isUuidLike } from '@/shared/lib/organogram-master-lookup'
@@ -165,6 +164,7 @@ type AssignVehicleFormProps = {
 }
 
 export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps) {
+  const { vehicleId: routeVehicleId = '' } = useParams<{ vehicleId: string }>()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const crud = useRouteCrudPermissions('/assign-driver')
@@ -177,8 +177,6 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
     contactNumber: '',
     licenseNumber: '',
     licenseExpiryDate: '',
-    assignedVehicle: '',
-    assignedVehicleLabel: '',
     priority: '',
   })
   const [resolvedDriverId, setResolvedDriverId] = useState('')
@@ -215,8 +213,6 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
       contactNumber: driver?.contactNumber || '',
       licenseNumber: assignment.license !== '—' ? assignment.license : '',
       licenseExpiryDate: assignment.expiry !== '—' ? assignment.expiry : '',
-      assignedVehicle: assignment.vehicleId !== '—' ? assignment.vehicleId : '',
-      assignedVehicleLabel: assignment.assignedVehicle !== '—' ? assignment.assignedVehicle : '',
       priority:
         assignment.priority !== '—'
           ? priorityLabelFromValue(assignment.priority)
@@ -272,19 +268,9 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
     }
   }, [cidSearchTriggered, driverLookupQuery.data, driverLookupQuery.isLoading, isEdit])
 
-  const vehiclesQuery = useQuery({
-    queryKey: ['assign-driver', 'vehicles'],
-    queryFn: fetchVehicles,
-    enabled: crud.canRead,
-    staleTime: 30_000,
-  })
-
-  const vehicleRows = useMemo(() => vehiclesQuery.data ?? [], [vehiclesQuery.data])
-  const findVehicleById = (vehicleId: string) => {
-    const trimmed = vehicleId.trim()
-    if (!trimmed) return undefined
-    return vehicleRows.find((vehicle) => vehicle.id === trimmed)
-  }
+  const driversListPath = routeVehicleId.trim()
+    ? `/vehicle/list/${encodeURIComponent(routeVehicleId.trim())}/drivers`
+    : '/assign-driver'
 
   const handleCitizenIdSearch = () => {
     if (!trimmedCitizenId || cidLocked || isEdit) return
@@ -297,10 +283,13 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
       const driverId = isEdit
         ? resolvedDriverId || editDriverQuery.data?.userId || assignmentQuery.data?.driverId || ''
         : driverLookupQuery.data?.userId ?? resolvedDriverId
-      const vehicleId =
-        findVehicleById(formValues.assignedVehicle)?.id ?? formValues.assignedVehicle.trim()
+      const vehicleId = isEdit
+        ? assignmentQuery.data?.vehicleId !== '—'
+          ? assignmentQuery.data?.vehicleId ?? ''
+          : routeVehicleId.trim()
+        : routeVehicleId.trim()
       if (!isUuidLike(vehicleId)) {
-        throw new Error('Please select a valid vehicle.')
+        throw new Error('A valid vehicle is required.')
       }
       const payload: CreateDriverVehicleAssignmentBody = {
         vehicle_id: vehicleId,
@@ -322,7 +311,7 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
         navigate(`/assign-driver/${encodeURIComponent(assignmentId)}`)
         return
       }
-      navigate('/assign-driver')
+      navigate(driversListPath)
     },
     onError: (error) => {
       showErrorToast(error, 'Failed to save assignment')
@@ -333,8 +322,8 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
     Boolean(formValues.citizenId.trim()) &&
     Boolean(formValues.licenseNumber.trim()) &&
     Boolean(formValues.licenseExpiryDate.trim()) &&
-    Boolean(formValues.assignedVehicle.trim()) &&
     Boolean(formValues.priority.trim()) &&
+    (isEdit || Boolean(routeVehicleId.trim())) &&
     !saveMutation.isPending &&
     (isEdit ? formInitialized : true)
 
@@ -363,7 +352,7 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
         <PageHeader title="Edit Assignment" subtitle="Update driver vehicle assignment." />
         <p className="text-sm text-[var(--fms-delete)]">Failed to load assignment.</p>
         <Button variant="outline" asChild>
-          <Link to="/assign-driver">Back to list</Link>
+          <Link to={driversListPath}>Back to list</Link>
         </Button>
       </section>
     )
@@ -455,6 +444,28 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
                       </div>
                     )
                   })}
+                  {section.title === 'License Information' ? (
+                    <div className="space-y-2">
+                      <Label htmlFor="priority">
+                        Priority <span className="text-[var(--fms-delete)]">*</span>
+                      </Label>
+                      <Select
+                        value={formValues.priority}
+                        onValueChange={(value) => setFormValues((prev) => ({ ...prev, priority: value }))}
+                      >
+                        <SelectTrigger id="priority">
+                          <SelectValue placeholder="Select priority" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {ASSIGNMENT_PRIORITY_OPTIONS.map((priority) => (
+                            <SelectItem key={priority.label} value={priority.label}>
+                              {priority.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ) : null}
                 </div>
 
                 {section.title === 'Personal Details' && cidSearchTriggered && !isEdit ? (
@@ -476,89 +487,9 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
             </Card>
           ))}
 
-          <Card className="border border-[var(--fms-strokes)] bg-white">
-            <CardContent className="space-y-4 pt-5">
-              <div>
-                <p className="text-base font-semibold text-[var(--fms-text-header)]">Assignment & Set Priority</p>
-                <p className="text-xs text-[var(--fms-text-subheading)]">
-                  Select assigned vehicle from vehicle options.
-                </p>
-              </div>
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="space-y-2 md:col-span-2">
-                  <Label htmlFor="assigned-vehicle">
-                    Assigned Vehicle <span className="text-[var(--fms-delete)]">*</span>
-                  </Label>
-                  <Select
-                    value={formValues.assignedVehicle}
-                    onValueChange={(vehicleId) => {
-                      const selectedVehicle = findVehicleById(vehicleId)
-                      setFormValues((prev) => ({
-                        ...prev,
-                        assignedVehicle: vehicleId,
-                        assignedVehicleLabel: selectedVehicle
-                          ? `${selectedVehicle.registration_number} (${selectedVehicle.makeModel})`
-                          : '',
-                      }))
-                    }}
-                    disabled={!crud.canRead || vehiclesQuery.isLoading}
-                  >
-                    <SelectTrigger id="assigned-vehicle" className="h-8 w-full">
-                      <SelectValue
-                        placeholder={
-                          vehiclesQuery.isLoading ? 'Loading vehicles…' : 'Select vehicle'
-                        }
-                      />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {vehiclesQuery.isError ? (
-                        <SelectItem value="__error" disabled>
-                          Failed to load vehicles.
-                        </SelectItem>
-                      ) : vehicleRows.length === 0 ? (
-                        <SelectItem value="__empty" disabled>
-                          No vehicles found.
-                        </SelectItem>
-                      ) : (
-                        vehicleRows.map((vehicle) => (
-                          <SelectItem
-                            key={`${vehicle.id}-${vehicle.registration_number}`}
-                            value={vehicle.id}
-                          >
-                            {vehicle.registration_number} — {vehicle.makeModel}
-                          </SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="priority">
-                    Priority <span className="text-[var(--fms-delete)]">*</span>
-                  </Label>
-                  <Select
-                    value={formValues.priority}
-                    onValueChange={(value) => setFormValues((prev) => ({ ...prev, priority: value }))}
-                  >
-                    <SelectTrigger id="priority">
-                      <SelectValue placeholder="Select priority" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {ASSIGNMENT_PRIORITY_OPTIONS.map((priority) => (
-                        <SelectItem key={priority.label} value={priority.label}>
-                          {priority.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
           <div className="flex items-center gap-3">
             <Button variant="destructive" asChild>
-              <Link to={isEdit && assignmentId ? `/assign-driver/${encodeURIComponent(assignmentId)}` : '/assign-driver'}>
+              <Link to={isEdit && assignmentId ? `/assign-driver/${encodeURIComponent(assignmentId)}` : driversListPath}>
                 Close
               </Link>
             </Button>

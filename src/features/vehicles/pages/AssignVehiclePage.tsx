@@ -1,7 +1,7 @@
 // Lists assigned vehicles with search and record actions.
 import { Plus, Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { Button } from '@/components/ui/button'
@@ -99,7 +99,8 @@ async function fetchVehicleDetailById(vehicleId: string): Promise<string> {
 }
 
 export function AssignVehiclePage() {
-  const crud = useRouteCrudPermissions('/assign-driver')
+  const { vehicleId = '' } = useParams<{ vehicleId: string }>()
+  const crud = useRouteCrudPermissions("/vehicle/list");
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [query, setQuery] = useState('')
@@ -108,9 +109,9 @@ export function AssignVehiclePage() {
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string | null>(null)
   const assignmentsQuery = useQuery({
-    queryKey: ['driver-vehicle-assignments', 'list', query, page, pageSize],
-    queryFn: () => fetchDriverVehicleAssignmentsPage(query, page, pageSize),
-    enabled: crud.canRead,
+    queryKey: ['driver-vehicle-assignments', 'list', vehicleId, query, page, pageSize],
+    queryFn: () => fetchDriverVehicleAssignmentsPage(vehicleId, query, page, pageSize),
+    enabled: crud.canRead && Boolean(vehicleId.trim()),
     staleTime: 30_000,
   })
   const rows = useMemo(() => assignmentsQuery.data?.rows ?? [], [assignmentsQuery.data?.rows])
@@ -191,9 +192,9 @@ export function AssignVehiclePage() {
           title="Assign Vehicle"
           subtitle="Manage driver records and assign vehicle configurations"
         />
-        {crud.canCreate ? (
+        {crud.canCreate && vehicleId.trim() ? (
           <Button asChild className="w-full sm:w-auto">
-            <Link to="/assign-driver/add">
+            <Link to={`/vehicle/list/${encodeURIComponent(vehicleId)}/assign-driver`}>
               <Plus className="mr-1 h-4 w-4" />
               Assign New
             </Link>

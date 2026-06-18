@@ -7,7 +7,8 @@ type ApiLoadingState = {
 };
 
 /**
- * Tracks in-flight HTTP calls from {@link apiClient} (and refresh) for a global loading UI.
+ * Tracks in-flight mutating HTTP calls from {@link apiClient} for a global loading UI.
+ * GET/HEAD requests are excluded so detail pages can show field-level loaders.
  */
 export const useApiLoadingStore = create<ApiLoadingState>((set) => ({
   pending: 0,

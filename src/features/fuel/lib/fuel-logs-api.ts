@@ -2,6 +2,10 @@ import type { ApiRecord } from '@/features/user/lib/roles-api'
 import { fetchUserById, mapUserDetailFields, toText } from '@/features/user/lib/users-api'
 import { fetchVehicleById, mapVehicleRecordToListRow } from '@/features/vehicles/lib/vehicles-api'
 import { apiClient, apiGet, apiGetBlob, apiPatch } from '@/services/apiClient'
+import {
+  closeBrowserTab,
+  navigateBrowserTab,
+} from '@/shared/lib/open-in-new-tab'
 import { extractMasterList, isUuidLike } from '@/shared/lib/organogram-master-lookup'
 import { formatFileSizeLabel } from '@/features/trips/lib/trip-form-utils'
 import { applyPagination } from '@/shared/utils/pagination'
@@ -25,6 +29,11 @@ export type FuelLogListRow = {
   receiptObjectKey: string
   receiptFileSizeLabel?: string
   status: FuelLogStatus
+  mtoRemarks?: string
+  currentBalance?: number
+  balanceAfterLog?: number
+  maxQuota?: number
+  threshold?: number
 }
 
 export type FuelLogsPageResult = {
@@ -127,6 +136,16 @@ function toNumber(value: unknown, fallback = 0): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : fallback
+}
+
+function pickOptionalNumber(record: ApiRecord, keys: string[]): number | undefined {
+  for (const key of keys) {
+    const value = record[key]
+    if (value === null || value === undefined || value === '') continue
+    const parsed = toNumber(value, Number.NaN)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return undefined
 }
 
 function basenameFromPath(value: string): string {
@@ -335,6 +354,11 @@ export function mapFuelLogListRow(record: ApiRecord): FuelLogListRow | null {
     receiptFileSizeLabel:
       receiptSizeRaw > 0 ? formatFileSizeLabel(receiptSizeRaw) : undefined,
     status: normalizeFuelLogStatus(record.status ?? record.verification_status),
+    mtoRemarks: pickScalar(record, ['mto_remarks', 'mtoRemarks']) || undefined,
+    currentBalance: pickOptionalNumber(record, ['current_balance', 'currentBalance']),
+    balanceAfterLog: pickOptionalNumber(record, ['balance_after_log', 'balanceAfterLog']),
+    maxQuota: pickOptionalNumber(record, ['ceiling_amount', 'ceilingAmount']),
+    threshold: pickOptionalNumber(record, ['low_balance_threshold', 'lowBalanceThreshold']),
   }
 }
 
@@ -441,8 +465,7 @@ export async function fetchFuelLogById(id: string): Promise<FuelLogListRow | nul
   if (!record) return null
   const mapped = mapFuelLogListRow(record)
   if (!mapped) return null
-  const [enriched] = await enrichFuelLogRows([mapped])
-  return enriched ?? mapped
+  return mapped
 }
 
 function pickReceiptUrlFromPayload(payload: unknown): string {
@@ -474,37 +497,40 @@ function guessReceiptMimeType(fileName: string): string {
   return 'application/octet-stream'
 }
 
-/** GET `/fuel/fuel-logs/{id}/receipt` and open the receipt in the current tab. */
+/** GET `/fuel/fuel-logs/{id}/receipt` and open the receipt in a new browser tab. */
 export async function openFuelLogReceipt(
   fuelLogId: string,
   fileName = '',
+  targetWindow?: Window | null,
 ): Promise<void> {
   const trimmed = fuelLogId.trim()
   if (!trimmed) throw new Error('Fuel log id is required')
 
-  const openInCurrentTab = (url: string) => {
-    window.location.assign(url)
+  try {
+    const { blob, contentType } = await apiGetBlob(
+      `/fuel/fuel-logs/${encodeURIComponent(trimmed)}/receipt`,
+    )
+
+    if (contentType.includes('application/json')) {
+      const payload = JSON.parse(await blob.text()) as unknown
+      const url = pickReceiptUrlFromPayload(payload)
+      if (!url) throw new Error('Receipt URL not found')
+      navigateBrowserTab(targetWindow, url)
+      return
+    }
+
+    const mimeType =
+      contentType && contentType !== 'application/octet-stream'
+        ? contentType
+        : guessReceiptMimeType(fileName)
+    const fileBlob = mimeType === blob.type ? blob : blob.slice(0, blob.size, mimeType)
+    const objectUrl = URL.createObjectURL(fileBlob)
+    navigateBrowserTab(targetWindow, objectUrl)
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000)
+  } catch (error) {
+    closeBrowserTab(targetWindow)
+    throw error
   }
-
-  const { blob, contentType } = await apiGetBlob(
-    `/fuel/fuel-logs/${encodeURIComponent(trimmed)}/receipt`,
-  )
-
-  if (contentType.includes('application/json')) {
-    const payload = JSON.parse(await blob.text()) as unknown
-    const url = pickReceiptUrlFromPayload(payload)
-    if (!url) throw new Error('Receipt URL not found')
-    openInCurrentTab(url)
-    return
-  }
-
-  const mimeType =
-    contentType && contentType !== 'application/octet-stream'
-      ? contentType
-      : guessReceiptMimeType(fileName)
-  const fileBlob = mimeType === blob.type ? blob : blob.slice(0, blob.size, mimeType)
-  const objectUrl = URL.createObjectURL(fileBlob)
-  openInCurrentTab(objectUrl)
 }
 
 function buildFuelLogFormData(input: CreateFuelLogApiInput): FormData {

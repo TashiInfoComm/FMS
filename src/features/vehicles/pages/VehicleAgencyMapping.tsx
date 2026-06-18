@@ -276,6 +276,7 @@ export function VehicleAgencyAssignmentDialog({
             value={tiers.agencyId}
             loading={masterQuery.isLoading}
             onValueChange={setAgency}
+            side="top"
           />
           <MasterDataSelect
             id="assign-department"
@@ -288,6 +289,7 @@ export function VehicleAgencyAssignmentDialog({
             disabled={!tiers.agencyId}
             loading={masterQuery.isLoading}
             onValueChange={setDepartment}
+            side="top"
           />
           <MasterDataSelect
             id="assign-division"
@@ -300,6 +302,7 @@ export function VehicleAgencyAssignmentDialog({
             disabled={!tiers.departmentId}
             loading={masterQuery.isLoading}
             onValueChange={setDivision}
+            side="top"
           />
           <MasterDataSelect
             id="assign-sub-division"
@@ -316,6 +319,7 @@ export function VehicleAgencyAssignmentDialog({
             disabled={!tiers.divisionId || subDivisionOptions.length === 0}
             loading={masterQuery.isLoading}
             onValueChange={setSubDivision}
+            side="top"
           />
         </div>
 

@@ -7,13 +7,15 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { fetchDriverVehicles } from '@/features/fuel/lib/fuel-logs-api'
 import {
   fetchMaintenanceTypes,
   fetchProblemCategoriesByMaintenanceTypeId,
   type MaintenanceMasterOption,
 } from '@/features/maintenance/lib/maintenance-masters-api'
-import { submitWorkOrder } from '@/features/maintenance/lib/work-orders-api'
+import {
+  fetchDriverAssignedVehicles,
+  submitWorkOrder,
+} from '@/features/maintenance/lib/work-orders-api'
 import type { ApiRecord } from '@/features/user/lib/roles-api'
 import { mapUserDetailFields } from '@/features/user/lib/users-api'
 import { useUserStore } from '@/services/user-store'
@@ -195,7 +197,7 @@ export default function CreateWorkOrder() {
 
   const vehiclesQuery = useQuery({
     queryKey: ['maintenance', 'driver-vehicles', driverId],
-    queryFn: () => fetchDriverVehicles(driverId),
+    queryFn: () => fetchDriverAssignedVehicles(driverId),
     enabled: Boolean(driverId),
     staleTime: 60_000,
   })

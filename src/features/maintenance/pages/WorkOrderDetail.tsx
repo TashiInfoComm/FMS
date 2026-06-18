@@ -6,7 +6,7 @@ import {
   CloudUpload,
   User,
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import { Badge } from '@/components/ui/badge'
@@ -21,46 +21,154 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Skeleton } from '@/components/ui/skeleton'
 import { ServicesPartsTable } from '@/features/maintenance/components/ServicesPartsTable'
 import {
   getServicePartOptions,
   sumLineItems,
   type MaintenanceLineItem,
+  type WorkOrderDetail as WorkOrderDetailData,
+  type WorkOrderServiceRecord,
 } from '@/features/maintenance/lib/maintenance-mock-data'
+import { fetchMaintenanceTypes } from '@/features/maintenance/lib/maintenance-masters-api'
 import { workOrderStatusBadgeClass } from '@/features/maintenance/lib/maintenance-ui'
+import { formatFuelLogDate } from '@/features/fuel/lib/fuel-log-mock-data'
 import {
   approveWorkOrder,
   completeWorkOrder,
   fetchWorkOrderById,
+  openWorkOrderInvoice,
   rejectWorkOrder,
   updateWorkOrderServicesAndParts,
   verifyWorkOrder,
+  type VerifyWorkOrderInput,
 } from '@/features/maintenance/lib/work-orders-api'
+import { fetchUserById, mapUserDetailFields } from '@/features/user/lib/users-api'
 import { PageHeader } from '@/shared/components/PageHeader'
+import {
+  DetailInlineValueSkeleton,
+  DetailReadOnlyFieldSkeleton,
+} from '@/shared/components/detail-loading'
 import { useAccessControl } from '@/shared/hooks/useAccessControl'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
+import { preOpenBrowserTab } from '@/shared/lib/open-in-new-tab'
 import { cn } from '@/lib/utils'
+
+function needsMaintenanceTypeLookup(detail: WorkOrderDetailData): boolean {
+  if (!detail.maintenanceTypeId?.trim()) return false
+  const current = detail.maintenanceType.trim()
+  return current === 'Minor' || current === 'Major' || current === '—' || current === ''
+}
+
+function needsDriverLookup(detail: WorkOrderDetailData): boolean {
+  const reportedById = detail.reportedById.trim()
+  if (!reportedById) return false
+  const current = detail.driverName.trim()
+  return !current || current === '—'
+}
+
+function basenameFromObjectKey(value: string): string {
+  const trimmed = value.trim().split('?')[0]?.trim() ?? ''
+  if (!trimmed) return ''
+  const parts = trimmed.split(/[/\\]/).filter(Boolean)
+  return parts[parts.length - 1] ?? trimmed
+}
+
+function ServiceRecordDetailSection({
+  serviceRecord,
+  invoiceLoading,
+  onInvoiceClick,
+  embedded = false,
+}: {
+  serviceRecord?: WorkOrderServiceRecord
+  invoiceLoading?: boolean
+  onInvoiceClick?: () => void
+  embedded?: boolean
+}) {
+  const invoiceUrl = serviceRecord?.invoiceUrl?.trim() ?? ''
+  const invoiceFileName = invoiceUrl ? basenameFromObjectKey(invoiceUrl) : ''
+  const invoiceDateDisplay =
+    serviceRecord?.invoiceDate && serviceRecord.invoiceDate !== '—'
+      ? formatFuelLogDate(serviceRecord.invoiceDate)
+      : serviceRecord?.invoiceDate ?? '—'
+
+  return (
+    <div
+      className={cn(
+        'space-y-4',
+        embedded && 'mt-6 border-t border-[var(--fms-strokes)] pt-5',
+      )}
+    >
+      <div>
+        <h3 className="text-base font-semibold text-[var(--fms-text-header)]">
+          Service Record
+        </h3>
+        <p className="text-xs text-[var(--fms-text-subheading)]">
+          Invoice details submitted during maintenance verification.
+        </p>
+      </div>
+      <div className="grid gap-4 md:grid-cols-3">
+        <FieldReadOnly
+          label="Invoice Number"
+          value={serviceRecord?.invoiceNumber}
+        />
+        <FieldReadOnly label="Invoice Date" value={invoiceDateDisplay} />
+      </div>
+      <div className="space-y-2">
+        <Label>Invoice</Label>
+        {invoiceUrl ? (
+          <button
+            type="button"
+            disabled={invoiceLoading || !onInvoiceClick}
+            onClick={onInvoiceClick}
+            className={cn(
+              'inline-flex items-center gap-2 rounded-full border border-[#bfdbfe] bg-[#eff6ff] px-3 py-2 text-sm text-[var(--fms-primary)]',
+              invoiceLoading
+                ? 'cursor-wait opacity-70'
+                : onInvoiceClick
+                  ? 'cursor-pointer transition-colors hover:bg-[#dbeafe]'
+                  : 'cursor-default',
+            )}
+          >
+            <CloudUpload className="h-4 w-4 shrink-0" />
+            <span className="font-medium underline-offset-2 hover:underline">
+              {invoiceLoading ? 'Opening invoice…' : invoiceFileName || 'View invoice'}
+            </span>
+          </button>
+        ) : (
+          <Input readOnly value="" placeholder="—" className="bg-[#f8f8f9]" />
+        )}
+      </div>
+    </div>
+  )
+}
 
 function SummaryCard({
   icon: Icon,
   label,
   value,
+  loading = false,
 }: {
   icon: typeof User
   label: string
   value: string
+  loading?: boolean
 }) {
   return (
     <div className="flex items-start gap-3 rounded-xl border border-[var(--fms-strokes)] bg-[#f6f6f7] p-4">
       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white text-[var(--fms-primary)]">
         <Icon className="h-5 w-5" />
       </span>
-      <div>
+      <div className="min-w-0 flex-1">
         <p className="text-xs text-[var(--fms-text-subheading)]">{label}</p>
-        <p className="mt-0.5 font-semibold text-[var(--fms-text-header)]">
-          {value}
-        </p>
+        {loading ? (
+          <DetailInlineValueSkeleton className="mt-1" />
+        ) : (
+          <p className="mt-0.5 font-semibold text-[var(--fms-text-header)]">
+            {value || '—'}
+          </p>
+        )}
       </div>
     </div>
   )
@@ -70,20 +178,26 @@ function FieldReadOnly({
   label,
   value,
   className,
+  loading = false,
 }: {
   label: string
   value?: string
   className?: string
+  loading?: boolean
 }) {
   return (
     <div className={cn('space-y-2', className)}>
       <Label>{label}</Label>
-      <Input
-        readOnly
-        value={value ?? ''}
-        placeholder="—"
-        className="bg-[#f8f8f9] text-[var(--fms-text-header)]"
-      />
+      {loading ? (
+        <Skeleton className="h-9 w-full rounded-md" />
+      ) : (
+        <Input
+          readOnly
+          value={value ?? ''}
+          placeholder="—"
+          className="bg-[#f8f8f9] text-[var(--fms-text-header)]"
+        />
+      )}
     </div>
   )
 }
@@ -123,10 +237,16 @@ export default function WorkOrderDetail() {
   const [lineItems, setLineItems] = useState<MaintenanceLineItem[]>([])
   const [approveDialogOpen, setApproveDialogOpen] = useState(false)
   const [completeDialogOpen, setCompleteDialogOpen] = useState(false)
+  const [verifyDialogOpen, setVerifyDialogOpen] = useState(false)
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false)
   const [remarks, setRemarks] = useState('')
   const [finalOdometerKm, setFinalOdometerKm] = useState('')
   const [rejectReason, setRejectReason] = useState('')
+  const [invoiceNumber, setInvoiceNumber] = useState('')
+  const [invoiceDate, setInvoiceDate] = useState('')
+  const [verifyRemarks, setVerifyRemarks] = useState('')
+  const [invoiceFile, setInvoiceFile] = useState<File | null>(null)
+  const invoiceFileInputRef = useRef<HTMLInputElement>(null)
 
   const detailQuery = useQuery({
     queryKey: ['maintenance-work-order', workOrderId],
@@ -136,6 +256,50 @@ export default function WorkOrderDetail() {
   })
 
   const workOrder = detailQuery.data
+  const resolveMaintenanceType = workOrder ? needsMaintenanceTypeLookup(workOrder) : false
+  const resolveDriver = workOrder ? needsDriverLookup(workOrder) : false
+
+  const maintenanceTypeQuery = useQuery({
+    queryKey: ['maintenance', 'maintenance-types'],
+    queryFn: fetchMaintenanceTypes,
+    enabled: Boolean(workOrder) && resolveMaintenanceType,
+    staleTime: 60_000,
+  })
+
+  const driverQuery = useQuery({
+    queryKey: ['admin-user-detail', workOrder?.reportedById],
+    queryFn: async () => {
+      const id = workOrder?.reportedById.trim()
+      if (!id) throw new Error('Missing driver id')
+      return fetchUserById(id)
+    },
+    enabled: Boolean(workOrder) && resolveDriver,
+    staleTime: 30_000,
+  })
+
+  const displayMaintenanceType = useMemo(() => {
+    if (!workOrder) return ''
+    if (!resolveMaintenanceType) return workOrder.maintenanceType
+    if (maintenanceTypeQuery.isLoading) return workOrder.maintenanceType
+    const match = maintenanceTypeQuery.data?.find(
+      (option) => option.value === workOrder.maintenanceTypeId,
+    )
+    return match?.label || workOrder.maintenanceType
+  }, [workOrder, resolveMaintenanceType, maintenanceTypeQuery.data, maintenanceTypeQuery.isLoading])
+
+  const displayDriverName = useMemo(() => {
+    if (!workOrder) return ''
+    if (!resolveDriver) return workOrder.driverName
+    if (driverQuery.isLoading) return workOrder.driverName
+    if (!driverQuery.data) return workOrder.driverName
+    const profile = mapUserDetailFields(driverQuery.data)
+    return profile.name && profile.name !== '-' ? profile.name : workOrder.driverName
+  }, [workOrder, resolveDriver, driverQuery.data, driverQuery.isLoading])
+
+  const isMainLoading = detailQuery.isPending && !workOrder
+  const isMaintenanceTypeLoading = resolveMaintenanceType && maintenanceTypeQuery.isLoading
+  const isDriverLoading = resolveDriver && driverQuery.isLoading
+
   const approveMutation = useMutation({
     mutationFn: () => {
       if (!crud.canApprove && crud.isResolved) {
@@ -160,10 +324,15 @@ export default function WorkOrderDetail() {
       setRemarks('')
       void queryClient.invalidateQueries({ queryKey: ['maintenance-work-orders'] })
       void queryClient.invalidateQueries({ queryKey: ['maintenance-work-order'] })
+      const maintenanceTypeOnSubmit =
+        workOrder?.maintenanceType.trim().toLowerCase() ?? ''
+      const statusOnSubmit = workOrder?.status.trim().toUpperCase() ?? ''
+      const totalOnSubmit = sumLineItems(lineItems)
       const escalated =
         isMtoRole &&
-        (workOrder?.maintenanceType.trim().toLowerCase() ?? '') === 'major' &&
-        (workOrder?.status.trim().toUpperCase() ?? '') === 'PENDING_MTO_APPROVAL'
+        statusOnSubmit === 'PENDING_MTO_APPROVAL' &&
+        (maintenanceTypeOnSubmit === 'major' ||
+          (maintenanceTypeOnSubmit === 'minor' && totalOnSubmit >= 500_000))
       showSuccessToast(
         escalated
           ? 'Work order escalated successfully.'
@@ -215,13 +384,19 @@ export default function WorkOrderDetail() {
   })
 
   const verifyMaintenanceMutation = useMutation({
-    mutationFn: () => {
+    mutationFn: (input: VerifyWorkOrderInput) => {
       if (!crud.hasAction('verify') && crud.isResolved) {
         throw new Error('You do not have permission to verify this work order.')
       }
-      return verifyWorkOrder(workOrderId)
+      return verifyWorkOrder(workOrderId, input)
     },
     onSuccess: () => {
+      setVerifyDialogOpen(false)
+      setInvoiceNumber('')
+      setInvoiceDate('')
+      setVerifyRemarks('')
+      setInvoiceFile(null)
+      if (invoiceFileInputRef.current) invoiceFileInputRef.current.value = ''
       void queryClient.invalidateQueries({ queryKey: ['maintenance-work-orders'] })
       void queryClient.invalidateQueries({ queryKey: ['maintenance-work-order'] })
       showSuccessToast('Maintenance verified successfully.')
@@ -275,13 +450,23 @@ export default function WorkOrderDetail() {
   const maintenanceType = workOrder?.maintenanceType.trim().toLowerCase() ?? ''
   const normalizedStatus = workOrder?.status.trim().toUpperCase() ?? ''
   const isMajorType = maintenanceType === 'major'
+  const isMinorType = maintenanceType === 'minor'
   const isApprovedForService = normalizedStatus === 'APPROVED_FOR_SERVICE'
   const isInProgress = normalizedStatus === 'IN_PROGRESS'
   const isPendingMtoApproval = normalizedStatus === 'PENDING_MTO_APPROVAL'
   const isPendingAgencyApproval = normalizedStatus === 'PENDING_AGENCY_APPROVAL'
   const isPendingVerification = normalizedStatus === 'PENDING_VERIFICATION'
-
+  const isCompleted = normalizedStatus === 'COMPLETED'
+  const isRejected = normalizedStatus === 'REJECTED'
+  const isCancelled = normalizedStatus === 'CANCELLED'
+  const canAddLineItems =
+    canEditServicesParts && !isPendingVerification && !isCompleted && !isRejected && !isCancelled
+  const thresholdAmount = 50000
   const showMtoApproveRejectActions = isMtoRole && isPendingMtoApproval
+  const canMinorEscalate =
+    showMtoApproveRejectActions && isMinorType && total >= thresholdAmount
+  const shouldShowEscalate =
+    (showMtoApproveRejectActions && isMajorType) || canMinorEscalate
   const showAgencyApproveRejectActions =
     isAgencyAdminRole && isPendingAgencyApproval
   const showApproveRejectActions =
@@ -294,9 +479,33 @@ export default function WorkOrderDetail() {
     crud.isResolved &&
     crud.canApprove
   const canShowRejectButton =
-    showApproveRejectActions && crud.isResolved && crud.canReject
+    showApproveRejectActions && crud.isResolved && crud.canReject && !shouldShowEscalate && !isMajorType
   const canShowVerifyButton =
     showVerifyMaintenance && crud.isResolved && crud.hasAction('verify')
+  const showServiceRecordDetail = Boolean(
+    workOrder && (isCompleted || Boolean(workOrder.serviceRecord)),
+  )
+  const serviceRecord = workOrder?.serviceRecord
+
+  const invoiceMutation = useMutation({
+    mutationFn: (targetWindow: Window | null) => {
+      if (!workOrderId.trim()) throw new Error('Missing work order id')
+      return openWorkOrderInvoice(
+        workOrderId,
+        serviceRecord?.invoiceUrl ? basenameFromObjectKey(serviceRecord.invoiceUrl) : '',
+        targetWindow,
+      )
+    },
+    onError: (error, targetWindow) => {
+      if (targetWindow && !targetWindow.closed) targetWindow.close()
+      showErrorToast(error, 'Could not open invoice')
+    },
+  })
+
+  const handleInvoiceClick = () => {
+    if (!serviceRecord?.invoiceUrl?.trim()) return
+    invoiceMutation.mutate(preOpenBrowserTab())
+  }
 
   const addLineItem = () => {
     setLineItems((prev) => [
@@ -318,16 +527,16 @@ export default function WorkOrderDetail() {
       prev.length > 0
         ? prev
         : [
-            {
-              id: `line-item-${Date.now()}`,
-              servicePartId: '',
-              description: '',
-              quantity: 1,
-              unitPrice: 0,
-              notes: '',
-              isNew: true,
-            },
-          ],
+          {
+            id: `line-item-${Date.now()}`,
+            servicePartId: '',
+            description: '',
+            quantity: 1,
+            unitPrice: 0,
+            notes: '',
+            isNew: true,
+          },
+        ],
     )
   }
 
@@ -385,27 +594,42 @@ export default function WorkOrderDetail() {
     completeMaintenanceMutation.mutate()
   }
 
+  const openVerifyDialog = () => {
+    setInvoiceNumber('')
+    setInvoiceDate('')
+    setVerifyRemarks('')
+    setInvoiceFile(null)
+    if (invoiceFileInputRef.current) invoiceFileInputRef.current.value = ''
+    setVerifyDialogOpen(true)
+  }
+
+  const closeVerifyDialog = () => {
+    if (verifyMaintenanceMutation.isPending) return
+    setVerifyDialogOpen(false)
+  }
+
+  const onSubmitVerify = () => {
+    if (!invoiceNumber.trim()) {
+      showErrorToast('Invoice number is required.')
+      return
+    }
+    if (!invoiceDate.trim()) {
+      showErrorToast('Invoice date is required.')
+      return
+    }
+    verifyMaintenanceMutation.mutate({
+      invoice_number: invoiceNumber.trim(),
+      invoice_date: invoiceDate.trim(),
+      remarks: verifyRemarks.trim() || undefined,
+      invoice_file: invoiceFile,
+    })
+  }
+
   useEffect(() => {
     if (canViewServicesParts && !isDriverRole) ensureInitialLineItem()
   }, [canViewServicesParts, isDriverRole])
 
-  if (detailQuery.isLoading) {
-    return (
-      <section className="space-y-4">
-        <PageHeader
-          title="Work Order Details"
-          subtitle="This work order has been initiated by the driver."
-        />
-        <Card className="border border-[var(--fms-strokes)] bg-white">
-          <CardContent className="py-8 text-center text-[var(--fms-text-subheading)]">
-            Loading work order…
-          </CardContent>
-        </Card>
-      </section>
-    )
-  }
-
-  if (detailQuery.isError || !workOrder) {
+  if (!isMainLoading && (detailQuery.isError || !workOrder)) {
     return (
       <section className="space-y-4">
         <PageHeader
@@ -437,14 +661,21 @@ export default function WorkOrderDetail() {
             title="Work Order Details"
             subtitle="This work order has been initiated by the driver."
           />
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge className={workOrderStatusBadgeClass(workOrder.status)}>
-              {workOrder.status}
-            </Badge>
-            <span className="text-sm text-[var(--fms-text-subheading)]">
-              {workOrder.workOrderId}
-            </span>
-          </div>
+          {isMainLoading ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Skeleton className="h-5 w-28 rounded-full" />
+              <Skeleton className="h-4 w-36" />
+            </div>
+          ) : workOrder ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge className={workOrderStatusBadgeClass(workOrder.status)}>
+                {workOrder.status}
+              </Badge>
+              <span className="text-sm text-[var(--fms-text-subheading)]">
+                {workOrder.workOrderId}
+              </span>
+            </div>
+          ) : null}
         </div>
         <Button asChild variant="outline" className="w-full sm:w-auto">
           <Link to={returnTo}>
@@ -455,16 +686,23 @@ export default function WorkOrderDetail() {
       </div>
 
       <div className="grid gap-3 md:grid-cols-3">
-        <SummaryCard icon={User} label="Driver" value={workOrder.driverName} />
+        <SummaryCard
+          icon={User}
+          label="Driver"
+          value={displayDriverName}
+          loading={isMainLoading || isDriverLoading}
+        />
         <SummaryCard
           icon={CarFront}
           label="Vehicle"
-          value={workOrder.vehiclePlate}
+          value={workOrder?.vehiclePlate ?? ''}
+          loading={isMainLoading}
         />
         <SummaryCard
           icon={Clock3}
           label="Trigger Type"
-          value={workOrder.triggerType}
+          value={workOrder?.triggerType ?? ''}
+          loading={isMainLoading}
         />
       </div>
 
@@ -474,13 +712,17 @@ export default function WorkOrderDetail() {
             General Information
           </h2>
           <div className="grid gap-4 md:grid-cols-3">
-            <FieldReadOnly label="Vehicle Registration" value={workOrder.vehiclePlate} />
+            <FieldReadOnly
+              label="Vehicle Registration"
+              value={workOrder?.vehiclePlate}
+              loading={isMainLoading}
+            />
             <FieldReadOnly
               label="Maintenance Type"
-              value={workOrder.maintenanceType}
+              value={displayMaintenanceType}
+              loading={isMainLoading || isMaintenanceTypeLoading}
             />
           </div>
-
         </CardContent>
       </Card>
 
@@ -489,11 +731,19 @@ export default function WorkOrderDetail() {
           <h2 className="text-base font-semibold text-[var(--fms-text-header)]">
             Problem Reports
           </h2>
-          {workOrder.problemReports.length === 0 ? (
+          {isMainLoading ? (
+            <div className="space-y-3 rounded-xl border border-[var(--fms-strokes)] bg-[#fafafa] p-4">
+              <Skeleton className="h-4 w-36" />
+              <div className="grid gap-4 md:grid-cols-2">
+                <DetailReadOnlyFieldSkeleton label="Problem Category" />
+                <DetailReadOnlyFieldSkeleton label="Problem Description" />
+              </div>
+            </div>
+          ) : workOrder && workOrder.problemReports.length === 0 ? (
             <p className="text-sm text-[var(--fms-text-subheading)]">
               No problem reports found.
             </p>
-          ) : (
+          ) : workOrder ? (
             <div className="space-y-3">
               {workOrder.problemReports.map((report, index) => (
                 <div
@@ -553,20 +803,27 @@ export default function WorkOrderDetail() {
                 </div>
               ))}
             </div>
-          )}
+          ) : null}
         </CardContent>
       </Card>
 
       {canShowServicesPartsTable ? (
         <Card className="border border-[var(--fms-strokes)] bg-white">
           <CardContent className="pt-5">
+            {isMainLoading ? (
+              <>
+                <Skeleton className="mb-4 h-5 w-48" />
+                <Skeleton className="h-32 w-full rounded-lg" />
+              </>
+            ) : workOrder ? (
+              <>
             <ServicesPartsTable
               title="Services & Parts Required"
               items={lineItems}
               total={total}
               editable={canEditServicesParts}
               servicePartOptions={servicePartOptions}
-              onAdd={canEditServicesParts ? addLineItem : undefined}
+              onAdd={canAddLineItems ? addLineItem : undefined}
               onItemChange={canEditServicesParts ? updateLineItem : undefined}
               onDelete={canEditServicesParts ? removeLineItem : undefined}
               isRowLocked={(row) => isApprovedForService && !row.isNew}
@@ -583,11 +840,35 @@ export default function WorkOrderDetail() {
                 </Button>
               </div>
             ) : null}
+            {showServiceRecordDetail ? (
+              <ServiceRecordDetailSection
+                embedded
+                serviceRecord={serviceRecord}
+                invoiceLoading={invoiceMutation.isPending}
+                onInvoiceClick={
+                  serviceRecord?.invoiceUrl?.trim() ? handleInvoiceClick : undefined
+                }
+              />
+            ) : null}
+              </>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : showServiceRecordDetail ? (
+        <Card className="border border-[var(--fms-strokes)] bg-white">
+          <CardContent className="pt-5">
+            <ServiceRecordDetailSection
+              serviceRecord={serviceRecord}
+              invoiceLoading={invoiceMutation.isPending}
+              onInvoiceClick={
+                serviceRecord?.invoiceUrl?.trim() ? handleInvoiceClick : undefined
+              }
+            />
           </CardContent>
         </Card>
       ) : null}
 
-      {(canShowApproveButton || canShowRejectButton) ? (
+      {!isMainLoading && workOrder && (canShowApproveButton || canShowRejectButton) ? (
         <div className="flex flex-wrap gap-3">
           {canShowApproveButton ? (
             <Button
@@ -595,7 +876,7 @@ export default function WorkOrderDetail() {
               className="bg-[var(--fms-button)] text-white hover:bg-[var(--fms-button-hover)]"
               onClick={openApprovalDialog}
             >
-              {showMtoApproveRejectActions && isMajorType ? 'Escalate' : 'Approve'}
+              {shouldShowEscalate ? 'Escalate' : 'Approve'}
             </Button>
           ) : null}
           {canShowRejectButton ? (
@@ -611,20 +892,20 @@ export default function WorkOrderDetail() {
         </div>
       ) : null}
 
-      {canShowVerifyButton ? (
+      {!isMainLoading && workOrder && canShowVerifyButton ? (
         <div className="flex flex-wrap gap-3">
           <Button
             type="button"
             className="bg-[var(--fms-button)] text-white hover:bg-[var(--fms-button-hover)]"
             disabled={verifyMaintenanceMutation.isPending}
-            onClick={() => verifyMaintenanceMutation.mutate()}
+            onClick={openVerifyDialog}
           >
-            {verifyMaintenanceMutation.isPending ? 'Verifying…' : 'Verify Maintenance'}
+            Verify Maintenance
           </Button>
         </div>
       ) : null}
 
-      {isDriverRole && (isApprovedForService || isInProgress) ? (
+      {!isMainLoading && workOrder && isDriverRole && (isApprovedForService || isInProgress) ? (
         <div className="flex flex-wrap gap-3">
           <Button
             type="button"
@@ -640,9 +921,7 @@ export default function WorkOrderDetail() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {showMtoApproveRejectActions && isMajorType
-                ? 'Escalate Work Order'
-                : 'Approve Work Order'}
+              {shouldShowEscalate ? 'Escalate Work Order' : 'Approve Work Order'}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-2">
@@ -666,10 +945,10 @@ export default function WorkOrderDetail() {
               onClick={onSubmitApproval}
             >
               {approveMutation.isPending
-                ? showMtoApproveRejectActions && isMajorType
+                ? shouldShowEscalate
                   ? 'Escalating…'
                   : 'Approving…'
-                : showMtoApproveRejectActions && isMajorType
+                : shouldShowEscalate
                   ? 'Escalate'
                   : 'Approve'}
             </Button>
@@ -736,6 +1015,85 @@ export default function WorkOrderDetail() {
               onClick={onSubmitCompleteMaintenance}
             >
               {completeMaintenanceMutation.isPending ? 'Completing…' : 'Complete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={verifyDialogOpen} onOpenChange={(open) => !open && closeVerifyDialog()}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Verify Maintenance</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="verify-invoice-number">
+                Invoice Number <span className="text-[var(--fms-delete)]">*</span>
+              </Label>
+              <Input
+                id="verify-invoice-number"
+                value={invoiceNumber}
+                onChange={(event) => setInvoiceNumber(event.target.value)}
+                placeholder="Enter invoice number"
+                disabled={verifyMaintenanceMutation.isPending}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="verify-invoice-date">
+                Invoice Date <span className="text-[var(--fms-delete)]">*</span>
+              </Label>
+              <Input
+                id="verify-invoice-date"
+                type="date"
+                value={invoiceDate}
+                onChange={(event) => setInvoiceDate(event.target.value)}
+                disabled={verifyMaintenanceMutation.isPending}
+              />
+              <p className="text-xs text-[var(--fms-text-subheading)]">
+                Invoice date in YYYY-MM-DD format
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="verify-remarks">Remarks</Label>
+              <textarea
+                id="verify-remarks"
+                value={verifyRemarks}
+                onChange={(event) => setVerifyRemarks(event.target.value)}
+                placeholder="Enter remarks (optional)"
+                disabled={verifyMaintenanceMutation.isPending}
+                className="min-h-[88px] w-full rounded-lg border border-[var(--fms-strokes)] bg-white px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="verify-invoice-file">Invoice File</Label>
+              <Input
+                id="verify-invoice-file"
+                ref={invoiceFileInputRef}
+                type="file"
+                accept=".jpg,.jpeg,.png,.pdf"
+                disabled={verifyMaintenanceMutation.isPending}
+                onChange={(event) => setInvoiceFile(event.target.files?.[0] ?? null)}
+              />
+              {invoiceFile ? (
+                <p className="text-xs text-[var(--fms-text-subheading)]">{invoiceFile.name}</p>
+              ) : null}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={verifyMaintenanceMutation.isPending}
+              onClick={closeVerifyDialog}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="bg-[var(--fms-button)] text-white hover:bg-[var(--fms-button-hover)]"
+              disabled={verifyMaintenanceMutation.isPending}
+              onClick={onSubmitVerify}
+            >
+              {verifyMaintenanceMutation.isPending ? 'Verifying…' : 'Verify'}
             </Button>
           </DialogFooter>
         </DialogContent>

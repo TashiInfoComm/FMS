@@ -4,6 +4,7 @@ import { Link, useParams } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
 import { TripDetailContent } from '@/features/trips/components/TripDetailContent'
+import { TripDetailSkeleton } from '@/features/trips/components/TripDetailSkeleton'
 import { fetchTripDetail } from '@/features/trips/lib/trips-api'
 import { fetchTripRequisitionMasterLists } from '@/features/trips/lib/trip-requisition-masters'
 import { PageHeader } from '@/shared/components/PageHeader'
@@ -28,10 +29,7 @@ export default function TripRequisitionDetailPage() {
         purposes: mastersQuery.data?.journeyPurposes,
         vehicleTypes: mastersQuery.data?.vehicleTypes,
       }),
-    enabled:
-      Boolean(tripId?.trim()) &&
-      (!crud.isResolved || crud.canRead) &&
-      (mastersQuery.isSuccess || mastersQuery.isError),
+    enabled: Boolean(tripId?.trim()) && (!crud.isResolved || crud.canRead),
     staleTime: 30_000,
   })
 
@@ -46,11 +44,13 @@ export default function TripRequisitionDetailPage() {
     )
   }
 
-  if (detailQuery.isLoading || mastersQuery.isLoading) {
+  if (detailQuery.isLoading) {
     return (
-      <section className="space-y-5">
-        <PageHeader title="My Trip" subtitle="Loading trip details…" />
-      </section>
+      <TripDetailSkeleton
+        title="My Trip"
+        backPath="/trip/requisition"
+        backLabel="Back to my trips"
+      />
     )
   }
 

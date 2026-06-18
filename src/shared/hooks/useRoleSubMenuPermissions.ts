@@ -86,6 +86,7 @@ export function useRoleSubMenuPermissions(subMenuId: string | null | undefined) 
     canCancel: hasAction('cancel'),
     canApprove: hasAction('approve'),
     canReject: hasAction('reject'),
+    canAssign: hasAction('assign'),
     hasAction,
     allowed,
   }

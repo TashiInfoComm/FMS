@@ -21,6 +21,7 @@ import {
 } from '@/features/fuel/lib/quota-requests-api'
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/shared/components/PageHeader'
+import { DetailFieldBoxSkeleton } from '@/shared/components/detail-loading'
 import { useAccessControl } from '@/shared/hooks/useAccessControl'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
@@ -414,7 +415,31 @@ export default function QuotaRequestDetailPage() {
   if (detailQuery.isLoading) {
     return (
       <section className="space-y-5">
-        <PageHeader title="Fuel Request Details" subtitle="Loading request…" />
+        <div className="flex items-center gap-3">
+          <Button variant="outline" size="icon" asChild>
+            <Link
+              to="/fuel/quota-request-list"
+              aria-label="Back to quota requests"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </Link>
+          </Button>
+          <PageHeader title="Fuel Request Details" />
+        </div>
+
+        <Card className="rounded-xl border border-[var(--fms-strokes)] bg-white">
+          <CardContent className="space-y-4 p-4 sm:p-6">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <DetailFieldBoxSkeleton label="Driver Name" />
+              <DetailFieldBoxSkeleton label="Vehicle Number" />
+              <DetailFieldBoxSkeleton label="Contact Number" />
+              <DetailFieldBoxSkeleton label="Request Source" />
+              <DetailFieldBoxSkeleton label="Current Quota" />
+              <DetailFieldBoxSkeleton label="Recommended Amount" />
+              <DetailFieldBoxSkeleton label="Prepayment Amount" />
+            </div>
+          </CardContent>
+        </Card>
       </section>
     )
   }

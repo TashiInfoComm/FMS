@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, ArrowLeft, Car, CarFront, CloudUpload, Pencil, Star, User, Users } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
@@ -43,16 +43,39 @@ import {
   getFeedbackRatingLabel,
   getRatingLabel,
 } from '@/features/trips/lib/trip-driver-feedback-mock-data'
-import { fetchUsersForSelect } from '@/features/user/lib/users-api'
+import { fetchUserById } from '@/features/user/lib/users-api'
+import { fetchDriverVehicleAssignments } from '@/features/vehicles/lib/driver-vehicle-assignments-api'
 import { fetchVehicles } from '@/features/vehicles/lib/vehicles-api'
 import { SearchableAutocomplete } from '@/shared/components/SearchableAutocomplete'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
+import { preOpenBrowserTab } from '@/shared/lib/open-in-new-tab'
 import { cn } from '@/lib/utils'
 
 function RequiredMark() {
   return <span className="text-[var(--fms-delete)]">*</span>
+}
+
+type ApiRecord = Record<string, unknown>
+
+function toText(value: unknown): string {
+  return typeof value === 'string'
+    ? value.trim()
+    : typeof value === 'number' && Number.isFinite(value)
+      ? String(value)
+      : ''
+}
+
+function pickUserDisplayName(record: ApiRecord): string {
+  const firstName = toText(record.first_name) || toText(record.firstName)
+  const middleName = toText(record.middle_name) || toText(record.middleName)
+  const lastName = toText(record.last_name) || toText(record.lastName)
+  return (
+    toText(record.name) ||
+    toText(record.full_name) ||
+    [firstName, middleName, lastName].filter(Boolean).join(' ').trim()
+  )
 }
 
 function SectionHeader({
@@ -147,7 +170,12 @@ function MovementOrderFileChip({
 
   if (file.url) {
     return (
-      <a href={file.url} className={chipClassName}>
+      <a
+        href={file.url}
+        target="_blank"
+        rel="noreferrer"
+        className={chipClassName}
+      >
         {content}
       </a>
     )
@@ -284,19 +312,25 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
   const canApproveTrip = showApproveButton
   const canRejectTrip = showRejectButton
   const showReviewActions = showApproveButton || showRejectButton
-  const showCallForPickupButton = mode === 'requisition' && trip.pickupRequired === true
+  const showCallForPickupButton =
+    mode === 'requisition' &&
+    trip.pickupRequired === true &&
+    trip.pickupRequestedAt == null && trip.status === 'IN_PROGRESS'
 
   const movementOrderMutation = useMutation({
-    mutationFn: () =>
-      openTripMovementOrder(trip.id, trip.movementOrderFile?.name || ''),
-    onError: (error) => {
+    mutationFn: (targetWindow: Window | null) =>
+      openTripMovementOrder(trip.id, trip.movementOrderFile?.name || '', targetWindow),
+    onError: (error, targetWindow) => {
+      if (targetWindow && !targetWindow.closed) targetWindow.close()
       showErrorToast(error, 'Could not open movement order')
     },
   })
 
   const handleMovementOrderClick = () => {
-    movementOrderMutation.mutate()
+    movementOrderMutation.mutate(preOpenBrowserTab())
   }
+
+  const selectedOverrideVehicleId = overrideForm.vehicleId.trim()
 
   const vehiclesQuery = useQuery({
     queryKey: ['trips', 'override', 'vehicles'],
@@ -305,12 +339,45 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
     staleTime: 30_000,
   })
 
-  const usersQuery = useQuery({
-    queryKey: ['trips', 'override', 'users'],
-    queryFn: () => fetchUsersForSelect(),
-    enabled: overrideDialogOpen && showApproveButton,
+  const driversQuery = useQuery({
+    queryKey: ['trips', 'override', 'vehicle-drivers', selectedOverrideVehicleId],
+    queryFn: () => fetchDriverVehicleAssignments(selectedOverrideVehicleId),
+    enabled: overrideDialogOpen && showApproveButton && Boolean(selectedOverrideVehicleId),
     staleTime: 30_000,
   })
+
+  const assignmentDriverIds = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          (driversQuery.data ?? [])
+            .map((assignment) => assignment.driverId)
+            .filter((id) => id && id !== '—'),
+        ),
+      ),
+    [driversQuery.data],
+  )
+
+  const driverNameQueries = useQueries({
+    queries: assignmentDriverIds.map((driverId) => ({
+      queryKey: ['trips', 'override', 'driver-name', driverId],
+      queryFn: async () => {
+        const record = await fetchUserById(driverId)
+        return pickUserDisplayName(record)
+      },
+      enabled: overrideDialogOpen && Boolean(driverId),
+      staleTime: 30_000,
+    })),
+  })
+
+  const driverNameById = useMemo(() => {
+    const map = new Map<string, string>()
+    assignmentDriverIds.forEach((driverId, index) => {
+      const name = driverNameQueries[index]?.data
+      if (name) map.set(driverId, name)
+    })
+    return map
+  }, [assignmentDriverIds, driverNameQueries])
 
   const vehicleOptions = useMemo(
     () =>
@@ -325,13 +392,26 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
 
   const driverOptions = useMemo(
     () =>
-      (usersQuery.data ?? []).map((user) => ({
-        value: user.id,
-        label: user.name,
-        searchText: user.name,
-      })),
-    [usersQuery.data],
+      (driversQuery.data ?? [])
+        .filter((assignment) => assignment.driverId && assignment.driverId !== '—')
+        .map((assignment) => {
+          const resolvedName =
+            (assignment.name !== '—' ? assignment.name : '') ||
+            driverNameById.get(assignment.driverId) ||
+            ''
+          return {
+            value: assignment.driverId,
+            label: resolvedName || assignment.driverId,
+            description: assignment.priority !== '—' ? assignment.priority : undefined,
+            searchText: `${resolvedName} ${assignment.cid} ${assignment.license}`,
+          }
+        }),
+    [driversQuery.data, driverNameById],
   )
+
+  const driversLoading =
+    driversQuery.isLoading ||
+    driverNameQueries.some((query) => query.isLoading)
 
   const approveMutation = useMutation({
     mutationFn: () => approveTripAssign(trip.id),
@@ -759,7 +839,11 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
               <SearchableAutocomplete
                 value={overrideForm.vehicleId}
                 onChange={(value) =>
-                  setOverrideForm((prev) => ({ ...prev, vehicleId: value }))
+                  setOverrideForm((prev) => ({
+                    ...prev,
+                    vehicleId: value,
+                    driverId: '',
+                  }))
                 }
                 options={vehicleOptions}
                 loading={vehiclesQuery.isLoading}
@@ -782,12 +866,12 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
                   setOverrideForm((prev) => ({ ...prev, driverId: value }))
                 }
                 options={driverOptions}
-                loading={usersQuery.isLoading}
-                disabled={overrideMutation.isPending}
-                placeholder="Select driver"
-                searchPlaceholder="Search by name…"
-                emptyMessage="No users found."
-                loadingMessage="Loading users…"
+                loading={driversLoading}
+                disabled={overrideMutation.isPending || !selectedOverrideVehicleId}
+                placeholder={selectedOverrideVehicleId ? 'Select driver' : 'Select a vehicle first'}
+                searchPlaceholder="Search by name or CID…"
+                emptyMessage="No assigned drivers found for this vehicle."
+                loadingMessage="Loading assigned drivers…"
                 side="top"
                 className="[&_button]:bg-white"
               />
@@ -818,7 +902,7 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
             </Button>
             <Button
               type="button"
-              disabled={overrideMutation.isPending || vehiclesQuery.isLoading || usersQuery.isLoading}
+              disabled={overrideMutation.isPending || vehiclesQuery.isLoading || driversLoading}
               onClick={confirmOverride}
             >
               {overrideMutation.isPending ? 'Saving…' : 'Save Override'}

@@ -82,10 +82,10 @@ export function VehicleManagementPage() {
         pageSize,
         statusLookupsQuery.data
           ? {
-              vehicleStatuses: statusLookupsQuery.data.vehicleStatuses,
-              vehicleMovementStatuses:
-                statusLookupsQuery.data.vehicleMovementStatuses,
-            }
+            vehicleStatuses: statusLookupsQuery.data.vehicleStatuses,
+            vehicleMovementStatuses:
+              statusLookupsQuery.data.vehicleMovementStatuses,
+          }
           : undefined,
       ),
     enabled: crud.isResolved && crud.canRead,
@@ -277,6 +277,11 @@ export function VehicleManagementPage() {
                       onAssignAgency={(id) => {
                         navigate(
                           `/vehicle/list/${encodeURIComponent(id)}/agency-assignments`,
+                        );
+                      }}
+                      onAssignDriver={(id) => {
+                        navigate(
+                          `/vehicle/list/${encodeURIComponent(id)}/drivers`,
                         );
                       }}
                       onAssignQuota={openAssignQuota}
@@ -518,6 +523,7 @@ function VehicleTableRow({
   onAskDelete,
   onAssignAgency,
   onAssignQuota,
+  onAssignDriver,
   deleteBusy,
   assignQuotaBusy,
 }: {
@@ -526,6 +532,7 @@ function VehicleTableRow({
   crud: ReturnType<typeof useRouteCrudPermissions>;
   onAskDelete: (id: string) => void;
   onAssignAgency: (id: string) => void;
+  onAssignDriver: (id: string) => void;
   onAssignQuota: (vehicle: VehicleListRow) => void;
   deleteBusy: boolean;
   assignQuotaBusy: boolean;
@@ -574,6 +581,30 @@ function VehicleTableRow({
 
       <td className="px-4 py-3">
         <div className={rowActionsContainerClassName}>
+
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className={
+              "h-8 gap-1 cursor-pointer rounded-lg font-normal border border-[var(--fms-neutral-border)] bg-[var(--fms-neutral-fill)] text-[var(--fms-neutral-text)] shadow-none hover:brightness-[0.98] [&_svg]:size-3.5 dark:border-[var(--fms-warning-border)]/55 dark:bg-[var(--fms-warning-fill)]/30 dark:text-[var(--fms-warning-text)] dark:hover:bg-[var(--fms-warning-fill)]/45"
+            }
+            onClick={() => onAssignAgency(vehicle.id)}
+          >
+            Agency Mapping
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={!crud.canAssign}
+            size="sm"
+            className={
+              "h-8 gap-1 cursor-pointer rounded-lg font-normal border border-[var(--fms-neutral-border)] bg-[var(--fms-neutral-fill)] text-[var(--fms-neutral-text)] shadow-none hover:brightness-[0.98] [&_svg]:size-3.5 dark:border-[var(--fms-warning-border)]/55 dark:bg-[var(--fms-warning-fill)]/30 dark:text-[var(--fms-warning-text)] dark:hover:bg-[var(--fms-warning-fill)]/45"
+            }
+            onClick={() => onAssignDriver(vehicle.id)}
+          >
+            Assign Driver
+          </Button>
           <DetailRowActionButton
             type="button"
             disabled={!crud.canRead}
@@ -594,17 +625,6 @@ function VehicleTableRow({
             disabled={!crud.canDelete || deleteBusy}
             onClick={() => onAskDelete(vehicle.id)}
           />
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className={
-              "h-8 gap-1 cursor-pointer rounded-lg font-normal border border-[var(--fms-neutral-border)] bg-[var(--fms-neutral-fill)] text-[var(--fms-neutral-text)] shadow-none hover:brightness-[0.98] [&_svg]:size-3.5 dark:border-[var(--fms-warning-border)]/55 dark:bg-[var(--fms-warning-fill)]/30 dark:text-[var(--fms-warning-text)] dark:hover:bg-[var(--fms-warning-fill)]/45"
-            }
-            onClick={() => onAssignAgency(vehicle.id)}
-          >
-             Agency Mapping
-          </Button>
         </div>
       </td>
     </tr>

@@ -9,8 +9,10 @@ import { useQuery } from '@tanstack/react-query'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Skeleton } from '@/components/ui/skeleton'
-import { isUuidLike } from '@/shared/lib/organogram-master-lookup'
+import {
+  DetailInlineValueSkeleton,
+  DetailLabeledValueSkeleton,
+} from '@/shared/components/detail-loading'
 import { fetchVehicleById } from '@/features/vehicles/lib/vehicles-api'
 import {
   fetchVehicleDetailResolvedNames,
@@ -26,6 +28,7 @@ import {
   type VehicleDetailField,
 } from '@/features/vehicles/pages/vehicle-detail-sections'
 import { PageHeader } from '@/shared/components/PageHeader'
+import { isUuidLike } from '@/shared/lib/organogram-master-lookup'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 import { cn } from '@/lib/utils'
 
@@ -146,22 +149,19 @@ function pickValueForKeys(record: ApiRecord, keys: readonly string[]): unknown {
   return undefined
 }
 
-function VehicleDetailSkeleton() {
+function VehicleDetailLoadingContent() {
   return (
     <div className="space-y-5 rounded-xl border border-[var(--fms-strokes)] bg-white p-4">
-      {Array.from({ length: 3 }).map((_, cardIdx) => (
-        <Card key={`sk-card-${cardIdx}`} className="border border-[var(--fms-strokes)] bg-white shadow-sm">
+      {VEHICLE_DETAIL_SECTIONS.map((section) => (
+        <Card key={section.id} className="border border-[var(--fms-strokes)] bg-white shadow-sm">
           <CardContent className="space-y-4 pt-5">
-            <div className="space-y-2">
-              <Skeleton className="h-5 w-40" />
-              <Skeleton className="h-3 w-64" />
+            <div>
+              <p className="text-base font-semibold text-[var(--fms-text-header)]">{section.title}</p>
+              <p className="text-xs text-[var(--fms-text-subheading)]">{section.subtitle}</p>
             </div>
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <div key={`sk-${cardIdx}-${i}`} className="space-y-2">
-                  <Skeleton className="h-3 w-24" />
-                  <Skeleton className="h-4 w-full max-w-xs" />
-                </div>
+            <div className="grid gap-x-6 gap-y-4 md:grid-cols-2 lg:grid-cols-3">
+              {section.fields.map((field) => (
+                <DetailLabeledValueSkeleton key={`${section.id}-${field.label}`} label={field.label} />
               ))}
             </div>
           </CardContent>
@@ -172,6 +172,17 @@ function VehicleDetailSkeleton() {
 }
 
 const CREATED_BY_KEYS = new Set(['created_by', 'createdBy'])
+
+function fieldNeedsResolvedLookup(field: VehicleDetailField, sectionId: string): boolean {
+  return (
+    (sectionId === 'agency' && isVehicleAgencyKindField(field) !== null) ||
+    isVehicleStatusKindField(field) !== null
+  )
+}
+
+function isCreatedByKey(key: string): boolean {
+  return CREATED_BY_KEYS.has(key)
+}
 
 function resolveAdditionalEntryDisplayText(
   key: string,
@@ -253,7 +264,7 @@ export function VehicleDetailPage() {
     return (
       <section className="space-y-5">
         <PageHeader title="Vehicle detail" subtitle="Loading permissions…" />
-        <VehicleDetailSkeleton />
+        <VehicleDetailLoadingContent />
       </section>
     )
   }
@@ -273,7 +284,10 @@ export function VehicleDetailPage() {
   return (
     <section className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <PageHeader title={title} subtitle="Detail Vehicle Information " />
+        <PageHeader
+          title={vehicleQuery.isLoading ? 'Vehicle detail' : title}
+          subtitle="Detail Vehicle Information "
+        />
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:justify-end">
           {crud.canUpdate && vehicleId ? (
             <Button variant="default" asChild className="w-full sm:w-auto">
@@ -296,7 +310,7 @@ export function VehicleDetailPage() {
       </div>
 
       {vehicleQuery.isLoading ? (
-        <VehicleDetailSkeleton />
+        <VehicleDetailLoadingContent />
       ) : vehicleQuery.isError ? (
         <p className="text-sm text-[var(--fms-error-text)]">
           {vehicleQuery.error instanceof Error ? vehicleQuery.error.message : 'Could not load vehicle.'}
@@ -320,19 +334,25 @@ export function VehicleDetailPage() {
                       raw,
                       resolvedNamesQuery,
                     )
-                    const multiline = text.includes('\n')
+                    const needsLookup = fieldNeedsResolvedLookup(field, section.id)
+                    const isLookupLoading = needsLookup && resolvedNamesQuery.isLoading
+                    const multiline = !isLookupLoading && text.includes('\n')
                     return (
                       <div key={`${section.id}-${field.label}`} className="min-w-0">
                         <p className="text-xs font-medium text-[var(--fms-text-subheading)]">{field.label}</p>
-                        <p
-                          className={cn(
-                            'mt-1 text-sm text-[var(--fms-text-header)]',
-                            multiline &&
-                              'max-h-48 overflow-auto rounded-md bg-[#f6f6f7] p-2 font-mono text-xs whitespace-pre-wrap',
-                          )}
-                        >
-                          {text}
-                        </p>
+                        {isLookupLoading ? (
+                          <DetailInlineValueSkeleton className="mt-1" />
+                        ) : (
+                          <p
+                            className={cn(
+                              'mt-1 text-sm text-[var(--fms-text-header)]',
+                              multiline &&
+                                'max-h-48 overflow-auto rounded-md bg-[#f6f6f7] p-2 font-mono text-xs whitespace-pre-wrap',
+                            )}
+                          >
+                            {text}
+                          </p>
+                        )}
                       </div>
                     )
                   })}
@@ -351,19 +371,24 @@ export function VehicleDetailPage() {
               <CardContent className="grid gap-x-6 gap-y-4 pt-4 sm:grid-cols-2 lg:grid-cols-3">
                 {additionalEntries.map(([key, value]) => {
                   const text = resolveAdditionalEntryDisplayText(key, value, resolvedNamesQuery)
-                  const multiline = text.includes('\n')
+                  const isLookupLoading = isCreatedByKey(key) && resolvedNamesQuery.isLoading
+                  const multiline = !isLookupLoading && text.includes('\n')
                   return (
                     <div key={key} className="min-w-0">
                       <p className="text-xs font-medium text-[var(--fms-text-subheading)]">{humanizeKey(key)}</p>
-                      <p
-                        className={cn(
-                          'mt-1 text-sm text-[var(--fms-text-header)]',
-                          multiline &&
-                            'max-h-48 overflow-auto rounded-md bg-[#f6f6f7] p-2 font-mono text-xs whitespace-pre-wrap',
-                        )}
-                      >
-                        {text}
-                      </p>
+                      {isLookupLoading ? (
+                        <DetailInlineValueSkeleton className="mt-1" />
+                      ) : (
+                        <p
+                          className={cn(
+                            'mt-1 text-sm text-[var(--fms-text-header)]',
+                            multiline &&
+                              'max-h-48 overflow-auto rounded-md bg-[#f6f6f7] p-2 font-mono text-xs whitespace-pre-wrap',
+                          )}
+                        >
+                          {text}
+                        </p>
+                      )}
                     </div>
                   )
                 })}

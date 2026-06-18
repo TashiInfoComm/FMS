@@ -79,6 +79,7 @@ export type WorkOrderListItem = {
 
 export type WorkOrderDetail = WorkOrderListItem & {
   reportedById: string
+  maintenanceTypeId?: string
   driverName: string
   vehicleModel: string
   triggerType: string
@@ -92,6 +93,18 @@ export type WorkOrderDetail = WorkOrderListItem & {
   maintenanceRequestStatus?: string
   vehicleReadyStatus?: string
   lastServiceDate?: string
+  serviceRecord?: WorkOrderServiceRecord
+}
+
+export type WorkOrderServiceRecord = {
+  id: string
+  workOrderId?: string
+  invoiceNumber: string
+  invoiceDate: string
+  invoiceUrl?: string
+  notes?: string
+  laborHours?: number
+  createdAt?: string
 }
 
 export function sumLineItems(items: MaintenanceLineItem[]): number {

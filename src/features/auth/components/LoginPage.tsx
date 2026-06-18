@@ -11,8 +11,17 @@ import logoImage from "@/assets/logo.png";
 import ndiImage from "@/assets/ndi_login.png";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { requestForgotPassword } from "@/features/auth/lib/forgot-password-api";
 import { clearCurrentProfileQueryCache, queryClient } from "@/lib/query-client";
 import { apiGet, apiPost } from "@/services/apiClient";
 import { useUserStore } from "@/services/user-store";
@@ -70,6 +79,8 @@ export function LoginPage() {
   const navigate = useNavigate();
   const [showPassword, setShowPassword] = useState(false);
   const [isFetchingProfile, setIsFetchingProfile] = useState(false);
+  const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
+  const [forgotPasswordUsername, setForgotPasswordUsername] = useState("");
   const setAuthSession = useUserStore((state) => state.setAuthSession);
   const setUser = useUserStore((state) => state.setUser);
 
@@ -96,6 +107,41 @@ export function LoginPage() {
         },
       ),
   });
+
+  const forgotPasswordMutation = useMutation({
+    mutationFn: (username: string) => requestForgotPassword({ username }),
+  });
+
+  const openForgotPasswordDialog = () => {
+    setForgotPasswordUsername("");
+    setForgotPasswordOpen(true);
+  };
+
+  const closeForgotPasswordDialog = () => {
+    if (forgotPasswordMutation.isPending) return;
+    setForgotPasswordOpen(false);
+    setForgotPasswordUsername("");
+  };
+
+  const handleForgotPasswordSubmit = async () => {
+    const username = forgotPasswordUsername.trim();
+    if (!username) {
+      showErrorToast("Username is required.");
+      return;
+    }
+
+    try {
+      const response = await forgotPasswordMutation.mutateAsync(username);
+      showSuccessToast(
+        response.message ??
+          "If an account exists for this username, a password reset link has been sent.",
+      );
+      setForgotPasswordOpen(false);
+      setForgotPasswordUsername("");
+    } catch (error) {
+      showErrorToast(error, "Could not send password reset request.");
+    }
+  };
 
   // Toggles password visibility for the password input.
   const handleShowPassword = () => {
@@ -227,24 +273,16 @@ export function LoginPage() {
                     )}
                   </button>
                 </div>
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    className="text-sm font-medium text-[var(--fms-accent-purple)]"
+                    onClick={openForgotPasswordDialog}
+                  >
+                    Forgot password?
+                  </button>
+                </div>
               </div>
-
-              {/* <div className="flex items-center justify-between text-sm">
-                <label className="inline-flex items-center gap-2 text-[var(--fms-text-subheading)]">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 rounded border-[var(--fms-strokes)]"
-                    {...register("rememberMe")}
-                  />
-                  Remember me
-                </label>
-                <button
-                  type="button"
-                  className="font-medium text-[var(--fms-accent-purple)]"
-                >
-                  Forgot password?
-                </button>
-              </div> */}
 
               {errors.password ? (
                 <p className="text-sm text-red-600">
@@ -274,6 +312,56 @@ export function LoginPage() {
             </form>
           </CardContent>
         </Card>
+
+        <Dialog
+          open={forgotPasswordOpen}
+          onOpenChange={(open) => (open ? setForgotPasswordOpen(true) : closeForgotPasswordDialog())}
+        >
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Reset Password</DialogTitle>
+              <DialogDescription>
+                Enter your username to receive a password reset link to your registered email.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-2">
+              <Label htmlFor="forgot-password-username">Username</Label>
+              <Input
+                id="forgot-password-username"
+                placeholder="enter your username"
+                autoComplete="username"
+                value={forgotPasswordUsername}
+                onChange={(event) => setForgotPasswordUsername(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void handleForgotPasswordSubmit();
+                  }
+                }}
+              />
+            </div>
+
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={closeForgotPasswordDialog}
+                disabled={forgotPasswordMutation.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                className="bg-[var(--fms-button)] hover:bg-[var(--fms-button-hover)]"
+                onClick={() => void handleForgotPasswordSubmit()}
+                disabled={forgotPasswordMutation.isPending}
+              >
+                {forgotPasswordMutation.isPending ? "Submitting…" : "Submit"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </section>
     </main>
   );

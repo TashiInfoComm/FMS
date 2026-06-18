@@ -38,6 +38,7 @@ import {
 } from '@/features/user/lib/user-org-scopes-api'
 import { fetchVehicleAgencyAssignmentMasterData } from '@/features/vehicles/lib/vehicle-agency-assignment-api'
 import { PageHeader } from '@/shared/components/PageHeader'
+import { DetailFieldRowSkeleton } from '@/shared/components/detail-loading'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
 import { cn } from '@/lib/utils'
@@ -53,78 +54,72 @@ function statusDisplayClass(status: string) {
   return "text-xs";
 }
 
-/** Placeholder cards while `GET /admin/users/:id` is loading. */
-function UserDetailPageSkeleton() {
+/** Placeholder field rows while `GET /admin/users/:id` is loading. */
+function UserDetailLoadingContent() {
   return (
     <div className="grid gap-4 md:grid-cols-2">
-      <DetailCardSkeleton className="min-w-0" fieldRows={3} />
-      <DetailCardSkeleton className="md:col-span-1" fieldRows={3} />
-      <DetailCardSkeleton className="md:col-span-2 lg:col-span-1" fieldRows={5} wideGrid />
-      <DetailCardSkeleton className="md:col-span-2 lg:col-span-1" fieldRows={2} twoCol />
-      <DetailCardSkeleton className="md:col-span-2" fieldRows={0} chips />
-    </div>
-  )
-}
+      <DetailCard
+        className="min-w-0"
+        icon={KeyRound}
+        title="Account"
+        description="Identifiers used for login and API."
+      >
+        <DetailFieldRowSkeleton label="Username" />
+        <DetailFieldRowSkeleton label="Status" />
+      </DetailCard>
 
-function DetailCardSkeleton({
-  className,
-  fieldRows,
-  wideGrid,
-  twoCol,
-  chips,
-}: {
-  className?: string
-  fieldRows: number
-  wideGrid?: boolean
-  twoCol?: boolean
-  chips?: boolean
-}) {
-  return (
-    <Card size="sm" className={cn('border border-[var(--fms-strokes)] bg-white shadow-sm', className)}>
-      <CardHeader className="border-b border-[var(--fms-strokes)] pb-3">
-        <div className="flex items-start gap-3">
-          <Skeleton className="size-10 shrink-0 rounded-lg" />
-          <div className="min-w-0 flex-1 space-y-2">
-            <Skeleton className="h-5 w-32" />
-            <Skeleton className="h-3.5 w-full max-w-[14rem]" />
+      <DetailCard
+        className="md:col-span-1"
+        icon={UserRound}
+        title="Profile"
+        description="Display name and how to reach this user."
+      >
+        <DetailFieldRowSkeleton label="Full name" />
+        <DetailFieldRowSkeleton label="Email" />
+        <DetailFieldRowSkeleton label="Contact" />
+      </DetailCard>
+
+      <DetailCard
+        className="md:col-span-2 lg:col-span-1"
+        icon={Building2}
+        title="Organization"
+        description="Designation and organogram tiers from assigned groups."
+      >
+        <div className="grid gap-3 sm:grid-cols-2">
+          <DetailFieldRowSkeleton label="Designation" />
+          <DetailFieldRowSkeleton label="Agency" />
+          <DetailFieldRowSkeleton label="Department" />
+          <DetailFieldRowSkeleton label="Division" />
+          <div className="sm:col-span-2">
+            <DetailFieldRowSkeleton label="Sub division" />
           </div>
         </div>
-      </CardHeader>
-      <CardContent className="space-y-3 pt-4">
-        {chips ? (
-          <div className="flex flex-wrap gap-2">
-            <Skeleton className="h-7 w-24 rounded-full" />
-            <Skeleton className="h-7 w-28 rounded-full" />
-            <Skeleton className="h-7 w-20 rounded-full" />
-          </div>
-        ) : wideGrid ? (
-          <div className="grid gap-3 sm:grid-cols-2">
-            {Array.from({ length: fieldRows }).map((_, i) => (
-              <div key={`sk-w-${i}`} className={i === fieldRows - 1 ? 'sm:col-span-2' : undefined}>
-                <Skeleton className="mb-1 h-3 w-20" />
-                <Skeleton className="h-4 w-full max-w-[12rem]" />
-              </div>
-            ))}
-          </div>
-        ) : twoCol ? (
-          <div className="grid gap-3 sm:grid-cols-2">
-            {Array.from({ length: fieldRows }).map((_, i) => (
-              <div key={`sk-2-${i}`} className="space-y-1">
-                <Skeleton className="h-3 w-24" />
-                <Skeleton className="h-4 w-full max-w-[10rem]" />
-              </div>
-            ))}
-          </div>
-        ) : (
-          Array.from({ length: fieldRows }).map((_, i) => (
-            <div key={`sk-f-${i}`} className="space-y-1">
-              <Skeleton className="h-3 w-28" />
-              <Skeleton className="h-4 w-full max-w-xs" />
-            </div>
-          ))
-        )}
-      </CardContent>
-    </Card>
+      </DetailCard>
+
+      <DetailCard
+        className="md:col-span-2 lg:col-span-1"
+        icon={IdCard}
+        title="Identification"
+        description="Employee and citizen identifiers."
+      >
+        <div className="grid gap-3 sm:grid-cols-2">
+          <DetailFieldRowSkeleton label="Employee ID" />
+          <DetailFieldRowSkeleton label="Citizen ID (CID)" />
+        </div>
+      </DetailCard>
+
+      <DetailCard
+        className="md:col-span-2"
+        icon={Fingerprint}
+        title="Realm roles"
+        description="Roles granted to this account."
+      >
+        <div className="flex flex-wrap gap-2">
+          <Skeleton className="h-7 w-24 rounded-full" />
+          <Skeleton className="h-7 w-28 rounded-full" />
+        </div>
+      </DetailCard>
+    </div>
   )
 }
 
@@ -242,7 +237,7 @@ export function UserDetailPage() {
     return (
       <section className="space-y-5">
         <PageHeader title="User detail" subtitle="View account information" />
-        <UserDetailPageSkeleton />
+        <UserDetailLoadingContent />
       </section>
     )
   }
@@ -340,7 +335,7 @@ export function UserDetailPage() {
       </div>
 
       {userQuery.isLoading ? (
-        <UserDetailPageSkeleton />
+        <UserDetailLoadingContent />
       ) : userQuery.isError ? (
         <p className="text-sm text-[var(--fms-delete)]">
           {userQuery.error instanceof Error

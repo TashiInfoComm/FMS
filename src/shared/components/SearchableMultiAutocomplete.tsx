@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { DismissableLayerBranch } from '@radix-ui/react-dismissable-layer'
 import { Check, ChevronDown } from 'lucide-react'
 
@@ -9,7 +8,6 @@ import { cn } from '@/lib/utils'
 
 import {
   filterOptions,
-  useFloatingPanelPosition,
   useModalScrollableList,
   type SearchableAutocompleteOption,
 } from '@/shared/components/SearchableAutocomplete'
@@ -65,8 +63,16 @@ export function SearchableMultiAutocomplete({
   const containerRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
-  const panelStyle = useFloatingPanelPosition(containerRef, open, side)
+  const searchInputRef = useRef<HTMLInputElement>(null)
   useModalScrollableList(listRef, open)
+
+  useEffect(() => {
+    if (!open) return
+    const frame = requestAnimationFrame(() => {
+      searchInputRef.current?.focus()
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -98,6 +104,7 @@ export function SearchableMultiAutocomplete({
   }
 
   const busy = disabled || loading
+  const searchDisabled = disabled
 
   return (
     <div ref={containerRef} className={cn('relative', className)}>
@@ -123,78 +130,79 @@ export function SearchableMultiAutocomplete({
         </span>
         <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
       </Button>
-      {open
-        ? createPortal(
-            <DismissableLayerBranch>
-              <div
-                ref={panelRef}
-                role="listbox"
-                aria-multiselectable
-                style={panelStyle}
-                className="pointer-events-auto overflow-hidden rounded-xl border border-[var(--fms-strokes)] bg-popover text-popover-foreground shadow-md ring-1 ring-foreground/10"
-              >
-                <div className="border-b border-[var(--fms-strokes)] p-2">
-                  <Input
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    placeholder={searchPlaceholder}
-                    autoFocus
-                    disabled={busy}
-                  />
-                </div>
-                <div
-                  ref={listRef}
-                  className="max-h-52 overflow-y-auto overscroll-contain p-1"
-                >
-                  {loading ? (
-                    <p className="px-2 py-3 text-sm text-[var(--fms-text-subheading)]">
-                      {loadingMessage}
-                    </p>
-                  ) : filtered.length === 0 ? (
-                    <p className="px-2 py-3 text-sm text-[var(--fms-text-subheading)]">
-                      {emptyMessage}
-                    </p>
-                  ) : (
-                    filtered.map((option) => {
-                      const isSelected = value.includes(option.value)
-                      return (
-                        <button
-                          key={option.value}
-                          type="button"
-                          role="option"
-                          aria-selected={isSelected}
-                          className={cn(
-                            'flex w-full items-start gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-[#f6f6f7]',
-                            isSelected && 'bg-[#f6f6f7]',
-                          )}
-                          onPointerDown={(event) => {
-                            event.preventDefault()
-                            toggleValue(option.value)
-                          }}
-                        >
-                          <span
-                            className={cn(
-                              'mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border border-[var(--fms-strokes)]',
-                              isSelected && 'border-[var(--fms-button)] bg-[var(--fms-button)]',
-                            )}
-                          >
-                            {isSelected ? (
-                              <Check className="h-3 w-3 text-white" aria-hidden />
-                            ) : null}
-                          </span>
-                          <span className="min-w-0 font-medium text-[var(--fms-text-header)]">
-                            {option.label}
-                          </span>
-                        </button>
-                      )
-                    })
-                  )}
-                </div>
-              </div>
-            </DismissableLayerBranch>,
-            document.body,
-          )
-        : null}
+      {open ? (
+        <DismissableLayerBranch>
+          <div
+            ref={panelRef}
+            role="listbox"
+            aria-multiselectable
+            data-searchable-autocomplete-panel=""
+            className={cn(
+              'absolute left-0 right-0 z-[100] overflow-hidden rounded-xl border border-[var(--fms-strokes)] bg-popover text-popover-foreground shadow-md ring-1 ring-foreground/10',
+              side === 'top' ? 'bottom-full mb-1' : 'top-full mt-1',
+            )}
+          >
+            <div className="border-b border-[var(--fms-strokes)] p-2">
+              <Input
+                ref={searchInputRef}
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={searchPlaceholder}
+                autoFocus
+                disabled={searchDisabled}
+              />
+            </div>
+            <div
+              ref={listRef}
+              className="max-h-52 overflow-y-auto overscroll-contain p-1"
+            >
+              {loading ? (
+                <p className="px-2 py-3 text-sm text-[var(--fms-text-subheading)]">
+                  {loadingMessage}
+                </p>
+              ) : filtered.length === 0 ? (
+                <p className="px-2 py-3 text-sm text-[var(--fms-text-subheading)]">
+                  {emptyMessage}
+                </p>
+              ) : (
+                filtered.map((option) => {
+                  const isSelected = value.includes(option.value)
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      role="option"
+                      aria-selected={isSelected}
+                      className={cn(
+                        'flex w-full items-start gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-[#f6f6f7]',
+                        isSelected && 'bg-[#f6f6f7]',
+                      )}
+                      onPointerDown={(event) => {
+                        event.preventDefault()
+                        toggleValue(option.value)
+                      }}
+                    >
+                      <span
+                        className={cn(
+                          'mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border border-[var(--fms-strokes)]',
+                          isSelected && 'border-[var(--fms-button)] bg-[var(--fms-button)]',
+                        )}
+                      >
+                        {isSelected ? (
+                          <Check className="h-3 w-3 text-white" aria-hidden />
+                        ) : null}
+                      </span>
+                      <span className="min-w-0 font-medium text-[var(--fms-text-header)]">
+                        {option.label}
+                      </span>
+                    </button>
+                  )
+                })
+              )}
+            </div>
+          </div>
+        </DismissableLayerBranch>
+      ) : null}
     </div>
   )
 }

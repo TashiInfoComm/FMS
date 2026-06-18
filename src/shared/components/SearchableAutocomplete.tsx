@@ -1,13 +1,10 @@
 import {
-  useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
   type RefObject,
 } from 'react'
-import { createPortal } from 'react-dom'
 import { DismissableLayerBranch } from '@radix-ui/react-dismissable-layer'
 import { ChevronDown } from 'lucide-react'
 
@@ -37,7 +34,7 @@ export type SearchableAutocompleteProps = {
   searchPlaceholder?: string
   emptyMessage?: string
   loadingMessage?: string
-  /** Open panel above the trigger (useful in scrollable dialogs). */
+  /** Open panel above the trigger (useful near the bottom of dialogs). */
   side?: 'top' | 'bottom'
   className?: string
 }
@@ -54,56 +51,8 @@ export function filterOptions(options: SearchableAutocompleteOption[], query: st
   })
 }
 
-const PANEL_GAP_PX = 4
-/** Above dialog overlay/content (z-50) so lists are not clipped by modal overflow. */
-const PANEL_Z_INDEX = 100
-
-export function useFloatingPanelPosition(
-  anchorRef: RefObject<HTMLElement | null>,
-  open: boolean,
-  side: 'top' | 'bottom',
-) {
-  const [style, setStyle] = useState<CSSProperties>({})
-
-  const update = useCallback(() => {
-    const anchor = anchorRef.current
-    if (!anchor) return
-    const rect = anchor.getBoundingClientRect()
-
-    if (side === 'top') {
-      setStyle({
-        position: 'fixed',
-        left: rect.left,
-        width: rect.width,
-        bottom: window.innerHeight - rect.top + PANEL_GAP_PX,
-        zIndex: PANEL_Z_INDEX,
-        pointerEvents: 'auto',
-      })
-      return
-    }
-    setStyle({
-      position: 'fixed',
-      left: rect.left,
-      width: rect.width,
-      top: rect.bottom + PANEL_GAP_PX,
-      zIndex: PANEL_Z_INDEX,
-      pointerEvents: 'auto',
-    })
-  }, [anchorRef, side])
-
-  useEffect(() => {
-    if (!open) return
-    update()
-    window.addEventListener('resize', update)
-    window.addEventListener('scroll', update, true)
-    return () => {
-      window.removeEventListener('resize', update)
-      window.removeEventListener('scroll', update, true)
-    }
-  }, [open, update])
-
-  return style
-}
+/** Portaled dropdown panels use this attribute so dialogs allow focus and pointer events. */
+export const SEARCHABLE_AUTOCOMPLETE_PANEL_SELECTOR = '[data-searchable-autocomplete-panel]'
 
 /** Radix dialog sets body pointer-events:none; keep portaled panel interactive and scrollable. */
 export function useModalScrollableList(
@@ -161,8 +110,16 @@ export function SearchableAutocomplete({
   const containerRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
-  const panelStyle = useFloatingPanelPosition(containerRef, open, side)
+  const searchInputRef = useRef<HTMLInputElement>(null)
   useModalScrollableList(listRef, open)
+
+  useEffect(() => {
+    if (!open) return
+    const frame = requestAnimationFrame(() => {
+      searchInputRef.current?.focus()
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -186,6 +143,7 @@ export function SearchableAutocomplete({
   )
 
   const busy = disabled || loading
+  const searchDisabled = disabled
   const triggerLabel = selected?.label ?? (busy ? loadingMessage : placeholder)
 
   const closeDropdown = () => {
@@ -222,73 +180,74 @@ export function SearchableAutocomplete({
         </span>
         <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
       </Button>
-      {open
-        ? createPortal(
-            <DismissableLayerBranch>
-              <div
-                ref={panelRef}
-                role="listbox"
-                style={panelStyle}
-                className="pointer-events-auto overflow-hidden rounded-xl border border-[var(--fms-strokes)] bg-popover text-popover-foreground shadow-md ring-1 ring-foreground/10"
-              >
-                <div className="border-b border-[var(--fms-strokes)] p-2">
-                  <Input
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    placeholder={searchPlaceholder}
-                    autoFocus
-                    disabled={busy}
-                  />
-                </div>
-                <div
-                  ref={listRef}
-                  className="max-h-52 overflow-y-auto overscroll-contain p-1"
-                >
-                  {loading ? (
-                    <p className="px-2 py-3 text-sm text-[var(--fms-text-subheading)]">
-                      {loadingMessage}
-                    </p>
-                  ) : filtered.length === 0 ? (
-                    <p className="px-2 py-3 text-sm text-[var(--fms-text-subheading)]">
-                      {emptyMessage}
-                    </p>
-                  ) : (
-                    filtered.map((option, index) => {
-                      const isSelected = option.value === value
-                      return (
-                        <button
-                          key={option.key ?? `${option.value}-${index}`}
-                          type="button"
-                          role="option"
-                          aria-selected={isSelected}
-                          className={cn(
-                            'flex w-full flex-col rounded-md px-2 py-2 text-left text-sm hover:bg-[#f6f6f7]',
-                            isSelected && 'bg-[#f6f6f7]',
-                          )}
-                          onPointerDown={(event) => {
-                            event.preventDefault()
-                            onChange(option.value)
-                            closeDropdown()
-                          }}
-                        >
-                          <span className="font-medium text-[var(--fms-text-header)]">
-                            {option.label}
-                          </span>
-                          {option.description ? (
-                            <span className="text-xs text-[var(--fms-text-subheading)]">
-                              {option.description}
-                            </span>
-                          ) : null}
-                        </button>
-                      )
-                    })
-                  )}
-                </div>
-              </div>
-            </DismissableLayerBranch>,
-            document.body,
-          )
-        : null}
+      {open ? (
+        <DismissableLayerBranch>
+          <div
+            ref={panelRef}
+            role="listbox"
+            data-searchable-autocomplete-panel=""
+            className={cn(
+              'absolute left-0 right-0 z-[100] overflow-hidden rounded-xl border border-[var(--fms-strokes)] bg-popover text-popover-foreground shadow-md ring-1 ring-foreground/10',
+              side === 'top' ? 'bottom-full mb-1' : 'top-full mt-1',
+            )}
+          >
+            <div className="border-b border-[var(--fms-strokes)] p-2">
+              <Input
+                ref={searchInputRef}
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={searchPlaceholder}
+                autoFocus
+                disabled={searchDisabled}
+              />
+            </div>
+            <div
+              ref={listRef}
+              className="max-h-52 overflow-y-auto overscroll-contain p-1"
+            >
+              {loading ? (
+                <p className="px-2 py-3 text-sm text-[var(--fms-text-subheading)]">
+                  {loadingMessage}
+                </p>
+              ) : filtered.length === 0 ? (
+                <p className="px-2 py-3 text-sm text-[var(--fms-text-subheading)]">
+                  {emptyMessage}
+                </p>
+              ) : (
+                filtered.map((option, index) => {
+                  const isSelected = option.value === value
+                  return (
+                    <button
+                      key={option.key ?? `${option.value}-${index}`}
+                      type="button"
+                      role="option"
+                      aria-selected={isSelected}
+                      className={cn(
+                        'flex w-full flex-col rounded-md px-2 py-2 text-left text-sm hover:bg-[#f6f6f7]',
+                        isSelected && 'bg-[#f6f6f7]',
+                      )}
+                      onPointerDown={(event) => {
+                        event.preventDefault()
+                        onChange(option.value)
+                        closeDropdown()
+                      }}
+                    >
+                      <span className="font-medium text-[var(--fms-text-header)]">
+                        {option.label}
+                      </span>
+                      {option.description ? (
+                        <span className="text-xs text-[var(--fms-text-subheading)]">
+                          {option.description}
+                        </span>
+                      ) : null}
+                    </button>
+                  )
+                })
+              )}
+            </div>
+          </div>
+        </DismissableLayerBranch>
+      ) : null}
     </div>
   )
 }

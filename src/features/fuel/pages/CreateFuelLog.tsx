@@ -20,6 +20,7 @@ import {
   createFuelLog,
   fetchDriverVehicles,
   fetchFuelLogById,
+  fetchFuelLogVehicleDetail,
   isFuelLogMtoReviewable,
   openFuelLogReceipt,
   resubmitFuelLog,
@@ -35,15 +36,17 @@ import {
   getFuelLogAutoDateIso,
 } from '@/features/fuel/lib/fuel-log-mock-data'
 import type { ApiRecord } from '@/features/user/lib/roles-api'
-import { mapUserDetailFields } from '@/features/user/lib/users-api'
+import { fetchUserById, mapUserDetailFields } from '@/features/user/lib/users-api'
 import { formatFileSizeLabel } from '@/features/trips/lib/trip-form-utils'
 import { cn } from '@/lib/utils'
+import { DetailInlineValueSkeleton } from '@/shared/components/detail-loading'
 import { useUserStore } from '@/services/user-store'
 import { SearchableAutocomplete } from '@/shared/components/SearchableAutocomplete'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { useAccessControl } from '@/shared/hooks/useAccessControl'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
+import { preOpenBrowserTab } from '@/shared/lib/open-in-new-tab'
 
 function AutoPopulateField({ label, value }: { label: string; value: string }) {
   return (
@@ -67,11 +70,113 @@ function DetailValueField({ label, value }: { label: string; value: string }) {
   )
 }
 
+function SkeletonFieldValue() {
+  return (
+    <div className="rounded-full border border-[var(--fms-strokes)] bg-[#f8f8f9] px-4 py-2.5">
+      <DetailInlineValueSkeleton />
+    </div>
+  )
+}
+
 function basenameFromObjectKey(value: string): string {
   const trimmed = value.trim().split('?')[0]?.trim() ?? ''
   if (!trimmed) return ''
   const parts = trimmed.split(/[/\\]/).filter(Boolean)
   return parts[parts.length - 1] ?? trimmed
+}
+
+type FuelLogQuotaSummary = {
+  currentBalance?: number
+  balanceAfterLog?: number
+  maxQuota?: number
+  threshold?: number
+}
+
+const QUOTA_SUMMARY_CARD_STYLES = {
+  green: {
+    card: 'bg-[#e8f7ee] border-[#b7e4c7]',
+    label: 'text-[#2f855a]',
+    value: 'text-[#1a4731]',
+  },
+  amber: {
+    card: 'bg-[#fff8e6] border-[#f6e3a1]',
+    label: 'text-[#b7791f]',
+    value: 'text-[#744210]',
+  },
+  blue: {
+    card: 'bg-[#ebf3ff] border-[#bfd7ff]',
+    label: 'text-[#2b6cb0]',
+    value: 'text-[#1a365d]',
+  },
+  red: {
+    card: 'bg-[#fdeeee] border-[#f5c2c2]',
+    label: 'text-[#c53030]',
+    value: 'text-[#742a2a]',
+  },
+} as const
+
+function FuelLogQuotaSummaryCards({
+  summary,
+  showBalanceAfterLog = false,
+}: {
+  summary: FuelLogQuotaSummary
+  showBalanceAfterLog?: boolean
+}) {
+  const cards = [
+    {
+      key: 'current-balance',
+      label: 'Current Balance',
+      value: summary.currentBalance,
+      tone: 'green' as const,
+    },
+    {
+      key: 'balance-after-log',
+      label: 'Balance after log',
+      value: summary.balanceAfterLog,
+      tone: 'amber' as const,
+    },
+    {
+      key: 'max-quota',
+      label: 'Max Quota',
+      value: summary.maxQuota,
+      tone: 'blue' as const,
+    },
+    {
+      key: 'threshold',
+      label: 'Threshold',
+      value: summary.threshold,
+      tone: 'red' as const,
+    },
+  ].filter(
+    (card) =>
+      (card.key !== 'balance-after-log' || showBalanceAfterLog) &&
+      card.value !== undefined &&
+      Number.isFinite(card.value),
+  )
+
+  if (cards.length === 0) return null
+
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      {cards.map((card) => {
+        const styles = QUOTA_SUMMARY_CARD_STYLES[card.tone]
+        return (
+          <div
+            key={card.key}
+            className={cn(
+              'rounded-xl border px-4 py-3',
+              styles.card,
+            )}
+          >
+            <p className={cn('text-sm font-medium', styles.label)}>{card.label}</p>
+            <p className={cn('mt-1 text-lg font-semibold', styles.value)}>
+              {formatFuelLogCost(card.value!)}
+            </p>
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 function ReceiptUploadField({
@@ -207,11 +312,17 @@ type FuelLogFormProps = {
   odometer: string
   location: string
   status?: string
+  mtoRemarks?: string
   receiptFileName: string
   receiptObjectKey?: string
   receiptFileSizeLabel?: string
   receiptLoading?: boolean
   onReceiptClick?: () => void
+  showQuotaSummary?: boolean
+  showBalanceAfterLog?: boolean
+  quotaSummary?: FuelLogQuotaSummary
+  driverLoading?: boolean
+  vehicleLoading?: boolean
   onLogDateChange?: (value: string) => void
   onFuelLitersChange?: (value: string) => void
   onTotalCostChange?: (value: string) => void
@@ -236,11 +347,17 @@ function FuelLogForm({
   odometer,
   location,
   status = '—',
+  mtoRemarks,
   receiptFileName,
   receiptObjectKey,
   receiptFileSizeLabel,
   receiptLoading = false,
   onReceiptClick,
+  showQuotaSummary = false,
+  showBalanceAfterLog = false,
+  quotaSummary,
+  driverLoading = false,
+  vehicleLoading = false,
   onLogDateChange,
   onFuelLitersChange,
   onTotalCostChange,
@@ -287,13 +404,31 @@ function FuelLogForm({
         >
           <div className="grid gap-4 sm:grid-cols-2">
             {isDetail ? (
-              <DetailValueField label="Driver Name" value={driverName} />
+              <div className="space-y-2">
+                <Label>Driver Name</Label>
+                {driverLoading ? (
+                  <SkeletonFieldValue />
+                ) : (
+                  <div className="rounded-full border border-[var(--fms-strokes)] bg-white px-4 py-2.5 text-sm font-semibold text-[var(--fms-text-header)]">
+                    {driverName || '—'}
+                  </div>
+                )}
+              </div>
             ) : (
               <AutoPopulateField label="Driver Name" value={driverName} />
             )}
 
             {isDetail ? (
-              <DetailValueField label="Vehicle Number" value={vehicleNumber} />
+              <div className="space-y-2">
+                <Label>Vehicle Number</Label>
+                {vehicleLoading ? (
+                  <SkeletonFieldValue />
+                ) : (
+                  <div className="rounded-full border border-[var(--fms-strokes)] bg-white px-4 py-2.5 text-sm font-semibold text-[var(--fms-text-header)]">
+                    {vehicleNumber || '—'}
+                  </div>
+                )}
+              </div>
             ) : (
               <div className="space-y-2">
                 <Label>Vehicle Number</Label>
@@ -400,6 +535,15 @@ function FuelLogForm({
                 </div>
               </div>
             ) : null}
+
+            {isDetail && mtoRemarks?.trim() ? (
+              <div className="space-y-2 sm:col-span-2">
+                <Label>MTO Remarks</Label>
+                <div className="rounded-lg border border-[var(--fms-strokes)] bg-white px-4 py-2.5 text-sm whitespace-pre-wrap text-[var(--fms-text-header)]">
+                  {mtoRemarks.trim()}
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <ReceiptUploadField
@@ -411,6 +555,13 @@ function FuelLogForm({
             onReceiptClick={onReceiptClick}
             onFileChange={onReceiptChange}
           />
+
+          {isDetail && showQuotaSummary && quotaSummary ? (
+            <FuelLogQuotaSummaryCards
+              summary={quotaSummary}
+              showBalanceAfterLog={showBalanceAfterLog}
+            />
+          ) : null}
 
           {!isDetail ? (
             <div className="flex justify-end pt-2">
@@ -612,21 +763,70 @@ function FuelLogDetailPage() {
   const normalizedRole = apiRoleName?.trim().toLowerCase() ?? ''
   const isDriverRole = normalizedRole.includes('driver')
 
+  const needsDriverLookup = Boolean(
+    record?.driverId?.trim() &&
+      (!record.driver || record.driver === '—' || record.driver === record.driverId),
+  )
+  const needsVehicleLookup = Boolean(
+    record?.vehicleId?.trim() &&
+      (!record.vehicle || record.vehicle === '—' || record.vehicle === record.vehicleId),
+  )
+
+  const driverQuery = useQuery({
+    queryKey: ['admin-user-detail', record?.driverId],
+    queryFn: async () => {
+      const id = record?.driverId.trim()
+      if (!id) throw new Error('Missing driver id')
+      return fetchUserById(id)
+    },
+    enabled: Boolean(record) && needsDriverLookup,
+    staleTime: 30_000,
+  })
+
+  const vehicleQuery = useQuery({
+    queryKey: ['fuel-logs', 'vehicle-detail', record?.vehicleId],
+    queryFn: () => fetchFuelLogVehicleDetail(record!.vehicleId),
+    enabled: Boolean(record?.vehicleId?.trim()) && needsVehicleLookup,
+    staleTime: 30_000,
+  })
+
+  const displayDriverName = useMemo(() => {
+    if (!record) return '—'
+    if (!needsDriverLookup) return record.driver
+    if (driverQuery.isLoading) return record.driver
+    if (!driverQuery.data) return record.driver
+    const profile = mapUserDetailFields(driverQuery.data)
+    return profile.name && profile.name !== '-' ? profile.name : record.driver
+  }, [record, needsDriverLookup, driverQuery.data, driverQuery.isLoading])
+
+  const displayVehicleNumber = useMemo(() => {
+    if (!record) return '—'
+    if (!needsVehicleLookup) return record.vehicle
+    if (vehicleQuery.isLoading) return record.vehicle
+    return vehicleQuery.data?.displayLabel || record.vehicle
+  }, [record, needsVehicleLookup, vehicleQuery.data, vehicleQuery.isLoading])
+
+  const showBalanceAfterLog = record ? isFuelLogMtoReviewable(record.status) : false
+  const showQuotaSummary = Boolean(record)
+  const isMainLoading = detailQuery.isPending && !record
+
   const receiptMutation = useMutation({
-    mutationFn: () => {
+    mutationFn: (targetWindow: Window | null) => {
       if (!logId.trim()) throw new Error('Missing fuel log id')
       return openFuelLogReceipt(
         logId,
         record?.receiptFileName || record?.receiptObjectKey || '',
+        targetWindow,
       )
     },
-    onError: (error) => {
+    onError: (error, targetWindow) => {
+      if (targetWindow && !targetWindow.closed) targetWindow.close()
       showErrorToast(error, 'Could not open receipt')
     },
   })
 
   const handleReceiptClick = () => {
-    receiptMutation.mutate()
+    receiptMutation.mutate(preOpenBrowserTab())
   }
 
   const isReviewable = record ? isFuelLogMtoReviewable(record.status) : false
@@ -745,15 +945,28 @@ function FuelLogDetailPage() {
     )
   }
 
-  if (detailQuery.isLoading) {
+  if (isMainLoading) {
     return (
       <section className="space-y-5">
-        <PageHeader title="Fuel Log Details" subtitle="Loading fuel log…" />
+        <div className="flex items-center gap-3">
+          <Button variant="outline" size="icon" asChild>
+            <Link to="/fuel/logs" aria-label="Back to fuel logs">
+              <ArrowLeft className="h-4 w-4" />
+            </Link>
+          </Button>
+          <PageHeader title="Fuel Log Details" />
+        </div>
+        <Card className="rounded-xl border border-[var(--fms-strokes)] bg-white">
+          <CardContent className="space-y-4 p-4 sm:p-6">
+            <SkeletonFieldValue />
+            <SkeletonFieldValue />
+          </CardContent>
+        </Card>
       </section>
     )
   }
 
-  if (detailQuery.isError || !record) {
+  if (!isMainLoading && (detailQuery.isError || !record)) {
     return (
       <section className="space-y-5">
         <div className="flex items-center gap-3">
@@ -776,6 +989,10 @@ function FuelLogDetailPage() {
     )
   }
 
+  if (!record) {
+    return null
+  }
+
   return (
     <section className="space-y-5">
       <div className="flex items-center gap-3">
@@ -789,19 +1006,30 @@ function FuelLogDetailPage() {
 
       <FuelLogForm
         mode="detail"
-        driverName={record.driver}
-        vehicleNumber={record.vehicle}
+        driverName={displayDriverName}
+        vehicleNumber={displayVehicleNumber}
+        driverLoading={needsDriverLookup && driverQuery.isLoading}
+        vehicleLoading={needsVehicleLookup && vehicleQuery.isLoading}
         logDate={record.date}
         fuelLiters={String(record.liters)}
         totalCost={String(record.totalCost)}
         odometer={String(record.odometerKm)}
         location={record.location}
         status={record.status}
+        mtoRemarks={record.mtoRemarks}
         receiptFileName={record.receiptFileName}
         receiptObjectKey={record.receiptObjectKey}
         receiptFileSizeLabel={record.receiptFileSizeLabel}
         receiptLoading={receiptMutation.isPending}
         onReceiptClick={handleReceiptClick}
+        showQuotaSummary={showQuotaSummary}
+        showBalanceAfterLog={showBalanceAfterLog}
+        quotaSummary={{
+          currentBalance: record.currentBalance,
+          balanceAfterLog: record.balanceAfterLog,
+          maxQuota: record.maxQuota,
+          threshold: record.threshold,
+        }}
       />
 
       {showReviewActions ? (

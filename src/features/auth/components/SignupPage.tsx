@@ -10,7 +10,7 @@ export function SignupPage() {
     (location.state as NdiManualSignupPrefillState | null)?.ndiPrefill ?? null
 
   return (
-    <main className="min-h-screen bg-[var(--fms-background)] px-4 py-12">
+    <main className="h-dvh overflow-y-auto overscroll-y-contain bg-[var(--fms-background)] px-4 py-12">
       <section className="mx-auto w-full max-w-4xl space-y-8">
         <h1 className="text-center text-lg font-semibold tracking-wide text-[var(--fms-accent-purple)]">
           ROYAL GOVERNMENT OF BHUTAN - In Pursuit of Improving Public Service Delivery

@@ -2,6 +2,10 @@ import { fetchUserById } from '@/features/user/lib/users-api'
 import { fetchVehicleById, mapVehicleRecordToListRow } from '@/features/vehicles/lib/vehicles-api'
 import { apiClient, apiGet, apiGetBlob, apiPost } from '@/services/apiClient'
 import { isUuidLike } from '@/shared/lib/organogram-master-lookup'
+import {
+  closeBrowserTab,
+  navigateBrowserTab,
+} from '@/shared/lib/open-in-new-tab'
 import { applyPagination } from '@/shared/utils/pagination'
 
 import {
@@ -727,6 +731,7 @@ export type TripDetail = {
   endOdometer?: number
   tripDurationDays?: number
   pickupRequired?: boolean
+  pickupRequestedAt?: string | null
   remarks: string
   tripDetailsJustification?: string
   accompanyingOfficials: TripAccompanyingOfficial[]
@@ -1179,6 +1184,8 @@ export function mapTripDetail(
   const origin = pickScalar(record, ['origin', 'origin_location', 'from_location']) || '—'
   const destination = readDestination(record)
   const pickupRequired = readBoolean(record, ['pickup_required', 'pickupRequired'])
+  const pickupRequestedAt =
+    pickScalar(record, ['pickup_requested_at', 'pickupRequestedAt']) || null
   const tripDetailsJustification = pickScalar(record, [
     'trip_details_justification',
     'tripDetailsJustification',
@@ -1230,6 +1237,7 @@ export function mapTripDetail(
       'duration_days',
     ]),
     pickupRequired,
+    pickupRequestedAt,
     remarks,
     tripDetailsJustification: tripDetailsJustification || undefined,
     accompanyingOfficials: readAccompanyingOfficials(record),
@@ -1290,37 +1298,40 @@ function guessMovementOrderMimeType(fileName: string): string {
   return 'application/octet-stream'
 }
 
-/** GET `/trips/{id}/movement-order` and open the file in the current tab. */
+/** GET `/trips/{id}/movement-order` and open the file in a new browser tab. */
 export async function openTripMovementOrder(
   tripId: string,
   fileName = '',
+  targetWindow?: Window | null,
 ): Promise<void> {
   const trimmed = tripId.trim()
   if (!trimmed) throw new Error('Trip ID is required')
 
-  const openInCurrentTab = (url: string) => {
-    window.location.assign(url)
+  try {
+    const { blob, contentType } = await apiGetBlob(
+      `/trips/${encodeURIComponent(trimmed)}/movement-order`,
+    )
+
+    if (contentType.includes('application/json')) {
+      const payload = JSON.parse(await blob.text()) as unknown
+      const url = pickFileUrlFromPayload(payload)
+      if (!url) throw new Error('Movement order URL not found')
+      navigateBrowserTab(targetWindow, url)
+      return
+    }
+
+    const mimeType =
+      contentType && contentType !== 'application/octet-stream'
+        ? contentType
+        : guessMovementOrderMimeType(fileName)
+    const fileBlob = mimeType === blob.type ? blob : blob.slice(0, blob.size, mimeType)
+    const objectUrl = URL.createObjectURL(fileBlob)
+    navigateBrowserTab(targetWindow, objectUrl)
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000)
+  } catch (error) {
+    closeBrowserTab(targetWindow)
+    throw error
   }
-
-  const { blob, contentType } = await apiGetBlob(
-    `/trips/${encodeURIComponent(trimmed)}/movement-order`,
-  )
-
-  if (contentType.includes('application/json')) {
-    const payload = JSON.parse(await blob.text()) as unknown
-    const url = pickFileUrlFromPayload(payload)
-    if (!url) throw new Error('Movement order URL not found')
-    openInCurrentTab(url)
-    return
-  }
-
-  const mimeType =
-    contentType && contentType !== 'application/octet-stream'
-      ? contentType
-      : guessMovementOrderMimeType(fileName)
-  const fileBlob = mimeType === blob.type ? blob : blob.slice(0, blob.size, mimeType)
-  const objectUrl = URL.createObjectURL(fileBlob)
-  openInCurrentTab(objectUrl)
 }
 
 function readAssignedVehiclePlate(record: ApiRecord): string {
@@ -1446,20 +1457,21 @@ export async function cancelTrip(
 
 export type CallTripPickupBody = {
   employee_id: string
+  trip_id: string
 }
 
 export async function callTripPickup(
   tripId: string,
   employeeId: string,
 ): Promise<void> {
-  const trimmed = tripId.trim()
+  const trip_id = tripId.trim()
   const employee_id = employeeId.trim()
-  if (!trimmed) throw new Error('Trip ID is required')
+  if (!trip_id) throw new Error('Trip ID is required')
   if (!employee_id) throw new Error('Applicant employee ID is required')
-  await apiPost<unknown, CallTripPickupBody>(
-    `/trips/${encodeURIComponent(trimmed)}/pickup`,
-    { employee_id },
-  )
+  await apiPost<unknown, CallTripPickupBody>('/trips/pickup', {
+    employee_id,
+    trip_id,
+  })
 }
 
 export type RejectTripBody = {

@@ -75,10 +75,10 @@ export function AppRoutes() {
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/master/agency" element={<AgencyPage />} />
-          <Route
+          {/* <Route
             path="/assign-driver"
             element={<AssignVehiclePage />}
-          />
+          /> */}
           <Route
             path="/assign-driver/add"
             element={<AssignVehicleCreatePage />}
@@ -119,6 +119,14 @@ export function AppRoutes() {
           <Route
             path="/vehicle/list/:vehicleId/agency-assignments"
             element={<VehicleAgencyMapping />}
+          />
+          <Route
+            path="/vehicle/list/:vehicleId/assign-driver"
+            element={<AssignVehicleCreatePage />}
+          />
+          <Route
+            path="/vehicle/list/:vehicleId/drivers"
+            element={<AssignVehiclePage />}
           />
           <Route path="/vehicle/list/:vehicleId" element={<VehicleDetailPage />} />
           <Route path="/vehicle/add" element={<VehicleFormPage />} />
