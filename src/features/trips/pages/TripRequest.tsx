@@ -5,10 +5,6 @@ import { useNavigate } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { tripStatusBadgeClass } from "@/features/trips/lib/trip-form-utils";
-import {
-  emptyTripListFilters,
-  tripListFiltersToQueryOptions,
-} from "@/features/trips/lib/trip-list-filters";
 import { TripTableListToolbar } from "@/features/trips/components/TripTableListToolbar";
 import {
   formatTripDateTime,
@@ -20,7 +16,6 @@ import {
   fetchTripRequestsPage,
   fetchTripRequestsSummary,
 } from "@/features/trips/lib/trips-api";
-import { fetchTripRequisitionMasterLists } from "@/features/trips/lib/trip-requisition-masters";
 import {
   ListPanelMessage,
   MobileListCard,
@@ -82,30 +77,13 @@ export default function TripRequest() {
   const navigate = useNavigate();
   const crud = useRouteCrudPermissions("/trip/request");
   const [search, setSearch] = useState("");
-  const [filters, setFilters] = useState(emptyTripListFilters);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
-  const mastersQuery = useQuery({
-    queryKey: ["trips", "masters"],
-    queryFn: fetchTripRequisitionMasterLists,
-    enabled: !crud.isResolved || crud.canRead,
-    staleTime: 5 * 60_000,
-  });
-
   const listQuery = useQuery({
-    queryKey: ["trips", "requests", search, filters.tripTypeId, page, pageSize],
-    queryFn: () =>
-      fetchTripRequestsPage(
-        search,
-        page,
-        pageSize,
-        { tripTypes: mastersQuery.data?.tripTypes },
-        tripListFiltersToQueryOptions(filters),
-      ),
-    enabled:
-      (!crud.isResolved || crud.canRead) &&
-      (mastersQuery.isSuccess || mastersQuery.isError),
+    queryKey: ["trips", "requests", search, page, pageSize],
+    queryFn: () => fetchTripRequestsPage(search, page, pageSize),
+    enabled: !crud.isResolved || crud.canRead,
     staleTime: 30_000,
   });
 
@@ -131,7 +109,7 @@ export default function TripRequest() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, filters.tripTypeId, pageSize]);
+  }, [search, pageSize]);
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
@@ -175,13 +153,6 @@ export default function TripRequest() {
             }}
             searchPlaceholder="Search request ID, applicant, destination, status…"
             searchAriaLabel="Search trip requests"
-            tripTypeId={filters.tripTypeId}
-            onTripTypeIdChange={(tripTypeId) => {
-              setFilters({ tripTypeId });
-              setPage(1);
-            }}
-            tripTypeOptions={mastersQuery.data?.tripTypes ?? []}
-            tripTypesLoading={mastersQuery.isLoading}
           />
 
           <div className="hidden w-full min-w-0 overflow-x-auto rounded-lg border border-[var(--fms-strokes)] md:block">
@@ -193,11 +164,12 @@ export default function TripRequest() {
                     Request ID
                   </th>
                   <th className="px-4 py-3 text-left font-semibold">
-                    Applicant
-                  </th>
-                  <th className="px-4 py-3 text-left font-semibold">
                     Trip Type
                   </th>
+                  <th className="px-4 py-3 text-left font-semibold">
+                    Applicant
+                  </th>
+                  
                   <th className="px-4 py-3 text-left font-semibold">Route</th>
                   <th className="px-4 py-3 text-left font-semibold">
                     Journey Start Date
@@ -264,6 +236,7 @@ export default function TripRequest() {
                       <td className="px-4 py-3 font-medium text-[var(--fms-primary)]">
                         {row.requestId}
                       </td>
+                      <td className="px-4 py-3">{row.tripType}</td>
                       <td className="px-4 py-3">
                         <p className="font-medium text-[var(--fms-text-header)]">
                           {row.applicantName}
@@ -272,7 +245,7 @@ export default function TripRequest() {
                           {row.applicantDepartment}
                         </p>
                       </td>
-                      <td className="px-4 py-3">{row.tripType}</td>
+                      
                       <td className="px-4 py-3">
                         {row.route?.trim() ||
                           formatTripRoute(row.origin, row.destination)}

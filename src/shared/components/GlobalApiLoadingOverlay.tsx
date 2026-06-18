@@ -2,8 +2,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { useApiLoadingStore } from "@/services/api-loading-store";
 
 /**
- * Full-screen overlay while mutating requests from `apiClient` (POST/PUT/PATCH/DELETE) are in flight.
- * GET/HEAD requests use page-level skeletons instead.
+ * Full-screen overlay while any request from `apiClient` / refresh is in flight.
  */
 export function GlobalApiLoadingOverlay() {
   const pending = useApiLoadingStore((s) => s.pending);

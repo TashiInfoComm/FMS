@@ -53,9 +53,9 @@ type TripTableListToolbarProps = {
   onSearchChange: (value: string) => void
   searchPlaceholder: string
   searchAriaLabel: string
-  tripTypeId: string
-  onTripTypeIdChange: (tripTypeId: string) => void
-  tripTypeOptions: TripMasterOption[]
+  tripTypeId?: string
+  onTripTypeIdChange?: (tripTypeId: string) => void
+  tripTypeOptions?: TripMasterOption[]
   tripTypesLoading?: boolean
 }
 
@@ -69,14 +69,19 @@ export function TripTableListToolbar({
   tripTypeOptions,
   tripTypesLoading,
 }: TripTableListToolbarProps) {
+  const showTripTypeFilter =
+    onTripTypeIdChange != null && tripTypeOptions != null
+
   return (
     <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
-      <TripTypeFilterSelect
-        value={tripTypeId}
-        onValueChange={onTripTypeIdChange}
-        options={tripTypeOptions}
-        loading={tripTypesLoading}
-      />
+      {showTripTypeFilter ? (
+        <TripTypeFilterSelect
+          value={tripTypeId ?? ''}
+          onValueChange={onTripTypeIdChange}
+          options={tripTypeOptions}
+          loading={tripTypesLoading}
+        />
+      ) : null}
       <FuelTableListSearch
         value={search}
         onValueChange={onSearchChange}

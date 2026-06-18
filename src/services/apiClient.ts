@@ -183,13 +183,7 @@ function normalizeRequestPath(path: string): string {
   return path.startsWith("/") ? path : `/${path}`;
 }
 
-function shouldSkipGlobalApiLoading(path: string, method = "GET"): boolean {
-  const normalizedMethod = method.toUpperCase();
-  // Reads use route/query skeletons; don't block the entire app for one GET.
-  if (normalizedMethod === "GET" || normalizedMethod === "HEAD") {
-    return true;
-  }
-
+function shouldSkipGlobalApiLoading(path: string): boolean {
   const pathname = normalizeRequestPath(path);
   return GLOBAL_API_LOADING_SKIP_SUFFIXES.some(
     (suffix) => pathname === suffix || pathname.endsWith(suffix),
@@ -319,10 +313,7 @@ async function fetchBlobWithAuthHandling(
 }
 
 export async function apiGetBlob(path: string, init?: RequestInit) {
-  const skipLoader = shouldSkipGlobalApiLoading(
-    path,
-    init?.method ?? "GET",
-  );
+  const skipLoader = shouldSkipGlobalApiLoading(path);
   if (!skipLoader) useApiLoadingStore.getState().begin();
   try {
     return await fetchBlobWithAuthHandling(path, init, false);
@@ -335,10 +326,7 @@ export async function apiClient<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
-  const skipLoader = shouldSkipGlobalApiLoading(
-    path,
-    init?.method ?? "GET",
-  );
+  const skipLoader = shouldSkipGlobalApiLoading(path);
   if (!skipLoader) useApiLoadingStore.getState().begin();
   try {
     return await fetchWithAuthHandling<T>(path, init, false);

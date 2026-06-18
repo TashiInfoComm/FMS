@@ -7,10 +7,8 @@ import { Card, CardContent } from '@/components/ui/card'
 import { TripTableListToolbar } from '@/features/trips/components/TripTableListToolbar'
 import { formatDriverRoute } from '@/features/trips/lib/trip-assignment-mock-data'
 import { formatApplicantOrgLine, tripStatusBadgeClass } from '@/features/trips/lib/trip-form-utils'
-import { emptyTripListFilters, tripListFiltersToQueryOptions } from '@/features/trips/lib/trip-list-filters'
 import { formatTripDateTime } from '@/features/trips/lib/trip-request-mock-data'
 import { fetchDriverAssignmentsPage } from '@/features/trips/lib/trips-api'
-import { fetchTripRequisitionMasterLists } from '@/features/trips/lib/trip-requisition-masters'
 import {
   ListPanelMessage,
   MobileListCard,
@@ -30,30 +28,13 @@ export default function MyAssignments() {
   const navigate = useNavigate()
   const crud = useRouteCrudPermissions('/trip/my-assignments')
   const [search, setSearch] = useState('')
-  const [filters, setFilters] = useState(emptyTripListFilters)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
 
-  const mastersQuery = useQuery({
-    queryKey: ['trips', 'masters'],
-    queryFn: fetchTripRequisitionMasterLists,
-    enabled: !crud.isResolved || crud.canRead,
-    staleTime: 5 * 60_000,
-  })
-
   const listQuery = useQuery({
-    queryKey: ['trips', 'driver-assignments', search, filters.tripTypeId, page, pageSize],
-    queryFn: () =>
-      fetchDriverAssignmentsPage(
-        search,
-        page,
-        pageSize,
-        { tripTypes: mastersQuery.data?.tripTypes },
-        tripListFiltersToQueryOptions(filters),
-      ),
-    enabled:
-      (!crud.isResolved || crud.canRead) &&
-      (mastersQuery.isSuccess || mastersQuery.isError),
+    queryKey: ['trips', 'driver-assignments', search, page, pageSize],
+    queryFn: () => fetchDriverAssignmentsPage(search, page, pageSize),
+    enabled: !crud.isResolved || crud.canRead,
     staleTime: 30_000,
   })
 
@@ -67,7 +48,7 @@ export default function MyAssignments() {
 
   useEffect(() => {
     setPage(1)
-  }, [search, filters.tripTypeId, pageSize])
+  }, [search, pageSize])
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages)
@@ -96,13 +77,6 @@ export default function MyAssignments() {
             }}
             searchPlaceholder="Search request ID, applicant, destination, status…"
             searchAriaLabel="Search assignments"
-            tripTypeId={filters.tripTypeId}
-            onTripTypeIdChange={(tripTypeId) => {
-              setFilters({ tripTypeId })
-              setPage(1)
-            }}
-            tripTypeOptions={mastersQuery.data?.tripTypes ?? []}
-            tripTypesLoading={mastersQuery.isLoading}
           />
 
           <div className="hidden w-full min-w-0 overflow-x-auto rounded-lg border border-[var(--fms-strokes)] md:block">

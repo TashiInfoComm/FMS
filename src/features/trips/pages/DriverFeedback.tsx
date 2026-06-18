@@ -10,9 +10,7 @@ import {
   formatFeedbackVehicle,
   type DriverFeedbackStatus,
 } from '@/features/trips/lib/trip-driver-feedback-mock-data'
-import { emptyTripListFilters, tripListFiltersToQueryOptions } from '@/features/trips/lib/trip-list-filters'
 import { fetchDriverFeedbackTripsPage } from '@/features/trips/lib/trips-api'
-import { fetchTripRequisitionMasterLists } from '@/features/trips/lib/trip-requisition-masters'
 import {
   ListPanelMessage,
   MobileListCard,
@@ -40,30 +38,13 @@ export default function DriverFeedback() {
   const navigate = useNavigate()
   const crud = useRouteCrudPermissions('/trip/driver-feedback')
   const [search, setSearch] = useState('')
-  const [filters, setFilters] = useState(emptyTripListFilters)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
 
-  const mastersQuery = useQuery({
-    queryKey: ['trips', 'masters'],
-    queryFn: fetchTripRequisitionMasterLists,
-    enabled: !crud.isResolved || crud.canRead,
-    staleTime: 5 * 60_000,
-  })
-
   const listQuery = useQuery({
-    queryKey: ['trips', 'driver-feedback', search, filters.tripTypeId, page, pageSize],
-    queryFn: () =>
-      fetchDriverFeedbackTripsPage(
-        search,
-        page,
-        pageSize,
-        { tripTypes: mastersQuery.data?.tripTypes },
-        tripListFiltersToQueryOptions(filters),
-      ),
-    enabled:
-      (!crud.isResolved || crud.canRead) &&
-      (mastersQuery.isSuccess || mastersQuery.isError),
+    queryKey: ['trips', 'driver-feedback', search, page, pageSize],
+    queryFn: () => fetchDriverFeedbackTripsPage(search, page, pageSize),
+    enabled: !crud.isResolved || crud.canRead,
     staleTime: 30_000,
   })
 
@@ -76,7 +57,7 @@ export default function DriverFeedback() {
 
   useEffect(() => {
     setPage(1)
-  }, [search, filters.tripTypeId, pageSize])
+  }, [search, pageSize])
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages)
@@ -108,13 +89,6 @@ export default function DriverFeedback() {
             }}
             searchPlaceholder="Search trip type, route, driver, vehicle…"
             searchAriaLabel="Search completed trips"
-            tripTypeId={filters.tripTypeId}
-            onTripTypeIdChange={(tripTypeId) => {
-              setFilters({ tripTypeId })
-              setPage(1)
-            }}
-            tripTypeOptions={mastersQuery.data?.tripTypes ?? []}
-            tripTypesLoading={mastersQuery.isLoading}
           />
 
           <div className="hidden w-full min-w-0 overflow-x-auto rounded-lg border border-[var(--fms-strokes)] md:block">
@@ -125,8 +99,6 @@ export default function DriverFeedback() {
                   <th className="px-4 py-3 text-left font-semibold">Trip Type</th>
                   <th className="px-4 py-3 text-left font-semibold">Date</th>
                   <th className="px-4 py-3 text-left font-semibold">Route</th>
-                  <th className="px-4 py-3 text-left font-semibold">Vehicle</th>
-                  <th className="px-4 py-3 text-left font-semibold">Driver</th>
                   <th className="px-4 py-3 text-left font-semibold">Trip Status</th>
                   <th className="px-4 py-3 text-left font-semibold">Feedback</th>
                   <th className="px-4 py-3 text-left font-semibold">Action</th>
@@ -192,10 +164,7 @@ export default function DriverFeedback() {
                       <td className="px-4 py-3">
                         {formatFeedbackRoute(row.origin, row.destination)}
                       </td>
-                      <td className="px-4 py-3">
-                        {formatFeedbackVehicle(row.vehiclePlate, row.vehicleModel)}
-                      </td>
-                      <td className="px-4 py-3">{row.driverName}</td>
+
                       <td className="px-4 py-3">
                         <Badge className={tripStatusBadgeClass('COMPLETED')}>
                           {row.tripStatus}

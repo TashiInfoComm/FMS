@@ -16,10 +16,8 @@ import {
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { canCancelTrip, tripStatusBadgeClass } from '@/features/trips/lib/trip-form-utils'
-import { emptyTripListFilters, tripListFiltersToQueryOptions } from '@/features/trips/lib/trip-list-filters'
 import { TripTableListToolbar } from '@/features/trips/components/TripTableListToolbar'
 import { cancelTrip, fetchTripRequisitionsPage } from '@/features/trips/lib/trips-api'
-import { fetchTripRequisitionMasterLists } from '@/features/trips/lib/trip-requisition-masters'
 import { PageHeader } from '@/shared/components/PageHeader'
 import {
   ListPanelMessage,
@@ -43,35 +41,15 @@ function TripRequisition() {
   const queryClient = useQueryClient()
   const crud = useRouteCrudPermissions('/trip/requisition')
   const [search, setSearch] = useState('')
-  const [filters, setFilters] = useState(emptyTripListFilters)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [cancelTarget, setCancelTarget] = useState<CancelTarget | null>(null)
   const [cancellationReason, setCancellationReason] = useState('')
 
-  const mastersQuery = useQuery({
-    queryKey: ['trips', 'masters'],
-    queryFn: fetchTripRequisitionMasterLists,
-    enabled: !crud.isResolved || crud.canRead,
-    staleTime: 5 * 60_000,
-  })
-
   const listQuery = useQuery({
-    queryKey: ['trips', 'requisitions', search, filters.tripTypeId, page, pageSize],
-    queryFn: () =>
-      fetchTripRequisitionsPage(
-        search,
-        page,
-        pageSize,
-        {
-          tripTypes: mastersQuery.data?.tripTypes,
-          purposes: mastersQuery.data?.journeyPurposes,
-        },
-        tripListFiltersToQueryOptions(filters),
-      ),
-    enabled:
-      (!crud.isResolved || crud.canRead) &&
-      (mastersQuery.isSuccess || mastersQuery.isError),
+    queryKey: ['trips', 'requisitions', search, page, pageSize],
+    queryFn: () => fetchTripRequisitionsPage(search, page, pageSize),
+    enabled: !crud.isResolved || crud.canRead,
     staleTime: 30_000,
   })
 
@@ -84,7 +62,7 @@ function TripRequisition() {
 
   useEffect(() => {
     setPage(1)
-  }, [search, filters.tripTypeId, pageSize])
+  }, [search, pageSize])
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages)
@@ -163,13 +141,6 @@ function TripRequisition() {
             }}
             searchPlaceholder="Search trip type, purpose, route, status…"
             searchAriaLabel="Search my trips"
-            tripTypeId={filters.tripTypeId}
-            onTripTypeIdChange={(tripTypeId) => {
-              setFilters({ tripTypeId })
-              setPage(1)
-            }}
-            tripTypeOptions={mastersQuery.data?.tripTypes ?? []}
-            tripTypesLoading={mastersQuery.isLoading}
           />
 
           <div className="hidden w-full min-w-0 overflow-x-auto rounded-lg border border-[var(--fms-strokes)] md:block">
@@ -178,9 +149,7 @@ function TripRequisition() {
                 <tr>
                   <th className="px-4 py-3 text-left font-semibold">Sl.No</th>
                   <th className="px-4 py-3 text-left font-semibold">Trip</th>
-                  <th className="px-4 py-3 text-left font-semibold">
-                    Purpose of Journey
-                  </th>
+                  
                   <th className="px-4 py-3 text-left font-semibold">Journey Start Date</th>
                   <th className="px-4 py-3 text-left font-semibold">Route</th>
                   <th className="px-4 py-3 text-left font-semibold">Status</th>
@@ -237,7 +206,6 @@ function TripRequisition() {
                     >
                       <td className="px-4 py-3">{row.serialNo}</td>
                       <td className="px-4 py-3">{row.tripType}</td>
-                      <td className="px-4 py-3">{row.purpose}</td>
                       <td className="px-4 py-3">{row.journeyDate}</td>
                       <td className="px-4 py-3">{row.route}</td>
                       <td className="px-4 py-3">
