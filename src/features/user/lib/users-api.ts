@@ -12,7 +12,6 @@ import {
   type OrganogramDisplayLookups,
 } from '@/shared/lib/organogram-master-lookup'
 import { formatRealmRoleDisplayName } from '@/shared/lib/format-realm-role-display'
-import { parseApiPagination } from '@/shared/utils/pagination'
 
 type DirectoryOrganogramHints = {
   level1Id?: string
@@ -536,30 +535,71 @@ export type UserCidSearchResult = {
   fullName: string
 }
 
+export type UserDetailCidSearchResult = {
+  userId: string
+  citizenId: string
+  fullName: string
+  employeeId: string
+  contactNumber: string
+}
+
 function usersListRecordsFromPayload(payload: unknown): ApiRecord[] {
   if (Array.isArray(payload)) {
     return payload.filter((item): item is ApiRecord => !!item && typeof item === 'object')
   }
   if (!payload || typeof payload !== 'object') return []
   const root = payload as ApiRecord
+
+  const arrayFromEnvelope = (obj: ApiRecord): ApiRecord[] | null => {
+    for (const key of ['items', 'results', 'users', 'records', 'rows', 'list', 'data'] as const) {
+      const value = obj[key]
+      if (Array.isArray(value)) {
+        return value.filter((item): item is ApiRecord => !!item && typeof item === 'object')
+      }
+    }
+    return null
+  }
+
+  const direct = arrayFromEnvelope(root)
+  if (direct) return direct
+
   const data = root.data
-  const candidates = [
-    root.items,
-    root.results,
-    root.rows,
-    root.users,
-    root.list,
-    Array.isArray(data) ? data : undefined,
-    data && typeof data === 'object' && !Array.isArray(data) ? (data as ApiRecord).items : undefined,
-    data && typeof data === 'object' && !Array.isArray(data) ? (data as ApiRecord).users : undefined,
-    data && typeof data === 'object' && !Array.isArray(data) ? (data as ApiRecord).results : undefined,
-  ]
-  for (const candidate of candidates) {
-    if (Array.isArray(candidate)) {
-      return candidate.filter((item): item is ApiRecord => !!item && typeof item === 'object')
+  if (Array.isArray(data)) {
+    return data.filter((item): item is ApiRecord => !!item && typeof item === 'object')
+  }
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    const nested = arrayFromEnvelope(data as ApiRecord)
+    if (nested) return nested
+  }
+
+  return []
+}
+
+function cidsMatch(left: string, right: string): boolean {
+  const a = left.trim()
+  const b = right.trim()
+  if (!a || !b) return false
+  if (a === b) return true
+  if (/^\d+$/.test(a) && /^\d+$/.test(b)) {
+    try {
+      return BigInt(a) === BigInt(b)
+    } catch {
+      return false
     }
   }
-  return []
+  return false
+}
+
+function pickUserIdFromRecord(record: ApiRecord): string {
+  const merged = mergeNestedUserEnvelope(record)
+  return (
+    toText(merged.id) ||
+    toText(merged.user_id) ||
+    toText(merged.uuid) ||
+    toText(merged.keycloak_id) ||
+    toText(merged.keycloak_user_id) ||
+    ''
+  )
 }
 
 function mapUserRecordToCidSearchResult(raw: ApiRecord): UserCidSearchResult | null {
@@ -570,36 +610,62 @@ function mapUserRecordToCidSearchResult(raw: ApiRecord): UserCidSearchResult | n
   return { cid, fullName }
 }
 
+function mapUserRecordToDetailCidSearchResult(
+  raw: ApiRecord,
+  searchedCid = '',
+): UserDetailCidSearchResult | null {
+  const merged = mergeNestedUserEnvelope(raw)
+  const detail = mapUserDetailFields(merged)
+  const userId = detail.id !== '-' ? detail.id : ''
+  const citizenId = pickCid(merged) || searchedCid.trim()
+  if (!userId || !citizenId) return null
+  return {
+    userId,
+    citizenId,
+    fullName: detail.name !== '-' ? detail.name : '',
+    employeeId: detail.employeeId !== '-' ? detail.employeeId : '',
+    contactNumber: detail.contact !== '-' ? detail.contact : '',
+  }
+}
+
+function findExactCidUserRecord(records: ApiRecord[], trimmed: string): ApiRecord | null {
+  for (const raw of records) {
+    const merged = mergeNestedUserEnvelope(raw)
+    if (cidsMatch(pickCid(merged), trimmed)) return raw
+  }
+  return null
+}
+
+function findUserRecordInList(records: ApiRecord[], trimmed: string): ApiRecord | null {
+  const exact = findExactCidUserRecord(records, trimmed)
+  if (exact) return exact
+
+  if (records.length === 1) {
+    const only = records[0]
+    if (only && pickUserIdFromRecord(only)) return mergeNestedUserEnvelope(only)
+  }
+
+  return null
+}
+
+async function findUserRecordByCid(cid: string): Promise<ApiRecord | null> {
+  const trimmed = cid.trim()
+  if (!trimmed) return null
+
+  const { records } = await fetchUsersListPage({
+    page: '1',
+    page_size: '20',
+    search: trimmed,
+  })
+  return findUserRecordInList(records, trimmed)
+}
+
 async function fetchUsersListPage(
   query: Record<string, string>,
 ): Promise<{ payload: unknown; records: ApiRecord[] }> {
   const params = new URLSearchParams(query)
   const payload = await apiGet<unknown>(`/admin/users?${params.toString()}`)
   return { payload, records: usersListRecordsFromPayload(payload) }
-}
-
-function findExactCidMatch(records: ApiRecord[], trimmed: string): UserCidSearchResult | null {
-  for (const raw of records) {
-    const match = mapUserRecordToCidSearchResult(raw)
-    if (match?.cid === trimmed) return match
-  }
-  return null
-}
-
-function usersListHasMorePages(
-  payload: unknown,
-  page: number,
-  pageSize: number,
-  rowCount: number,
-): boolean {
-  const parsed = parseApiPagination(payload, page, pageSize)
-  if (parsed?.totalPages != null && parsed.totalPages > 0) {
-    return page < parsed.totalPages
-  }
-  if (parsed?.totalItems != null) {
-    return page * pageSize < parsed.totalItems
-  }
-  return rowCount >= pageSize
 }
 
 export type UserSelectOption = {
@@ -628,49 +694,19 @@ export async function fetchUsersForSelect(pageSize = 100): Promise<UserSelectOpt
 
 /** Search `GET /admin/users` by CID; returns CID and display name. */
 export async function searchUserByCid(cid: string): Promise<UserCidSearchResult | null> {
+  const record = await findUserRecordByCid(cid)
+  if (!record) return null
+  return mapUserRecordToCidSearchResult(record)
+}
+
+/** Search `GET /admin/users` by CID; returns user id and profile fields for forms. */
+export async function searchUserDetailByCid(
+  cid: string,
+): Promise<UserDetailCidSearchResult | null> {
   const trimmed = cid.trim()
-  if (!trimmed) return null
-
-  // 1) `search` param — works when backend indexes name/username/email.
-  {
-    const { records } = await fetchUsersListPage({
-      page: '1',
-      page_size: '20',
-      search: trimmed,
-    })
-    const match = findExactCidMatch(records, trimmed)
-    if (match) return match
-  }
-
-  // 2) Dedicated `cid` filter when the API exposes it.
-  {
-    const { records } = await fetchUsersListPage({
-      page: '1',
-      page_size: '20',
-      cid: trimmed,
-    })
-    const match = findExactCidMatch(records, trimmed)
-    if (match) return match
-    if (records.length === 1) {
-      const single = mapUserRecordToCidSearchResult(records[0])
-      if (single) return single
-    }
-  }
-
-  // 3) Paginate the user list and match CID client-side — backend `search` often skips CID.
-  const pageSize = 100
-  const maxPages = 50
-  for (let page = 1; page <= maxPages; page += 1) {
-    const { payload, records } = await fetchUsersListPage({
-      page: String(page),
-      page_size: String(pageSize),
-    })
-    const match = findExactCidMatch(records, trimmed)
-    if (match) return match
-    if (!usersListHasMorePages(payload, page, pageSize, records.length)) break
-  }
-
-  return null
+  const record = await findUserRecordByCid(trimmed)
+  if (!record) return null
+  return mapUserRecordToDetailCidSearchResult(record, trimmed)
 }
 
 /** Tier labels from `groups`: index 0 agency … 3 sub division (legacy / string rows only). */

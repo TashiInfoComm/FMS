@@ -1,6 +1,7 @@
 // Types and helpers for `/admin/roles` (list) and `/admin/roles/bulk` (create/update with sub-menu permissions).
 import { apiGet } from '@/services/apiClient'
 import type { MenuRecord } from '@/features/modules/lib/menus-api'
+import { queryClient } from '@/lib/query-client'
 import { resolveActiveRealmRoleString } from '@/shared/lib/realm-role-mapping'
 
 export type ApiRecord = Record<string, unknown>
@@ -466,10 +467,27 @@ export function buildBulkPayload(
 }
 
 /** Loads sub-menu permission flags from GET `/admin/roles/{role}/permissions`. */
+export function rolePermissionsRawQueryKey(roleName: string) {
+  return ['role-permissions-raw', roleName] as const
+}
+
+export async function fetchRolePermissionsRaw(roleName: string): Promise<unknown> {
+  return apiGet<unknown>(`/admin/roles/${encodeURIComponent(roleName)}/permissions`)
+}
+
+/** Shared TanStack Query cache for the raw permissions payload (dedupes sidebar + CRUD hooks). */
+export async function fetchRolePermissionsRawCached(roleName: string): Promise<unknown> {
+  const trimmed = roleName.trim()
+  if (!trimmed) throw new Error('Role name is required')
+  return queryClient.fetchQuery({
+    queryKey: rolePermissionsRawQueryKey(trimmed),
+    queryFn: () => fetchRolePermissionsRaw(trimmed),
+    staleTime: 60_000,
+  })
+}
+
 export async function fetchRoleDetail(roleName: string): Promise<ParsedRoleDetail> {
-  const permPayload = await apiGet<unknown>(
-    `/admin/roles/${encodeURIComponent(roleName)}/permissions`,
-  )
+  const permPayload = await fetchRolePermissionsRawCached(roleName)
   const fromPermissions = parseRoleDetailPayload(permPayload, roleName)
   if (!fromPermissions) {
     throw new Error('Unable to load role permissions')

@@ -1,6 +1,5 @@
 // Defines the main application layout, navigation, and user menu.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, LogOut, Menu, User, X } from "lucide-react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 
@@ -19,7 +18,6 @@ import { useUserStore } from "@/services/user-store";
 import layoutLogoImage from "@/assets/layout_logo.png";
 import { MenuLucideIcon } from "@/features/modules/components/MenuLucideIcon";
 import {
-  fetchUserSidebarMenus,
   normalizeFrontendRoute,
 } from "@/features/modules/lib/menus-api";
 import {
@@ -33,7 +31,6 @@ import {
   canReadSubMenuRow,
   canShowDirectRouteMenu,
   shouldApplySubMenuPermissionFilter,
-  useRolePermissionsDetail,
 } from "@/shared/hooks/useRolePermissionsDetail";
 import { formatRealmRoleDisplayName } from "@/shared/lib/format-realm-role-display";
 import { notifyRolePreferenceChanged } from "@/shared/lib/realm-role-mapping";
@@ -51,8 +48,9 @@ export function MainLayout() {
     role,
     roles: profileRoles,
     setRole,
-
-    apiRoleName,
+    sidebarMenus,
+    isSidebarMenusLoading,
+    isSidebarMenusError,
   } = useAccessControl();
   const currentProfile = useUserStore((state) => state.user);
   const clearSession = useUserStore((state) => state.clearSession);
@@ -63,34 +61,22 @@ export function MainLayout() {
   const profileMenuRef = useRef<HTMLDivElement>(null);
   const RoleIcon = ROLE_ICON;
 
-  const menuQuery = useQuery({
-    queryKey: ["role-sidebar-menus", apiRoleName],
-    queryFn: () => fetchUserSidebarMenus(apiRoleName),
-    staleTime: 60_000,
-    enabled: authenticated && Boolean(apiRoleName),
-  });
-
-  const { permissionsBySubMenu, data: rolePermDetail } =
-    useRolePermissionsDetail();
-
   const navMenus = useMemo(() => {
-    const raw = menuQuery.data;
-    const rows = Array.isArray(raw) ? raw : [];
+    const rows = Array.isArray(sidebarMenus) ? sidebarMenus : [];
     const routeReady = rows.filter((menu) => {
       if (menu.direct_route && hasMenuRoute(menu.direct_route)) return true;
       return (menu.sub_menus ?? []).some((s) => hasMenuRoute(s.route));
     });
 
     const filterActive =
-      authenticated &&
-      shouldApplySubMenuPermissionFilter(rolePermDetail, menuQuery.data);
+      authenticated && shouldApplySubMenuPermissionFilter(undefined, sidebarMenus);
 
     const visible: typeof routeReady = [];
     for (const menu of routeReady) {
       if (menu.direct_route && hasMenuRoute(menu.direct_route)) {
         if (
           !canShowDirectRouteMenu(
-            permissionsBySubMenu,
+            undefined,
             menu.id,
             filterActive,
             menu.direct_route_actions,
@@ -103,13 +89,13 @@ export function MainLayout() {
       const subs = (menu.sub_menus ?? []).filter(
         (s) =>
           hasMenuRoute(s.route) &&
-          canReadSubMenuRow(permissionsBySubMenu, s, filterActive),
+          canReadSubMenuRow(undefined, s, filterActive),
       );
       if (subs.length === 0) continue;
       visible.push({ ...menu, sub_menus: subs });
     }
     return visible;
-  }, [menuQuery.data, authenticated, permissionsBySubMenu, rolePermDetail]);
+  }, [sidebarMenus, authenticated]);
 
   useEffect(() => {
     const path = location.pathname;
@@ -183,10 +169,10 @@ export function MainLayout() {
   };
 
   const renderNavigation = () => {
-    if (menuQuery.isLoading) {
+    if (isSidebarMenusLoading) {
       return <Loader />;
     }
-    if (menuQuery.isError) {
+    if (isSidebarMenusError) {
       return (
         <p className="px-2 text-sm text-[var(--fms-delete)]">
           Could not load navigation.

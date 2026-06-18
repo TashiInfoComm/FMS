@@ -16,7 +16,11 @@ import {
   updateDriverVehicleAssignment,
   type CreateDriverVehicleAssignmentBody,
 } from '@/features/vehicles/lib/driver-vehicle-assignments-api'
-import { apiGet } from '@/services/apiClient'
+import {
+  fetchUserById,
+  mapUserDetailFields,
+  searchUserDetailByCid,
+} from '@/features/user/lib/users-api'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { isUuidLike } from '@/shared/lib/organogram-master-lookup'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
@@ -43,42 +47,6 @@ const formSections = [
   },
 ] as const
 
-type ApiRecord = Record<string, unknown>
-
-function toText(value: unknown): string {
-  return typeof value === 'string'
-    ? value.trim()
-    : typeof value === 'number' && Number.isFinite(value)
-      ? String(value)
-      : ''
-}
-
-function toArray(payload: unknown): ApiRecord[] {
-  if (Array.isArray(payload)) {
-    return payload.filter((item): item is ApiRecord => !!item && typeof item === 'object')
-  }
-  if (!payload || typeof payload !== 'object') return []
-  const root = payload as ApiRecord
-  const data = root.data
-  const candidates = [
-    root.items,
-    root.results,
-    root.rows,
-    root.users,
-    root.list,
-    Array.isArray(data) ? data : undefined,
-    data && typeof data === 'object' && !Array.isArray(data) ? (data as ApiRecord).items : undefined,
-    data && typeof data === 'object' && !Array.isArray(data) ? (data as ApiRecord).users : undefined,
-    data && typeof data === 'object' && !Array.isArray(data) ? (data as ApiRecord).results : undefined,
-  ]
-  for (const candidate of candidates) {
-    if (Array.isArray(candidate)) {
-      return candidate.filter((item): item is ApiRecord => !!item && typeof item === 'object')
-    }
-  }
-  return []
-}
-
 type DriverLookup = {
   userId: string
   fullName: string
@@ -87,75 +55,39 @@ type DriverLookup = {
   citizenId: string
 }
 
-function pickCid(record: ApiRecord): string {
-  return (
-    toText(record.cid) ||
-    toText(record.citizen_id) ||
-    toText(record.citizenId) ||
-    toText(record.cid_no) ||
-    toText(record.cidNumber) ||
-    toText(record.cid_number) ||
-    ''
-  )
-}
-
-function mapUserToDriverLookup(row: ApiRecord): DriverLookup | null {
-  const user = row.user && typeof row.user === 'object' && !Array.isArray(row.user) ? (row.user as ApiRecord) : {}
-  const merged = { ...row, ...user }
-  const userId = toText(merged.id) || toText(merged.user_id) || toText(merged.uuid)
+function mapUserDetailToDriverLookup(
+  record: Record<string, unknown>,
+): DriverLookup | null {
+  const detail = mapUserDetailFields(record)
+  const userId = detail.id !== '-' ? detail.id : ''
+  const citizenId = detail.cid !== '-' ? detail.cid : ''
   if (!userId) return null
-  const firstName = toText(merged.first_name) || toText(merged.firstName)
-  const middleName = toText(merged.middle_name) || toText(merged.middleName)
-  const lastName = toText(merged.last_name) || toText(merged.lastName)
-  const fullName =
-    toText(merged.name) ||
-    toText(merged.full_name) ||
-    [firstName, middleName, lastName].filter(Boolean).join(' ').trim()
-  const employeeId =
-    toText(merged.employee_id) || toText(merged.emp_id) || toText(merged.employeeId) || toText(merged.username)
-  const contactNumber =
-    toText(merged.contact_no) ||
-    toText(merged.contact_number) ||
-    toText(merged.contact) ||
-    toText(merged.phone) ||
-    toText(merged.mobile)
   return {
     userId,
-    fullName,
-    employeeId,
-    contactNumber,
-    citizenId: pickCid(merged),
+    citizenId,
+    fullName: detail.name !== '-' ? detail.name : '',
+    employeeId: detail.employeeId !== '-' ? detail.employeeId : '',
+    contactNumber: detail.contact !== '-' ? detail.contact : '',
   }
 }
 
 async function fetchDriverByCid(cid: string): Promise<DriverLookup | null> {
-  const trimmedCid = cid.trim()
-  if (!trimmedCid) return null
-  const params = new URLSearchParams()
-  params.set('page', '1')
-  params.set('page_size', '20')
-  params.set('search', trimmedCid)
-  const payload = await apiGet<unknown>(`/admin/users?${params.toString()}`)
-  return (
-    toArray(payload)
-      .map(mapUserToDriverLookup)
-      .find((row): row is DriverLookup => Boolean(row)) ?? null
-  )
+  const result = await searchUserDetailByCid(cid)
+  if (!result) return null
+  return {
+    userId: result.userId,
+    citizenId: result.citizenId,
+    fullName: result.fullName,
+    employeeId: result.employeeId,
+    contactNumber: result.contactNumber,
+  }
 }
 
 async function fetchDriverById(driverId: string): Promise<DriverLookup | null> {
   const trimmedId = driverId.trim()
   if (!trimmedId || trimmedId === '—') return null
-  const payload = await apiGet<unknown>(`/admin/users/${encodeURIComponent(trimmedId)}`)
-  const record =
-    payload && typeof payload === 'object' && !Array.isArray(payload)
-      ? ((payload as ApiRecord).data &&
-          typeof (payload as ApiRecord).data === 'object' &&
-          !Array.isArray((payload as ApiRecord).data)
-          ? ((payload as ApiRecord).data as ApiRecord)
-          : (payload as ApiRecord))
-      : {}
-  return mapUserToDriverLookup(record)
+  const record = await fetchUserById(trimmedId)
+  return mapUserDetailToDriverLookup(record)
 }
 
 type AssignVehicleFormProps = {
@@ -167,7 +99,10 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
   const { vehicleId: routeVehicleId = '' } = useParams<{ vehicleId: string }>()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const crud = useRouteCrudPermissions('/assign-driver')
+  const isVehicleAssign = Boolean(routeVehicleId.trim())
+  const vehicleCrud = useRouteCrudPermissions('/vehicle/list')
+  const assignCrud = useRouteCrudPermissions('/assign-driver')
+  const crud = isVehicleAssign ? vehicleCrud : assignCrud
   const isEdit = mode === 'edit'
 
   const [formValues, setFormValues] = useState<Record<string, string>>({
@@ -180,9 +115,9 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
     priority: '',
   })
   const [resolvedDriverId, setResolvedDriverId] = useState('')
-  const [lookupCid, setLookupCid] = useState('')
   const [cidSearchTriggered, setCidSearchTriggered] = useState(false)
   const [cidLocked, setCidLocked] = useState(false)
+  const [driverLookup, setDriverLookup] = useState<DriverLookup | null>(null)
   const [formInitialized, setFormInitialized] = useState(!isEdit)
 
   const trimmedCitizenId = formValues.citizenId.trim()
@@ -235,29 +170,34 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
     isEdit,
   ])
 
-  const driverLookupQuery = useQuery({
-    queryKey: ['assign-driver', 'lookup-by-cid', lookupCid],
-    queryFn: () => fetchDriverByCid(lookupCid),
-    enabled: lookupCid.length > 0 && crud.canRead && !isEdit,
-    staleTime: 30_000,
-  })
-
-  useEffect(() => {
-    if (isEdit) return
-    if (driverLookupQuery.data) {
-      setResolvedDriverId(driverLookupQuery.data.userId)
+  const driverLookupMutation = useMutation({
+    mutationFn: (cid: string) => fetchDriverByCid(cid),
+    onSuccess: (result) => {
+      if (!result) {
+        setResolvedDriverId('')
+        setDriverLookup(null)
+        setFormValues((prev) => ({
+          ...prev,
+          fullName: '',
+          employeeId: '',
+          contactNumber: '',
+        }))
+        setCidLocked(false)
+        return
+      }
+      setResolvedDriverId(result.userId)
+      setDriverLookup(result)
       setFormValues((prev) => ({
         ...prev,
-        fullName: driverLookupQuery.data?.fullName ?? '',
-        employeeId: driverLookupQuery.data?.employeeId ?? '',
-        contactNumber: driverLookupQuery.data?.contactNumber ?? '',
+        fullName: result.fullName,
+        employeeId: result.employeeId,
+        contactNumber: result.contactNumber,
       }))
       setCidLocked(true)
-      return
-    }
-
-    if (cidSearchTriggered && !driverLookupQuery.isLoading) {
+    },
+    onError: (error) => {
       setResolvedDriverId('')
+      setDriverLookup(null)
       setFormValues((prev) => ({
         ...prev,
         fullName: '',
@@ -265,24 +205,26 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
         contactNumber: '',
       }))
       setCidLocked(false)
-    }
-  }, [cidSearchTriggered, driverLookupQuery.data, driverLookupQuery.isLoading, isEdit])
+      showErrorToast(error, 'Failed to find driver by CID')
+    },
+  })
+
+  const handleCitizenIdSearch = () => {
+    if (!trimmedCitizenId || cidLocked || isEdit || driverLookupMutation.isPending) return
+    setCidSearchTriggered(true)
+    setDriverLookup(null)
+    driverLookupMutation.mutate(trimmedCitizenId)
+  }
 
   const driversListPath = routeVehicleId.trim()
     ? `/vehicle/list/${encodeURIComponent(routeVehicleId.trim())}/drivers`
     : '/assign-driver'
 
-  const handleCitizenIdSearch = () => {
-    if (!trimmedCitizenId || cidLocked || isEdit) return
-    setCidSearchTriggered(true)
-    setLookupCid(trimmedCitizenId)
-  }
-
   const saveMutation = useMutation({
     mutationFn: async () => {
       const driverId = isEdit
         ? resolvedDriverId || editDriverQuery.data?.userId || assignmentQuery.data?.driverId || ''
-        : driverLookupQuery.data?.userId ?? resolvedDriverId
+        : driverLookup?.userId ?? resolvedDriverId
       const vehicleId = isEdit
         ? assignmentQuery.data?.vehicleId !== '—'
           ? assignmentQuery.data?.vehicleId ?? ''
@@ -405,7 +347,7 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
                                   contactNumber: '',
                                 }))
                                 setCidSearchTriggered(false)
-                                setLookupCid('')
+                                setDriverLookup(null)
                                 setCidLocked(false)
                                 setResolvedDriverId('')
                               }}
@@ -417,7 +359,9 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
                                 type="button"
                                 variant="outline"
                                 onClick={handleCitizenIdSearch}
-                                disabled={!trimmedCitizenId || cidLocked || driverLookupQuery.isLoading}
+                                disabled={
+                                  !trimmedCitizenId || cidLocked || driverLookupMutation.isPending
+                                }
                               >
                                 Search
                               </Button>
@@ -471,16 +415,16 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
                 {section.title === 'Personal Details' && cidSearchTriggered && !isEdit ? (
                   <p
                     className={`text-xs ${
-                      !driverLookupQuery.isLoading && !driverLookupQuery.data
+                      !driverLookupMutation.isPending && !driverLookup
                         ? 'text-[var(--fms-delete)]'
                         : 'text-[var(--fms-text-subheading)]'
                     }`}
                   >
-                    {driverLookupQuery.isLoading
+                    {driverLookupMutation.isPending
                       ? 'Fetching user details by CID...'
-                      : driverLookupQuery.data
+                      : driverLookup
                         ? 'User details auto-filled from user list.'
-                        : 'No Driver found for this CID in the system.'}
+                        : 'No driver found for this CID in the system, or the user CID is not part of the same agency.'}
                   </p>
                 ) : null}
               </CardContent>

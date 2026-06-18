@@ -1,6 +1,6 @@
 // Types and helpers for `/admin/menus` (super-admin module CRUD: list, bulk create, update by id).
 // Signed-in sidebar uses GET `/admin/me/menu` + GET `/admin/roles/{role}/permissions` — see `fetchUserSidebarMenus`.
-import { roleActionsFromAssignedCodes } from '@/features/user/lib/roles-api'
+import { fetchRolePermissionsRawCached, roleActionsFromAssignedCodes } from '@/features/user/lib/roles-api'
 import { apiGet } from '@/services/apiClient'
 import { MENU_ITEMS } from '@/shared/constants/access-control'
 
@@ -795,7 +795,7 @@ export async function fetchUserSidebarMenus(realmRoleName: string | null | undef
 
   const [meSettled, roleSettled] = await Promise.allSettled([
     apiGet<unknown>('/admin/me/menu'),
-    apiGet<unknown>(`/admin/roles/${encodeURIComponent(role)}/permissions`),
+    fetchRolePermissionsRawCached(role),
   ])
 
   const mePayload = meSettled.status === 'fulfilled' ? meSettled.value : undefined

@@ -109,9 +109,11 @@ export function useAccessControl() {
     // Drop cached entries for the previous role so the sidebar/permission gates do not flash
     // stale data while the new role's queries resolve.
     queryClient.removeQueries({ queryKey: ['role-permissions-detail'] })
+    queryClient.removeQueries({ queryKey: ['role-permissions-raw'] })
     queryClient.removeQueries({ queryKey: ['role-sidebar-menus'] })
     notifyRolePreferenceChanged()
     void queryClient.invalidateQueries({ queryKey: ['role-permissions-detail'] })
+    void queryClient.invalidateQueries({ queryKey: ['role-permissions-raw'] })
     void queryClient.invalidateQueries({ queryKey: ['role-sidebar-menus'] })
   }
 
@@ -120,6 +122,9 @@ export function useAccessControl() {
     role,
     apiRoleName,
     permissions,
+    sidebarMenus: menuQuery.data,
+    isSidebarMenusLoading: menuQuery.isLoading,
+    isSidebarMenusError: menuQuery.isError,
     setRole,
   }
 }
