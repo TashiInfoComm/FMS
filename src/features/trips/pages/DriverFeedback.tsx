@@ -23,10 +23,10 @@ import {
 } from '@/shared/components/TableRowActionButtons'
 import { TablePagination } from '@/shared/components/TablePagination'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
-import { tripStatusBadgeClass } from '@/features/trips/lib/trip-form-utils'
+import { formatTripStatusLabel, tripStatusBadgeClass } from '@/features/trips/lib/trip-form-utils'
 import { cn } from '@/lib/utils'
 
-const TABLE_COLUMN_COUNT = 9
+const TABLE_COLUMN_COUNT = 8
 
 function feedbackBadgeClass(status: DriverFeedbackStatus) {
   return status === 'Pending'
@@ -68,6 +68,8 @@ export default function DriverFeedback() {
       state: {
         hasFeedback: row.feedbackStatus === 'Completed',
         driverName: row.driverName !== '—' ? row.driverName : undefined,
+        feedbackLeg: row.pendingFeedbackLeg,
+        pickupRequired: row.pickupRequired,
       },
     })
   }
@@ -96,6 +98,7 @@ export default function DriverFeedback() {
               <thead className="bg-[#f6f6f7] text-[var(--fms-text-header)]">
                 <tr>
                   <th className="w-16 px-4 py-3 text-left font-semibold">Sl.No</th>
+                  <th className="px-4 py-3 text-left font-semibold">Reference No.</th>
                   <th className="px-4 py-3 text-left font-semibold">Trip Type</th>
                   <th className="px-4 py-3 text-left font-semibold">Date</th>
                   <th className="px-4 py-3 text-left font-semibold">Route</th>
@@ -158,16 +161,22 @@ export default function DriverFeedback() {
                         {(listQuery.data?.serialBase ?? 0) + index + 1}
                       </td>
                       <td className="px-4 py-3 font-medium text-[var(--fms-text-header)]">
+                        {row.tripId}
+                      </td>
+                      <td className="px-4 py-3 font-medium text-[var(--fms-text-header)]">
                         {row.tripType}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">{row.date}</td>
                       <td className="px-4 py-3">
                         {formatFeedbackRoute(row.origin, row.destination)}
                       </td>
-
                       <td className="px-4 py-3">
-                        <Badge className={tripStatusBadgeClass('COMPLETED')}>
-                          {row.tripStatus}
+                        <Badge
+                          className={tripStatusBadgeClass(
+                            row.tripStatusCode || row.tripStatus,
+                          )}
+                        >
+                          {formatTripStatusLabel(row.tripStatusCode || row.tripStatus)}
                         </Badge>
                       </td>
                       <td className="px-4 py-3">
@@ -218,6 +227,7 @@ export default function DriverFeedback() {
                   <MobileListField label="Sl.No">
                     {(listQuery.data?.serialBase ?? 0) + index + 1}
                   </MobileListField>
+                  <MobileListField label="Reference No.">{row.tripId}</MobileListField>
                   <MobileListField label="Trip Type">
                     <span className="font-medium text-[var(--fms-text-header)]">
                       {row.tripType}
@@ -231,22 +241,20 @@ export default function DriverFeedback() {
                     {formatFeedbackVehicle(row.vehiclePlate, row.vehicleModel)}
                   </MobileListField>
                   <MobileListField label="Driver">{row.driverName}</MobileListField>
-                  <p className="text-sm text-[var(--fms-text-subheading)]">
-                    <span className="font-medium text-[var(--fms-text-header)]">
-                      Trip Status:
-                    </span>{' '}
-                    <Badge className={tripStatusBadgeClass('COMPLETED')}>
-                      {row.tripStatus}
+                  <MobileListField label="Trip Status">
+                    <Badge
+                      className={tripStatusBadgeClass(
+                        row.tripStatusCode || row.tripStatus,
+                      )}
+                    >
+                      {formatTripStatusLabel(row.tripStatusCode || row.tripStatus)}
                     </Badge>
-                  </p>
-                  <p className="text-sm text-[var(--fms-text-subheading)]">
-                    <span className="font-medium text-[var(--fms-text-header)]">
-                      Feedback:
-                    </span>{' '}
+                  </MobileListField>
+                  <MobileListField label="Feedback">
                     <Badge className={feedbackBadgeClass(row.feedbackStatus)}>
                       {row.feedbackStatus}
                     </Badge>
-                  </p>
+                  </MobileListField>
                   <div className={`mt-3 ${rowActionsContainerClassName}`}>
                     <DetailRowActionButton
                       name={row.tripType}

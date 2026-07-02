@@ -5,11 +5,7 @@ import {
   type VehicleCreateMasterLists,
 } from '@/features/vehicles/lib/vehicle-create-master-data'
 import { apiGet, apiPost, apiPut } from '@/services/apiClient'
-import {
-  isUuidLike,
-  lookupMasterId,
-  type VehicleListStatusLookups,
-} from '@/shared/lib/organogram-master-lookup'
+import { isUuidLike } from '@/shared/lib/organogram-master-lookup'
 import { applyPagination } from '@/shared/utils/pagination'
 
 type ApiRecord = Record<string, unknown>
@@ -42,20 +38,15 @@ export type VehicleListRow = {
   quota_initialized: boolean
 }
 
-function resolveStatusLabel(
-  record: ApiRecord,
-  idKeys: string[],
-  nameKeys: string[],
-  lookup: Map<string, string>,
-): string {
-  const fromName = pickScalar(record, nameKeys)
-  if (fromName && !isUuidLike(fromName)) return fromName
-  const id = pickScalar(record, idKeys)
-  if (id) {
-    const fromLookup = lookupMasterId(id, lookup)
-    if (fromLookup) return fromLookup
+function pickNestedRelationName(record: ApiRecord, objectKeys: string[]): string {
+  for (const key of objectKeys) {
+    const value = record[key]
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const name = pickScalar(value as ApiRecord, ['name', 'label', 'title'])
+      if (name && !isUuidLike(name)) return name
+    }
   }
-  return fromName || id || ''
+  return ''
 }
 
 function pickVehicleListId(record: ApiRecord): string {
@@ -131,10 +122,7 @@ function resolveVehicleRowIdentity(record: ApiRecord): { id: string; registratio
   }
 }
 
-export function mapVehicleRecordToListRow(
-  record: ApiRecord,
-  lookups?: VehicleListStatusLookups,
-): VehicleListRow {
+export function mapVehicleRecordToListRow(record: ApiRecord): VehicleListRow {
   const flat = flattenVehicleRecord(record)
   const { id, registration_number } = resolveVehicleRowIdentity(record)
   const make = pickScalar(flat, ['make', 'vehicle_make'])
@@ -145,40 +133,24 @@ export function mapVehicleRecordToListRow(
     makeModel = [make, model].filter(Boolean).join(' ')
     if (year) makeModel = `${makeModel} (${year})`
   }
-  const status = lookups
-    ? resolveStatusLabel(
-        flat,
-        ['status_id', 'statusId', 'vehicle_status_id', 'vehicleStatusId'],
-        ['vehicle_status_name', 'status_name', 'status', 'vehicle_status', 'vehicleStatus'],
-        lookups.vehicleStatuses,
-      )
-    : pickScalar(flat, [
-        'vehicle_status_name',
-        'status_name',
-        'status',
-        'vehicle_status',
-        'vehicleStatus',
-      ])
-  const movement = lookups
-    ? resolveStatusLabel(
-        flat,
-        ['movement_status_id', 'movementStatusId', 'vehicle_movement_status_id'],
-        [
-          'vehicle_movement_status_name',
-          'movement_status_name',
-          'movement_status',
-          'vehicle_movement_status',
-          'vehicleMovementStatus',
-        ],
-        lookups.vehicleMovementStatuses,
-      )
-    : pickScalar(flat, [
-        'vehicle_movement_status_name',
-        'movement_status_name',
-        'movement_status',
-        'vehicle_movement_status',
-        'vehicleMovementStatus',
-      ])
+  const status =
+    pickNestedRelationName(flat, ['vehicle_status', 'vehicleStatus']) ||
+    pickScalar(flat, [
+      'vehicle_status_name',
+      'status_name',
+      'status',
+      'vehicle_status',
+      'vehicleStatus',
+    ])
+  const movement =
+    pickNestedRelationName(flat, ['movement_status', 'movementStatus']) ||
+    pickScalar(flat, [
+      'vehicle_movement_status_name',
+      'movement_status_name',
+      'movement_status',
+      'vehicle_movement_status',
+      'vehicleMovementStatus',
+    ])
   const odoRaw = pickScalar(flat, [
     "odometer_reading",
     "current_odometer_km",
@@ -186,7 +158,7 @@ export function mapVehicleRecordToListRow(
     "odo_meter",
   ]);
   const odometer = odoRaw ? (/\bkm\b/i.test(odoRaw) ? odoRaw : `${odoRaw} km`) : ''
-const color = pickScalar(flat, ['color', 'vehicle_color'])
+  const color = pickScalar(flat, ['color', 'vehicle_color'])
   const quotaInitialized = pickBoolean(flat, [
     'quota_initialized',
     'quotaInitialized',
@@ -221,12 +193,11 @@ export async function fetchVehiclesPage(
   search: string,
   page: number,
   pageSize: number,
-  lookups?: VehicleListStatusLookups,
 ): Promise<VehiclesListPageResult> {
   const payload = await apiGet<unknown>(vehiclesListPath(search, page, pageSize))
   const records = extractVehicleList(payload)
   const rows = records
-    .map((record) => mapVehicleRecordToListRow(record, lookups))
+    .map((record) => mapVehicleRecordToListRow(record))
     .filter((row) => Boolean(row.id.trim()) && isUuidLike(row.id))
   const paged = applyPagination(payload, rows, page, pageSize, {
     page,
@@ -333,32 +304,13 @@ const FORM_KEYS = [
 export type VehicleFormStringState = Record<(typeof FORM_KEYS)[number], string>
 
 export function emptyVehicleFormState(): VehicleFormStringState {
-  return {
-    registration_number: '',
-    vin: '',
-    chassis_number: '',
-    engine_number: '',
-    make: '',
-    model: '',
-    year: '',
-    color: '',
-    vehicle_category_id: '',
-    vehicle_type_id: '',
-    fuel_type_id: '',
-    engine_capacity_cc: '',
-    seating_capacity: '',
-    registration_date: '',
-    registration_expiry: '',
-    insurance_provider_id: '',
-    insurance_expiry: '',
-    gps_device_imei: '',
-    cost: '',
-    identification_code: '',
-    status_id: '',
-    movement_status_id: '',
-    asset_name_id: '',
-    fuel_quota_balance: '',
-  }
+  return FORM_KEYS.reduce(
+    (acc, key) => {
+      acc[key] = ''
+      return acc
+    },
+    {} as VehicleFormStringState,
+  )
 }
 
 function pickStringFromRecord(record: ApiRecord, keys: string[]): string {

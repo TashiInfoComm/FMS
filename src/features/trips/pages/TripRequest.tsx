@@ -41,7 +41,7 @@ function SummaryCard({
 }) {
   return (
     <Card className="rounded-xl border border-[var(--fms-strokes)] bg-white shadow-none">
-      <CardContent className="px-4 py-2">
+      <CardContent className="px-2 py-1">
         <p className="text-xs font-medium text-[var(--fms-text-subheading)]">
           {label}
         </p>
@@ -131,7 +131,7 @@ export default function TripRequest() {
       <div className="space-y-3">
         
         {statusSummaryEntries.length > 0 ? (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5 xl:grid-cols-5">
             {statusSummaryEntries.map(([status, count]) => (
               <SummaryCard
                 key={status}
@@ -151,7 +151,7 @@ export default function TripRequest() {
               setSearch(next);
               setPage(1);
             }}
-            searchPlaceholder="Search request ID, applicant, destination, status…"
+            searchPlaceholder="Search trip"
             searchAriaLabel="Search trip requests"
           />
 
@@ -161,7 +161,7 @@ export default function TripRequest() {
                 <tr>
                   <th className="w-16 px-4 py-3 text-left font-semibold">Sl.No</th>
                   <th className="px-4 py-3 text-left font-semibold">
-                    Request ID
+                    Reference No.
                   </th>
                   <th className="px-4 py-3 text-left font-semibold">
                     Trip Type

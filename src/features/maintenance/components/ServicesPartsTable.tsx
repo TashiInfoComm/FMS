@@ -19,6 +19,10 @@ type ServicesPartsTableProps = {
   onItemChange?: (itemId: string, next: MaintenanceLineItem) => void
   onDelete?: (itemId: string) => void
   isRowLocked?: (row: MaintenanceLineItem) => boolean
+  isServicePartLocked?: (row: MaintenanceLineItem) => boolean
+  isQuantityLocked?: (row: MaintenanceLineItem) => boolean
+  isNotesLocked?: (row: MaintenanceLineItem) => boolean
+  isDeleteHidden?: (row: MaintenanceLineItem) => boolean
   className?: string
 }
 
@@ -35,6 +39,10 @@ export function ServicesPartsTable({
   onItemChange,
   onDelete,
   isRowLocked,
+  isServicePartLocked,
+  isQuantityLocked,
+  isNotesLocked,
+  isDeleteHidden,
   className,
 }: ServicesPartsTableProps) {
   const handleServicePartChange = (row: MaintenanceLineItem, servicePartId: string) => {
@@ -107,11 +115,18 @@ export function ServicesPartsTable({
                 >
                   {(() => {
                     const rowLocked = Boolean(isRowLocked?.(row))
+                    const servicePartLocked =
+                      Boolean(isServicePartLocked?.(row)) || rowLocked
+                    const quantityLocked =
+                      Boolean(isQuantityLocked?.(row)) || rowLocked
+                    const notesLocked = Boolean(isNotesLocked?.(row)) || rowLocked
+                    const deleteHidden =
+                      Boolean(isDeleteHidden?.(row)) || rowLocked
                     return (
                       <>
                   <td className="px-4 py-3 align-top">{index + 1}</td>
                   <td className="px-4 py-3 align-top">
-                    {editable && !rowLocked ? (
+                    {editable && !servicePartLocked ? (
                       <select
                         value={row.servicePartId ?? ''}
                         onChange={(event) =>
@@ -131,7 +146,7 @@ export function ServicesPartsTable({
                     )}
                   </td>
                   <td className="px-4 py-3 align-top">
-                    {editable && !rowLocked ? (
+                    {editable && !quantityLocked ? (
                       <Input
                         type="number"
                         min={1}
@@ -156,7 +171,7 @@ export function ServicesPartsTable({
                       : '—'}
                   </td>
                   <td className="px-4 py-3 align-top">
-                    {editable && !rowLocked ? (
+                    {editable && !notesLocked ? (
                       <Input
                         value={row.notes ?? ''}
                         onChange={(event) =>
@@ -169,7 +184,7 @@ export function ServicesPartsTable({
                       row.notes || '—'
                     )}
                   </td>
-                  {editable && !rowLocked ? (
+                  {editable && !deleteHidden ? (
                     <td className="px-4 py-3 align-top">
                       <div className="flex items-center justify-center">
                         <Button

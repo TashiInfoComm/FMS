@@ -9,6 +9,9 @@ import { SignupPage } from '@/features/auth/components/SignupPage'
 import { DashboardPage } from '@/features/dashboard/pages/DashboardPage'
 import { ProfilePage } from '@/features/profile/pages/ProfilePage'
 import { AgencyPage } from '@/features/master/pages/AgencyPage'
+import { DepartmentListPage } from '@/features/master/pages/DepartmentListPage'
+import { DivisionListPage } from '@/features/master/pages/DivisionListPage'
+import { SubDivisionListPage } from '@/features/master/pages/SubDivisionListPage'
 import { DestinationPage } from '@/features/master/pages/DestinationPage'
 import { DzongkhagListPage } from '@/features/master/pages/DzongkhagListPage'
 import { FuelTypePage } from '@/features/master/pages/FuelTypePage'
@@ -58,6 +61,12 @@ import QuotaRequestDetailPage from '@/features/fuel/pages/QuotaRequestDetailPage
 import UpdateQuota from '@/features/fuel/pages/UpdateQuota'
 import FuelLog from '@/features/fuel/pages/FuelLog'
 import CreateFuelLog from '@/features/fuel/pages/CreateFuelLog'
+import ParkingLogs from '@/features/parking/pages/ParkingLogs'
+import ReimbursementClaims from '@/features/parking/pages/ReimbursementClaims'
+import ReimbursementClaimDetailPage from '@/features/parking/pages/ReimbursementClaimDetailPage'
+import LoanRequisition from '@/features/inter-agency-vehicle-loan/pages/LoanRequisition'
+import CreateNewRequisition from '@/features/inter-agency-vehicle-loan/pages/CreateNewRequisition'
+import LoanRequisitionDetail from '@/features/inter-agency-vehicle-loan/pages/LoanRequisitionDetail'
 
 export function AppRoutes() {
   return (
@@ -75,22 +84,23 @@ export function AppRoutes() {
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/master/agency" element={<AgencyPage />} />
+          <Route
+            path="/master/agency/:agencyCode/departments"
+            element={<DepartmentListPage />}
+          />
+          <Route
+            path="/master/departments/:departmentCode/divisions"
+            element={<DivisionListPage />}
+          />
+          <Route
+            path="/master/divisions/:divisionCode/sub-divisions"
+            element={<SubDivisionListPage />}
+          />
           {/* <Route
             path="/assign-driver"
             element={<AssignVehiclePage />}
           /> */}
-          <Route
-            path="/assign-driver/add"
-            element={<AssignVehicleCreatePage />}
-          />
-          <Route
-            path="/assign-driver/:assignmentId/edit"
-            element={<AssignVehicleEditPage />}
-          />
-          <Route
-            path="/assign-driver/:assignmentId"
-            element={<AssignVehicleDetailPage />}
-          />
+          // Master data routes
           <Route path="/master/destination" element={<DestinationPage />} />
           <Route path="/master/dzongkhags" element={<DzongkhagListPage />} />
           <Route
@@ -114,6 +124,18 @@ export function AppRoutes() {
             path="/master/purpose-of-journey"
             element={<PurposeOfJourneyPage />}
           />
+         
+          <Route path="/master/status" element={<VehicleStatusPage />} />
+          <Route
+            path="/master/vehicle-type-category"
+            element={<VehicleTypeCategoryPage />}
+          />
+          <Route
+            path="/master/vehicle-type-category/:categoryCode"
+            element={<VehicleCategoryDetailPage />}
+          />
+          <Route path="/master/trip-type" element={<TripTypePage />} />
+          // Vehicle routes
           <Route path="/vehicle/list" element={<VehicleManagementPage />} />
           <Route path="/vehicle/list/:vehicleId/edit" element={<VehicleFormPage />} />
           <Route
@@ -130,16 +152,19 @@ export function AppRoutes() {
           />
           <Route path="/vehicle/list/:vehicleId" element={<VehicleDetailPage />} />
           <Route path="/vehicle/add" element={<VehicleFormPage />} />
-          <Route path="/master/status" element={<VehicleStatusPage />} />
           <Route
-            path="/master/vehicle-type-category"
-            element={<VehicleTypeCategoryPage />}
+            path="/assign-driver/add"
+            element={<AssignVehicleCreatePage />}
           />
           <Route
-            path="/master/vehicle-type-category/:categoryCode"
-            element={<VehicleCategoryDetailPage />}
+            path="/assign-driver/:assignmentId/edit"
+            element={<AssignVehicleEditPage />}
           />
-          <Route path="/master/trip-type" element={<TripTypePage />} />
+          <Route
+            path="/assign-driver/:assignmentId"
+            element={<AssignVehicleDetailPage />}
+          />
+          // Admin Settings routes
           <Route path="/admin/modules" element={<ModuleListPage />} />
           <Route path="/admin/modules/add" element={<ModuleFormPage />} />
           <Route path="/admin/modules/:id/edit" element={<ModuleFormPage />} />
@@ -151,10 +176,12 @@ export function AppRoutes() {
             path="/admin/role-permission"
             element={<RolePermissionManagement />}
           />
+          // User routes
           <Route path="/users" element={<CreateUserListPage />} />
           <Route path="/users/add" element={<CreateUserFormPage />} />
           <Route path="/users/:userId/edit" element={<EditUserFormPage />} />
           <Route path="/users/:userId" element={<UserDetailPage />} />
+          // Trip routes
           <Route path="/trip/requisition" element={<TripRequisition />} />
           <Route path="/trip/requisition/:tripId" element={<TripRequisitionDetailPage />} />
           <Route path="/trip/request" element={<TripRequest />} />
@@ -167,6 +194,7 @@ export function AppRoutes() {
             path="/trip/driver-feedback/:tripId/rate"
             element={<RateDriverPage />}
           />
+          // Fuel routes
           <Route path="/fuel/quota-configuration" element={<QuotaConfiguration />} />
           <Route path="/fuel/quota-request-list" element={<QuotaRequestList />} />
           <Route
@@ -181,10 +209,23 @@ export function AppRoutes() {
           <Route path="/fuel/logs" element={<FuelLog />} />
           <Route path="/fuel/logs/:logId" element={<CreateFuelLog />} />
           <Route path="/fuel/create-fuel-log" element={<CreateFuelLog />} />  
+          // maintenance routes
           <Route path="/maintenance/work-orders" element={<WorkOrders />} />
           <Route path="/maintenance/work-orders/create" element={<CreateWorkOrder />} />
           <Route path="/maintenance/work-orders/:workOrderId" element={<WorkOrderDetail />} />
           <Route path="/maintenance/records" element={<ServiceRecord />} />
+
+          // Parking routes
+          <Route path="/parking/expense-log" element={<ParkingLogs />} />
+          <Route path="/parking/reimbursement-claims" element={<ReimbursementClaims />} />
+          <Route
+            path="/parking/reimbursement-claims/:claimId"
+            element={<ReimbursementClaimDetailPage />}
+          />
+          // inter-agency vehicle loan routes
+          <Route path="/vehicle-loan/requisition" element={<LoanRequisition />} />
+          <Route path="/vehicle-loan/requisition/create" element={<CreateNewRequisition />} />
+          <Route path="/vehicle-loan/:loanId" element={<LoanRequisitionDetail />} />
         </Route>
       </Routes>
     </BrowserRouter>

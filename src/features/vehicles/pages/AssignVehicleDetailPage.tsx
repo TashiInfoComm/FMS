@@ -1,5 +1,5 @@
 import { ArrowLeft, Pencil } from 'lucide-react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 
 import { Button } from '@/components/ui/button'
@@ -124,7 +124,11 @@ function DetailSection({ title, subtitle, fields }: { title: string; subtitle: s
 
 export function AssignVehicleDetailPage() {
   const { assignmentId = '' } = useParams()
-  const crud = useRouteCrudPermissions('/assign-driver')
+  const location = useLocation()
+  const locationState = (location.state as { vehicleId?: string } | null) ?? null
+  const vehicleCrud = useRouteCrudPermissions('/vehicle/list')
+  const assignCrud = useRouteCrudPermissions('/assign-driver')
+  const crud = vehicleCrud.isResolved ? vehicleCrud : assignCrud
 
   const assignmentQuery = useQuery({
     queryKey: ['driver-vehicle-assignments', 'detail', assignmentId],
@@ -135,7 +139,13 @@ export function AssignVehicleDetailPage() {
 
   const assignment = assignmentQuery.data
   const driverId = assignment?.driverId && assignment.driverId !== '—' ? assignment.driverId : ''
-  const vehicleId = assignment?.vehicleId && assignment.vehicleId !== '—' ? assignment.vehicleId : ''
+  const vehicleId =
+    assignment?.vehicleId && assignment.vehicleId !== '—'
+      ? assignment.vehicleId
+      : locationState?.vehicleId?.trim() || ''
+  const driversListPath = vehicleId
+    ? `/vehicle/list/${encodeURIComponent(vehicleId)}/drivers`
+    : '/assign-driver'
 
   const driverQuery = useQuery({
     queryKey: ['driver-vehicle-assignments', 'detail-driver', driverId],
@@ -171,14 +181,17 @@ export function AssignVehicleDetailPage() {
         <PageHeader title="Assignment Detail" subtitle="Driver vehicle assignment information." />
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" asChild className="w-full sm:w-auto">
-            <Link to="/assign-driver">
+            <Link to={driversListPath}>
               <ArrowLeft className="mr-1 h-4 w-4" />
               Back to list
             </Link>
           </Button>
           {crud.canUpdate && assignmentId ? (
             <Button asChild className="w-full sm:w-auto">
-              <Link to={`/assign-driver/${encodeURIComponent(assignmentId)}/edit`}>
+              <Link
+                to={`/assign-driver/${encodeURIComponent(assignmentId)}/edit`}
+                state={vehicleId ? { vehicleId } : undefined}
+              >
                 <Pencil className="mr-1 h-4 w-4" />
                 Edit
               </Link>

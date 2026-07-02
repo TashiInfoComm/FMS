@@ -1,5 +1,5 @@
 /** Outlined row actions using :root --fms-* tokens (index.css / globals.css). */
-import { LayoutGrid, Pencil, Trash2, BookmarkX } from 'lucide-react'
+import { Pencil, Trash2, BookmarkX, CheckCircle, Undo2, EyeIcon } from 'lucide-react'
 import type { ComponentProps, ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -41,7 +41,7 @@ export function DetailRowActionButton({ className, name, tooltip, ...props }: Ro
           className={cn(detailRowActionButtonClassName, className)}
           {...props}
         >
-          <LayoutGrid aria-hidden />
+          <EyeIcon aria-hidden size={24}/>
         </Button>
       </TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>
@@ -99,3 +99,39 @@ export function CancelRowActionButton({
       </Tooltip>
     )
   }
+
+
+  export function ApproveLineItemActionButton({ 
+    className,
+    tooltip = 'Approve line item',
+    ...props
+  }: RowActionButtonProps & RowActionTooltipProps) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button type="button" variant="outline" size="sm" className={cn(editRowActionButtonClassName, className)} {...props}>
+            <CheckCircle aria-hidden />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{tooltip}</TooltipContent>
+        </Tooltip>
+      )
+    }
+
+
+    export function ReturnLineItemActionButton({ 
+      className,
+      tooltip = 'Return',
+      ...props
+    }: RowActionButtonProps & RowActionTooltipProps) {
+      return (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button type="button" variant="outline" size="sm" className={cn(cancelRowActionButtonClassName, className)} {...props}>
+              <Undo2 aria-hidden size={24}/>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{tooltip}</TooltipContent>
+          </Tooltip>
+        )
+      }

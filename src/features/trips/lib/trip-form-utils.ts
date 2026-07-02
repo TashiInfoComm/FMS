@@ -106,6 +106,7 @@ export function isLocalOrPickDropTrip(label: string, code?: string): boolean {
   if (hay.includes('long')) return false
   return (
     hay.includes('local') ||
+    hay.includes('short') ||
     hay.includes('pick') ||
     hay.includes('drop')
   )
@@ -151,6 +152,7 @@ export type TripStatusCode =
   | 'IN_PROGRESS'
   | 'PAUSED'
   | 'COMPLETED'
+  | 'DROPPED_OFF'
   | 'CANCELLED'
   | 'REJECTED'
 
@@ -162,6 +164,7 @@ const TRIP_STATUS_CODES = new Set<string>([
   'IN_PROGRESS',
   'PAUSED',
   'COMPLETED',
+  'DROPPED_OFF',
   'CANCELLED',
   'REJECTED',
 ])
@@ -177,6 +180,8 @@ const TRIP_STATUS_ALIASES: Record<string, TripStatusCode> = {
   paused: 'PAUSED',
   completed: 'COMPLETED',
   complete: 'COMPLETED',
+  dropped_off: 'DROPPED_OFF',
+  droppedoff: 'DROPPED_OFF',
   cancelled: 'CANCELLED',
   canceled: 'CANCELLED',
   rejected: 'REJECTED',
@@ -203,6 +208,43 @@ export function isTripPlanned(statusCode: string): boolean {
 
 export function isTripCompleted(statusCode: string): boolean {
   return normalizeTripStatusCode(statusCode) === 'COMPLETED'
+}
+
+export function getTripFeedbackLeg(statusCodeOrLabel: string): number {
+  const code = normalizeTripStatusCode(statusCodeOrLabel)
+  if (code === 'DROPPED_OFF') return 1
+  return 2
+}
+
+export function normalizeFeedbackLegs(value: unknown): number[] {
+  if (!Array.isArray(value)) return []
+  const legs = new Set<number>()
+  for (const item of value) {
+    const parsed = Number(item)
+    if (parsed === 1 || parsed === 2) legs.add(parsed)
+  }
+  return [...legs].sort((a, b) => a - b)
+}
+
+export function resolvePickupDriverFeedbackStatus(
+  pickupRequired: boolean | undefined,
+  feedbackLegs: number[],
+  hasFeedback: boolean,
+): 'Pending' | 'Completed' {
+  if (pickupRequired === true) {
+    return feedbackLegs.includes(1) && feedbackLegs.includes(2) ? 'Completed' : 'Pending'
+  }
+  return hasFeedback ? 'Completed' : 'Pending'
+}
+
+export function resolvePendingPickupFeedbackLeg(
+  pickupRequired: boolean | undefined,
+  feedbackLegs: number[],
+): number | undefined {
+  if (pickupRequired !== true) return undefined
+  if (feedbackLegs.includes(1) && !feedbackLegs.includes(2)) return 2
+  if (!feedbackLegs.includes(1) && !feedbackLegs.includes(2)) return 1
+  return undefined
 }
 
 export function normalizeTripStatusCode(value: string): TripStatusCode | null {
@@ -236,12 +278,42 @@ export function tripStatusBadgeClass(statusCodeOrLabel: string): string {
       return 'border-transparent bg-[#fffbeb] text-[#d97706] hover:bg-[#fffbeb]'
     case 'COMPLETED':
       return 'border-transparent bg-[#d0fae5] text-[#007a55] hover:bg-[#d0fae5]'
+    case 'DROPPED_OFF':
+      return 'border-transparent bg-[#dbeafe] text-[#1d4ed8] hover:bg-[#dbeafe]'
     case 'CANCELLED':
       return 'border-transparent bg-[#f1f5f9] text-[#64748b] hover:bg-[#f1f5f9]'
     case 'REJECTED':
       return 'border-transparent bg-[#fde8e8] text-[#c53030] hover:bg-[#fde8e8]'
     default:
       return 'border-transparent bg-[#edf2f7] text-[#2d3748] hover:bg-[#edf2f7]'
+  }
+}
+
+export function formatTripStatusLabel(statusCodeOrLabel: string): string {
+  const code = normalizeTripStatusCode(statusCodeOrLabel)
+  switch (code) {
+    case 'DRAFT':
+      return 'Draft'
+    case 'PLANNED':
+      return 'Planned'
+    case 'ASSIGNED':
+      return 'Assigned'
+    case 'STARTED':
+      return 'Started'
+    case 'IN_PROGRESS':
+      return 'In Progress'
+    case 'PAUSED':
+      return 'Paused'
+    case 'COMPLETED':
+      return 'Completed'
+    case 'DROPPED_OFF':
+      return 'Dropped Off'
+    case 'CANCELLED':
+      return 'Cancelled'
+    case 'REJECTED':
+      return 'Rejected'
+    default:
+      return statusCodeOrLabel.trim() || '—'
   }
 }
 

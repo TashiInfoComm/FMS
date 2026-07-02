@@ -227,9 +227,10 @@ function QuotaRequestDetailContent({
       <Card className="rounded-xl border border-[var(--fms-strokes)] bg-white">
         <CardContent className="space-y-4 p-4 sm:p-6">
           <div className="grid gap-4 sm:grid-cols-2">
-            <DetailFieldBox label="Driver Name" value={request.driverName} />
-            <DetailFieldBox label="Vehicle Number" value={request.vehicle} />
-            <DetailFieldBox label="Contact Number" value={request.contactNumber} />
+            <DetailFieldBox label="Registration No." value={request.registrationNumber} />
+            <DetailFieldBox label="Make" value={request.make} />
+            <DetailFieldBox label="Model" value={request.model} />
+            <DetailFieldBox label="Year" value={request.year} />
             <DetailFieldBox
               label="Request Source"
               value={formatQuotaRequestSource(request.requestSource)}

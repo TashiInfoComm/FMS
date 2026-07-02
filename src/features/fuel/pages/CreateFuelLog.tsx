@@ -20,7 +20,7 @@ import {
   createFuelLog,
   fetchDriverVehicles,
   fetchFuelLogById,
-  fetchFuelLogVehicleDetail,
+  formatFuelLogVehicleDisplay,
   isFuelLogMtoReviewable,
   openFuelLogReceipt,
   resubmitFuelLog,
@@ -36,14 +36,13 @@ import {
   getFuelLogAutoDateIso,
 } from '@/features/fuel/lib/fuel-log-mock-data'
 import type { ApiRecord } from '@/features/user/lib/roles-api'
-import { fetchUserById, mapUserDetailFields } from '@/features/user/lib/users-api'
+import { mapUserDetailFields } from '@/features/user/lib/users-api'
 import { formatFileSizeLabel } from '@/features/trips/lib/trip-form-utils'
 import { cn } from '@/lib/utils'
 import { DetailInlineValueSkeleton } from '@/shared/components/detail-loading'
 import { useUserStore } from '@/services/user-store'
 import { SearchableAutocomplete } from '@/shared/components/SearchableAutocomplete'
 import { PageHeader } from '@/shared/components/PageHeader'
-import { useAccessControl } from '@/shared/hooks/useAccessControl'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
 import { preOpenBrowserTab } from '@/shared/lib/open-in-new-tab'
@@ -740,7 +739,7 @@ function FuelLogDetailPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const crud = useRouteCrudPermissions('/fuel/logs')
-  const { apiRoleName } = useAccessControl()
+  // const { apiRoleName } = useAccessControl()
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false)
   const [reviewAction, setReviewAction] = useState<FuelLogMtoReviewAction | null>(null)
   const [reviewRemarks, setReviewRemarks] = useState('')
@@ -760,51 +759,11 @@ function FuelLogDetailPage() {
   })
 
   const record = detailQuery.data
-  const normalizedRole = apiRoleName?.trim().toLowerCase() ?? ''
-  const isDriverRole = normalizedRole.includes('driver')
+  // const normalizedRole = apiRoleName?.trim().toLowerCase() ?? ''
+  // const isDriverRole = normalizedRole.includes('driver')
 
-  const needsDriverLookup = Boolean(
-    record?.driverId?.trim() &&
-      (!record.driver || record.driver === '—' || record.driver === record.driverId),
-  )
-  const needsVehicleLookup = Boolean(
-    record?.vehicleId?.trim() &&
-      (!record.vehicle || record.vehicle === '—' || record.vehicle === record.vehicleId),
-  )
-
-  const driverQuery = useQuery({
-    queryKey: ['admin-user-detail', record?.driverId],
-    queryFn: async () => {
-      const id = record?.driverId.trim()
-      if (!id) throw new Error('Missing driver id')
-      return fetchUserById(id)
-    },
-    enabled: Boolean(record) && needsDriverLookup,
-    staleTime: 30_000,
-  })
-
-  const vehicleQuery = useQuery({
-    queryKey: ['fuel-logs', 'vehicle-detail', record?.vehicleId],
-    queryFn: () => fetchFuelLogVehicleDetail(record!.vehicleId),
-    enabled: Boolean(record?.vehicleId?.trim()) && needsVehicleLookup,
-    staleTime: 30_000,
-  })
-
-  const displayDriverName = useMemo(() => {
-    if (!record) return '—'
-    if (!needsDriverLookup) return record.driver
-    if (driverQuery.isLoading) return record.driver
-    if (!driverQuery.data) return record.driver
-    const profile = mapUserDetailFields(driverQuery.data)
-    return profile.name && profile.name !== '-' ? profile.name : record.driver
-  }, [record, needsDriverLookup, driverQuery.data, driverQuery.isLoading])
-
-  const displayVehicleNumber = useMemo(() => {
-    if (!record) return '—'
-    if (!needsVehicleLookup) return record.vehicle
-    if (vehicleQuery.isLoading) return record.vehicle
-    return vehicleQuery.data?.displayLabel || record.vehicle
-  }, [record, needsVehicleLookup, vehicleQuery.data, vehicleQuery.isLoading])
+  const displayDriverName = record?.driver || '—'
+  const displayVehicleNumber = record ? formatFuelLogVehicleDisplay(record) : '—'
 
   const showBalanceAfterLog = record ? isFuelLogMtoReviewable(record.status) : false
   const showQuotaSummary = Boolean(record)
@@ -829,17 +788,17 @@ function FuelLogDetailPage() {
     receiptMutation.mutate(preOpenBrowserTab())
   }
 
-  const isReviewable = record ? isFuelLogMtoReviewable(record.status) : false
-  const showApproveButton = isReviewable && crud.isResolved && crud.canApprove
-  const showRejectButton = isReviewable && crud.isResolved && crud.canReject
-  const showReviewActions = showApproveButton || showRejectButton
-  const normalizedStatus = record?.status.trim().toUpperCase() ?? ''
-  const isRejectedStatus =
-    normalizedStatus === 'REJECTED' ||
-    normalizedStatus === 'DECLINED' ||
-    normalizedStatus === 'MTO_REJECTED' ||
-    normalizedStatus === 'FINANCE_REJECTED'
-  const showResubmitButton = isDriverRole && isRejectedStatus && crud.isResolved && crud.canCreate
+  // const isReviewable = record ? isFuelLogMtoReviewable(record.status) : false
+  // const showApproveButton = isReviewable && crud.isResolved && crud.canApprove
+  // const showRejectButton = isReviewable && crud.isResolved && crud.canReject
+  // const showReviewActions = showApproveButton || showRejectButton
+  // const normalizedStatus = record?.status.trim().toUpperCase() ?? ''
+  // const isRejectedStatus =
+  //   normalizedStatus === 'REJECTED' ||
+  //   normalizedStatus === 'DECLINED' ||
+  //   normalizedStatus === 'MTO_REJECTED' ||
+  //   normalizedStatus === 'FINANCE_REJECTED'
+  // const showResubmitButton = isDriverRole && isRejectedStatus && crud.isResolved && crud.canCreate
 
   const reviewMutation = useMutation({
     mutationFn: ({
@@ -867,14 +826,14 @@ function FuelLogDetailPage() {
     },
   })
 
-  const openReviewDialog = (action: FuelLogMtoReviewAction) => {
-    if (reviewMutation.isPending) return
-    if (action === 'approve' && !showApproveButton) return
-    if (action === 'reject' && !showRejectButton) return
-    setReviewAction(action)
-    setReviewRemarks('')
-    setReviewDialogOpen(true)
-  }
+  // const openReviewDialog = (action: FuelLogMtoReviewAction) => {
+  //   if (reviewMutation.isPending) return
+  //   if (action === 'approve' && !showApproveButton) return
+  //   if (action === 'reject' && !showRejectButton) return
+  //   setReviewAction(action)
+  //   setReviewRemarks('')
+  //   setReviewDialogOpen(true)
+  // }
 
   const closeReviewDialog = () => {
     if (reviewMutation.isPending) return
@@ -918,16 +877,16 @@ function FuelLogDetailPage() {
     },
   })
 
-  const openResubmitDialog = () => {
-    if (!record || resubmitMutation.isPending) return
-    setResubmitLogDate(record.date)
-    setResubmitFuelLiters(String(record.liters))
-    setResubmitTotalCost(String(record.totalCost))
-    setResubmitOdometer(String(record.odometerKm))
-    setResubmitLocation(record.location === '—' ? '' : record.location)
-    setResubmitReceiptFile(null)
-    setResubmitDialogOpen(true)
-  }
+  // const openResubmitDialog = () => {
+  //   if (!record || resubmitMutation.isPending) return
+  //   setResubmitLogDate(record.date)
+  //   setResubmitFuelLiters(String(record.liters))
+  //   setResubmitTotalCost(String(record.totalCost))
+  //   setResubmitOdometer(String(record.odometerKm))
+  //   setResubmitLocation(record.location === '—' ? '' : record.location)
+  //   setResubmitReceiptFile(null)
+  //   setResubmitDialogOpen(true)
+  // }
 
   const closeResubmitDialog = () => {
     if (resubmitMutation.isPending) return
@@ -1008,8 +967,6 @@ function FuelLogDetailPage() {
         mode="detail"
         driverName={displayDriverName}
         vehicleNumber={displayVehicleNumber}
-        driverLoading={needsDriverLookup && driverQuery.isLoading}
-        vehicleLoading={needsVehicleLookup && vehicleQuery.isLoading}
         logDate={record.date}
         fuelLiters={String(record.liters)}
         totalCost={String(record.totalCost)}
@@ -1032,7 +989,7 @@ function FuelLogDetailPage() {
         }}
       />
 
-      {showReviewActions ? (
+      {/* {showReviewActions ? (
         <div className="flex flex-wrap gap-3">
           {showApproveButton ? (
             <Button
@@ -1067,7 +1024,7 @@ function FuelLogDetailPage() {
         >
           Resubmit
         </Button>
-      ) : null}
+      ) : null} */}
 
       <Button variant="outline" asChild>
         <Link to="/fuel/logs">Back to Fuel Log</Link>

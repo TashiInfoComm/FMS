@@ -7,22 +7,23 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
+import { TripFeedbackSections } from '@/features/trips/components/TripFeedbackSections'
 import {
   formatFeedbackRoute,
-  formatFeedbackVehicle,
-  feedbackRatingToStars,
-  getFeedbackRatingLabel,
   getRatingLabel,
   initialsFromName,
   starsToFeedbackRating,
 } from '@/features/trips/lib/trip-driver-feedback-mock-data'
+import { formatAssignedVehicleDetail } from '@/features/trips/lib/trip-request-mock-data'
+import { getTripFeedbackLeg } from '@/features/trips/lib/trip-form-utils'
 import {
+  fetchDriverRating,
   fetchTripDetail,
   fetchTripFeedback,
+  filterTripFeedbackByPickup,
   mapTripDetailToDriverFeedbackTrip,
   submitTripFeedback,
 } from '@/features/trips/lib/trips-api'
-import { fetchTripRequisitionMasterLists } from '@/features/trips/lib/trip-requisition-masters'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
 import { cn } from '@/lib/utils'
@@ -30,6 +31,8 @@ import { cn } from '@/lib/utils'
 type RateDriverLocationState = {
   hasFeedback?: boolean
   driverName?: string
+  feedbackLeg?: number
+  pickupRequired?: boolean
 }
 
 function FieldReadOnly({
@@ -116,44 +119,6 @@ function StarRatingInput({
   )
 }
 
-function StarRatingDisplay({
-  value,
-  size = 'lg',
-  showLabel = true,
-}: {
-  value: number
-  size?: 'lg' | 'sm'
-  showLabel?: boolean
-}) {
-  const starClass = size === 'lg' ? 'h-7 w-7' : 'h-4 w-4'
-  return (
-    <div className="space-y-2">
-      <div className="inline-flex items-center gap-1" aria-label={`${value} out of 5 stars`}>
-        {Array.from({ length: 5 }).map((_, index) => {
-          const starValue = index + 1
-          const filled = starValue <= value
-          return (
-            <Star
-              key={starValue}
-              className={cn(
-                starClass,
-                filled ? 'fill-[#facc15] text-[#facc15]' : 'text-[#d1d5db]',
-              )}
-            />
-          )
-        })}
-      </div>
-      {showLabel && value > 0 ? (
-        <p className="text-sm text-[var(--fms-text-header)]">
-          <span className="font-medium">{value} / 5 stars</span>
-          <span className="text-[var(--fms-text-subheading)]"> · </span>
-          <span>{getRatingLabel(value)}</span>
-        </p>
-      ) : null}
-    </div>
-  )
-}
-
 export default function RateDriverPage() {
   const { tripId = '' } = useParams()
   const location = useLocation()
@@ -163,28 +128,20 @@ export default function RateDriverPage() {
   const [rating, setRating] = useState(0)
   const [comments, setComments] = useState('')
 
-  const mastersQuery = useQuery({
-    queryKey: ['trips', 'masters'],
-    queryFn: fetchTripRequisitionMasterLists,
-    staleTime: 5 * 60_000,
-  })
-
   const detailQuery = useQuery({
-    queryKey: ['trips', 'detail', tripId, mastersQuery.dataUpdatedAt],
-    queryFn: () =>
-      fetchTripDetail(tripId, {
-        tripTypes: mastersQuery.data?.tripTypes,
-        purposes: mastersQuery.data?.journeyPurposes,
-        vehicleTypes: mastersQuery.data?.vehicleTypes,
-      }),
-    enabled:
-      Boolean(tripId.trim()) && (mastersQuery.isSuccess || mastersQuery.isError),
+    queryKey: ['trips', 'detail', tripId],
+    queryFn: () => fetchTripDetail(tripId),
+    enabled: Boolean(tripId.trim()),
     staleTime: 30_000,
   })
 
   const listHasFeedback = locationState?.hasFeedback === true
   const detailHasFeedback = detailQuery.data?.hasFeedback === true
-  const shouldFetchFeedback = listHasFeedback || detailHasFeedback
+  const requestedFeedbackLeg = locationState?.feedbackLeg
+  const shouldForceRateMode =
+    requestedFeedbackLeg === 1 || requestedFeedbackLeg === 2
+  const shouldFetchFeedback =
+    !shouldForceRateMode && (listHasFeedback || detailHasFeedback)
 
   const feedbackQuery = useQuery({
     queryKey: ['trips', 'feedback', tripId],
@@ -200,24 +157,50 @@ export default function RateDriverPage() {
   )
 
   const driverName =
-    trip?.driverName && trip.driverName !== '—'
-      ? trip.driverName
-      : locationState?.driverName && locationState.driverName !== '—'
-        ? locationState.driverName
+    detailQuery.data?.assignedDriver.name &&
+      detailQuery.data.assignedDriver.name !== '—'
+      ? detailQuery.data.assignedDriver.name
+      : trip?.driverName && trip.driverName !== '—'
+        ? trip.driverName
         : '—'
 
   const driverInitials = initialsFromName(driverName)
+  const displayDriverInitials =
+    driverInitials && driverInitials !== '—' ? driverInitials : initialsFromName('Driver')
+  const driverId = detailQuery.data?.assignedDriverId?.trim() ?? ''
+
+  const driverRatingQuery = useQuery({
+    queryKey: ['trips', 'driver-rating', driverId],
+    queryFn: () => fetchDriverRating(driverId),
+    enabled: Boolean(driverId) && detailQuery.isSuccess && !shouldFetchFeedback,
+    staleTime: 30_000,
+    retry: false,
+  })
+
+  const driverAverageRating = driverRatingQuery.data?.averageRating ?? 0
+  const driverTotalReviews = driverRatingQuery.data?.totalReviews ?? 0
 
   const submitMutation = useMutation({
     mutationFn: () => {
       if (!trip) throw new Error('Trip not found')
-      return submitTripFeedback(trip.id, starsToFeedbackRating(rating), comments.trim())
+      const status = detailQuery.data?.statusCode || detailQuery.data?.status || trip.tripStatus
+      const isPickupTrip = detailQuery.data?.pickupRequired === true
+      const leg = requestedFeedbackLeg ?? (isPickupTrip ? getTripFeedbackLeg(status) : 1)
+      return submitTripFeedback(
+        trip.id,
+        starsToFeedbackRating(rating),
+        comments.trim(),
+        leg,
+      )
     },
     onSuccess: async () => {
       showSuccessToast('Driver feedback submitted.')
       await queryClient.invalidateQueries({ queryKey: ['trips', 'driver-feedback'] })
       await queryClient.invalidateQueries({ queryKey: ['trips', 'detail', tripId] })
       await queryClient.invalidateQueries({ queryKey: ['trips', 'feedback', tripId] })
+      if (driverId) {
+        await queryClient.invalidateQueries({ queryKey: ['trips', 'driver-rating', driverId] })
+      }
       navigate('/trip/driver-feedback')
     },
     onError: (error) => {
@@ -226,15 +209,15 @@ export default function RateDriverPage() {
   })
 
   const isViewMode = shouldFetchFeedback && feedbackQuery.isSuccess
-  const submittedFeedback = feedbackQuery.data
-  const submittedRating = submittedFeedback
-    ? feedbackRatingToStars(submittedFeedback.rating)
-    : 0
-  const submittedComments = submittedFeedback?.reasonForRating ?? ''
+  const pickupRequired = detailQuery.data?.pickupRequired
+  const visibleFeedback = useMemo(
+    () => filterTripFeedbackByPickup(feedbackQuery.data ?? [], pickupRequired),
+    [feedbackQuery.data, pickupRequired],
+  )
+  const hasDualLegFeedback = pickupRequired === true && visibleFeedback.length > 1
 
   if (
     detailQuery.isLoading ||
-    mastersQuery.isLoading ||
     (shouldFetchFeedback && feedbackQuery.isLoading)
   ) {
     return (
@@ -307,7 +290,14 @@ export default function RateDriverPage() {
   }
 
   const routeLabel = formatFeedbackRoute(trip.origin, trip.destination)
-  const vehicleLabel = formatFeedbackVehicle(trip.vehiclePlate, trip.vehicleModel)
+  const vehicleLabel = detailQuery.data
+    ? formatAssignedVehicleDetail(detailQuery.data.assignedVehicle)
+    : '—'
+  const driverContact =
+    detailQuery.data?.assignedDriver.contact &&
+      detailQuery.data.assignedDriver.contact !== '—'
+      ? detailQuery.data.assignedDriver.contact
+      : trip.driverContact
 
   const handleSubmit = () => {
     if (isViewMode || submitMutation.isPending) return
@@ -318,7 +308,7 @@ export default function RateDriverPage() {
     submitMutation.mutate()
   }
 
-  if (isViewMode && submittedFeedback) {
+  if (isViewMode && visibleFeedback.length > 0) {
     return (
       <section className="space-y-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -334,87 +324,32 @@ export default function RateDriverPage() {
           </Button>
         </div>
 
-        <div className="grid gap-5 lg:grid-cols-[1fr_320px] lg:items-start">
-          <Card className="rounded-xl border border-[var(--fms-strokes)] bg-white p-4 sm:p-6">
-            <CardContent className="space-y-6 p-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge className="border-transparent bg-[#d0fae5] text-[#007a55] hover:bg-[#d0fae5]">
-                  Feedback Completed
-                </Badge>
-              </div>
+        <Card className="rounded-xl border border-[var(--fms-strokes)] bg-white p-4 sm:p-6">
+          <CardContent className="space-y-6 p-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge className="border-transparent bg-[#d0fae5] text-[#007a55] hover:bg-[#d0fae5]">
+                Feedback Completed
+              </Badge>
+            </div>
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                <FieldReadOnly label="Trip Type" value={trip.tripType} />
-                <FieldReadOnly label="Driver" value={driverName} />
-                <FieldReadOnly label="Vehicle" value={vehicleLabel} />
-                <FieldReadOnly label="Route" value={routeLabel} />
-              </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FieldReadOnly label="Trip Type" value={trip.tripType} />
+              {hasDualLegFeedback ? null : (
+                <>
+                  <FieldReadOnly label="Driver" value={driverName} />
+                  <FieldReadOnly label="Vehicle" value={vehicleLabel} />
+                </>
+              )}
+              <FieldReadOnly label="Route" value={routeLabel} />
+            </div>
 
-              <div className="space-y-3 rounded-xl border border-[var(--fms-strokes)] bg-[#f6f6f7] p-4 sm:p-5">
-                <div>
-                  <p className="text-sm font-semibold text-[var(--fms-text-header)]">Your Rating</p>
-                  <p className="text-xs text-[var(--fms-text-subheading)]">
-                    {getFeedbackRatingLabel(submittedFeedback.rating)}
-                  </p>
-                </div>
-                <StarRatingDisplay value={submittedRating} />
-              </div>
-
-              <FieldReadOnly
-                label="Comments"
-                value={submittedComments || '—'}
-                className="w-full"
-              />
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-xl border border-[var(--fms-strokes)] bg-white shadow-none">
-            <CardContent className="space-y-5 px-4 py-5 sm:px-5">
-              <p className="text-base font-semibold text-[var(--fms-text-header)]">
-                Driver Summary
-              </p>
-              <div className="flex flex-col items-center text-center">
-                <div className="flex h-20 w-20 items-center justify-center rounded-full bg-[var(--fms-primary)] text-2xl font-semibold text-white">
-                  {driverInitials !== '—' ? driverInitials : 'DR'}
-                </div>
-                <p className="mt-3 text-lg font-semibold text-[var(--fms-text-header)]">
-                  {driverName !== '—' ? driverName : 'Driver'}
-                </p>
-                <p className="text-sm text-[var(--fms-text-subheading)]">{trip.driverRole}</p>
-                {trip.driverContact !== '—' ? (
-                  <p className="mt-1 text-sm text-[var(--fms-text-subheading)]">
-                    {trip.driverContact}
-                  </p>
-                ) : null}
-              </div>
-              <div className="space-y-3 rounded-lg border border-[var(--fms-strokes)] bg-[#f8f8f9] p-4">
-                <div className="space-y-1">
-                  <span className="text-sm text-[var(--fms-text-subheading)]">
-                    Your Trip Rating
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <StarRatingDisplay value={submittedRating} size="sm" showLabel={false} />
-                    <span className="text-sm font-semibold text-[var(--fms-text-header)]">
-                      {submittedRating}/5
-                    </span>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-[var(--fms-text-subheading)]">Trip Type</span>
-                  <span className="font-medium text-[var(--fms-text-header)]">
-                    {trip.tripType}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-[var(--fms-text-subheading)]">Trip Status</span>
-                  <Badge className="border-transparent bg-[#d0fae5] text-[#007a55] hover:bg-[#d0fae5]">
-                    {trip.tripStatus}
-                  </Badge>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+            <TripFeedbackSections
+              items={visibleFeedback}
+              pickupRequired={pickupRequired}
+              layout={hasDualLegFeedback ? 'horizontal' : 'auto'}
+            />
+          </CardContent>
+        </Card>
       </section>
     )
   }
@@ -494,56 +429,55 @@ export default function RateDriverPage() {
               Driver Summary
             </p>
             <div className="flex flex-col items-center text-center">
-              <div className="flex h-20 w-20 items-center justify-center rounded-full bg-[var(--fms-primary)] text-2xl font-semibold text-white">
-                {driverInitials !== '—' ? driverInitials : 'DR'}
+              <div className="flex h-20 w-20 items-center justify-center rounded-full border border-[var(--fms-strokes)] bg-[var(--fms-primary,#1d4ed8)] text-2xl font-semibold text-white">
+                {displayDriverInitials}
               </div>
               <p className="mt-3 text-lg font-semibold text-[var(--fms-text-header)]">
                 {driverName !== '—' ? driverName : 'Driver'}
               </p>
               <p className="text-sm text-[var(--fms-text-subheading)]">{trip.driverRole}</p>
-              {trip.driverContact !== '—' ? (
+              {driverContact !== '—' ? (
                 <p className="mt-1 text-sm text-[var(--fms-text-subheading)]">
-                  {trip.driverContact}
+                  {driverContact}
                 </p>
               ) : null}
             </div>
             <div className="space-y-3 rounded-lg border border-[var(--fms-strokes)] bg-[#f8f8f9] p-4">
               <div className="space-y-1">
                 <span className="text-sm text-[var(--fms-text-subheading)]">Overall Rating</span>
-                <div className="flex items-center gap-2">
-                  <div className="inline-flex items-center gap-0.5">
-                    {Array.from({ length: 5 }).map((_, index) => {
-                      const starValue = index + 1
-                      const filled = starValue <= Math.round(trip.driverOverallRating)
-                      return (
-                        <Star
-                          key={starValue}
-                          className={cn(
-                            'h-4 w-4',
-                            filled ? 'fill-[#facc15] text-[#facc15]' : 'text-[#d1d5db]',
-                          )}
-                        />
-                      )
-                    })}
+                {driverRatingQuery.isLoading ? (
+                  <p className="text-sm text-[var(--fms-text-subheading)]">Loading rating…</p>
+                ) : (
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <div className="inline-flex items-center gap-0.5">
+                        {Array.from({ length: 5 }).map((_, index) => {
+                          const starValue = index + 1
+                          const filled = starValue <= Math.round(driverAverageRating)
+                          return (
+                            <Star
+                              key={starValue}
+                              className={cn(
+                                'h-4 w-4',
+                                filled ? 'fill-[#facc15] text-[#facc15]' : 'text-[#d1d5db]',
+                              )}
+                            />
+                          )
+                        })}
+                      </div>
+                      <span className="text-sm font-semibold text-[var(--fms-text-header)]">
+                        {driverAverageRating > 0
+                          ? `${Number.isInteger(driverAverageRating) ? driverAverageRating : driverAverageRating.toFixed(1)}/5`
+                          : 'Not rated yet'}
+                      </span>
+                    </div>
+                    {driverTotalReviews > 0 ? (
+                      <p className="text-xs text-[var(--fms-text-subheading)]">
+                        {driverTotalReviews} review{driverTotalReviews === 1 ? '' : 's'}
+                      </p>
+                    ) : null}
                   </div>
-                  <span className="text-sm font-semibold text-[var(--fms-text-header)]">
-                    {trip.driverOverallRating > 0
-                      ? `${trip.driverOverallRating}/5`
-                      : 'Not rated yet'}
-                  </span>
-                </div>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-[var(--fms-text-subheading)]">Trip Type</span>
-                <span className="font-medium text-[var(--fms-text-header)]">
-                  {trip.tripType}
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-[var(--fms-text-subheading)]">Trip Status</span>
-                <Badge className="border-transparent bg-[#d0fae5] text-[#007a55] hover:bg-[#d0fae5]">
-                  {trip.tripStatus}
-                </Badge>
+                )}
               </div>
             </div>
           </CardContent>

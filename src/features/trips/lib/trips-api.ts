@@ -1,5 +1,4 @@
 import { fetchUserById } from '@/features/user/lib/users-api'
-import { fetchVehicleById, mapVehicleRecordToListRow } from '@/features/vehicles/lib/vehicles-api'
 import { apiClient, apiGet, apiGetBlob, apiPost } from '@/services/apiClient'
 import { isUuidLike } from '@/shared/lib/organogram-master-lookup'
 import {
@@ -33,6 +32,9 @@ import {
   formatFileSizeLabel,
   formatTripDisplayDate,
   formatTripDisplayTime,
+  normalizeFeedbackLegs,
+  resolvePendingPickupFeedbackLeg,
+  resolvePickupDriverFeedbackStatus,
 } from '@/features/trips/lib/trip-form-utils'
 import {
   labelForMasterOption,
@@ -83,6 +85,7 @@ function unwrapDataRecord(payload: unknown): ApiRecord | null {
 export type TripRequisitionListRow = {
   id: string
   serialNo: number
+  referenceNo: string
   tripType: string
   purpose: string
   journeyDate: string
@@ -157,7 +160,8 @@ function resolvePurposeLabel(
   record: ApiRecord,
   purposes?: TripMasterOption[],
 ): string {
-  const directLabel = pickScalar(record, [
+  const source = withNestedTripFields(record)
+  const directLabel = pickScalar(source, [
     'purpose_name',
     'purposeOfJourneyName',
     'journey_purpose_name',
@@ -166,12 +170,34 @@ function resolvePurposeLabel(
   ])
   if (directLabel) return directLabel
 
-  const purposeId = pickScalar(record, ['purpose_id', 'purposeId'])
-  const purposeCode = pickScalar(record, [
-    'purpose_of_journey',
-    'purposeOfJourney',
+  const purposeBlock = pickNestedRecord(source, [
     'journey_purpose',
     'journeyPurpose',
+    'purpose',
+    'purpose_of_journey',
+    'purposeOfJourney',
+  ])
+  if (purposeBlock && typeof purposeBlock === 'object') {
+    const nestedLabel = pickScalar(purposeBlock, [
+      'name',
+      'label',
+      'purpose_name',
+      'purposeName',
+      'journey_purpose_name',
+      'journeyPurposeName',
+    ])
+    if (nestedLabel) return nestedLabel
+    const nestedId = pickScalar(purposeBlock, ['id', 'purpose_id', 'purposeId'])
+    const nestedCode = pickScalar(purposeBlock, ['code', 'purpose_code', 'purposeCode'])
+    const nestedKey = nestedId || nestedCode
+    if (nestedKey && purposes?.length) {
+      return labelForMasterOption(purposes, nestedKey)
+    }
+    if (nestedKey && !isUuidLike(nestedKey)) return nestedKey
+  }
+
+  const purposeId = pickScalar(source, ['purpose_id', 'purposeId'])
+  const purposeCode = pickScalar(source, [
     'purpose_code',
     'purposeCode',
   ])
@@ -180,6 +206,76 @@ function resolvePurposeLabel(
     return labelForMasterOption(purposes, lookupKey)
   }
   return lookupKey
+}
+
+function resolvePreferredVehicleTypeLabel(
+  record: ApiRecord,
+  vehicleTypes?: TripMasterOption[],
+): string {
+  const source = withNestedTripFields(record)
+  const directLabel = pickScalar(source, [
+    'preferred_vehicle_category_name',
+    'preferredVehicleCategoryName',
+    'preferred_vehicle_type_name',
+    'preferredVehicleTypeName',
+    'preferred_vehicle_type_label',
+    'preferredVehicleTypeLabel',
+  ])
+  if (directLabel) return directLabel
+
+  const vehicleTypeBlock = pickNestedRecord(source, [
+    'preferred_vehicle_category',
+    'preferredVehicleCategory',
+    'preferred_vehicle_type',
+    'preferredVehicleType',
+    'vehicle_category',
+    'vehicleCategory',
+  ])
+  if (vehicleTypeBlock) {
+    const nestedLabel = pickScalar(vehicleTypeBlock, [
+      'name',
+      'label',
+      'vehicle_category_name',
+      'vehicleCategoryName',
+    ])
+    if (nestedLabel) return nestedLabel
+    const nestedId = pickScalar(vehicleTypeBlock, [
+      'id',
+      'vehicle_category_id',
+      'vehicleCategoryId',
+      'preferred_vehicle_category_id',
+      'preferredVehicleCategoryId',
+      'preferred_vehicle_type_id',
+      'preferredVehicleTypeId',
+    ])
+    const nestedCode = pickScalar(vehicleTypeBlock, [
+      'code',
+      'vehicle_category_code',
+      'vehicleCategoryCode',
+    ])
+    const nestedKey = nestedId || nestedCode
+    if (nestedKey && vehicleTypes?.length) {
+      return labelForMasterOption(vehicleTypes, nestedKey)
+    }
+    if (nestedKey && !isUuidLike(nestedKey)) return nestedKey
+  }
+
+  const preferredVehicleCategoryId = pickScalar(source, [
+    'preferred_vehicle_category_id',
+    'preferredVehicleCategoryId',
+  ])
+  if (preferredVehicleCategoryId && vehicleTypes?.length) {
+    return labelForMasterOption(vehicleTypes, preferredVehicleCategoryId)
+  }
+
+  const preferredVehicleTypeId = pickScalar(source, [
+    'preferred_vehicle_type_id',
+    'preferredVehicleTypeId',
+  ])
+  if (preferredVehicleTypeId && vehicleTypes?.length) {
+    return labelForMasterOption(vehicleTypes, preferredVehicleTypeId)
+  }
+  return preferredVehicleCategoryId || preferredVehicleTypeId || ''
 }
 
 function pickPurposeDisplayLabel(
@@ -336,6 +432,16 @@ export function mapTripRequisitionListRow(
   },
 ): TripRequisitionListRow {
   const id = pickScalar(record, ['id', 'trip_id', 'tripId', 'requisition_id', 'uuid'])
+  const referenceNo =
+    pickScalar(record, [
+      'reference_no',
+      'referenceNo',
+      'request_id',
+      'requestId',
+      'trip_reference',
+      'reference',
+      'trip_code',
+    ]) || '—'
   const tripType = resolveTripTypeLabel(record, lookups?.tripTypes)
   const purpose = resolvePurposeLabel(record, lookups?.purposes)
   const journeyDateRaw = readJourneyStartDatetime(record)
@@ -347,6 +453,7 @@ export function mapTripRequisitionListRow(
   return {
     id: id || String(serialNo),
     serialNo,
+    referenceNo,
     tripType: tripType || '—',
     purpose: purpose || '—',
     journeyDate: formatTripDisplayDate(journeyDateRaw),
@@ -362,12 +469,20 @@ function listPath(
   search: string,
   page: number,
   pageSize: number,
-  options?: { status?: string; tripTypeId?: string },
+  options?: { status?: string | string[]; tripTypeId?: string },
 ) {
   const q = encodeURIComponent(search.trim())
   let path = `/trips?page=${page}&page_size=${pageSize}&search=${q}`
-  if (options?.status?.trim()) {
-    path += `&status=${encodeURIComponent(options.status.trim())}`
+  const statuses = options?.status
+    ? Array.isArray(options.status)
+      ? options.status
+      : [options.status]
+    : []
+  for (const status of statuses) {
+    const trimmed = status.trim()
+    if (trimmed) {
+      path += `&status=${encodeURIComponent(trimmed)}`
+    }
   }
   if (options?.tripTypeId?.trim()) {
     path += `&trip_type_id=${encodeURIComponent(options.tripTypeId.trim())}`
@@ -625,7 +740,7 @@ export async function fetchTripsPage<T>(
   page: number,
   pageSize: number,
   mapRow: (record: ApiRecord, serialNo: number) => T,
-  options?: { status?: string; tripTypeId?: string },
+  options?: { status?: string | string[]; tripTypeId?: string },
 ): Promise<TripsPageResult<T>> {
   const payload = await apiGet<unknown>(listPath(search, page, pageSize, options))
   const records = toArray(payload)
@@ -697,7 +812,7 @@ export async function fetchTripRequestsPage(
   }
 }
 
-export type TripMovementOrderFile = {
+export type TripNoteSheetFile = {
   name: string
   sizeLabel?: string
   url?: string
@@ -735,11 +850,16 @@ export type TripDetail = {
   remarks: string
   tripDetailsJustification?: string
   accompanyingOfficials: TripAccompanyingOfficial[]
-  movementOrderFile?: TripMovementOrderFile
+  noteSheetFile?: TripNoteSheetFile
+  generatedMovementOrderFile?: TripNoteSheetFile
   suggestedVehicle: TripSuggestedVehicle
   suggestedDriver: TripSuggestedDriver
+  assignedVehicle: TripSuggestedVehicle
+  assignedDriver: TripSuggestedDriver
   systemSuggestedDriverId?: string
   systemSuggestedVehicleId?: string
+  assignedVehicleId?: string
+  assignedDriverId?: string
   priority: TripRequestPriority
   status: string
   statusCode: string
@@ -778,20 +898,33 @@ function basenameFromPath(value: string): string {
   return parts[parts.length - 1] ?? trimmed
 }
 
-function readMovementOrderFile(record: ApiRecord): TripMovementOrderFile | undefined {
+function readNoteSheetFile(record: ApiRecord): TripNoteSheetFile | undefined {
   const source = withNestedTripFields(record)
   const block =
-    pickNestedRecord(source, ['movement_order', 'movementOrder']) ??
-    (source.movement_order_file &&
-    typeof source.movement_order_file === 'object' &&
-    !Array.isArray(source.movement_order_file)
-      ? (source.movement_order_file as ApiRecord)
-      : null)
+    pickNestedRecord(source, ['note_sheet', 'noteSheet', 'movement_order', 'movementOrder']) ??
+    (source.note_sheet_file &&
+    typeof source.note_sheet_file === 'object' &&
+    !Array.isArray(source.note_sheet_file)
+      ? (source.note_sheet_file as ApiRecord)
+      : source.movement_order_file &&
+          typeof source.movement_order_file === 'object' &&
+          !Array.isArray(source.movement_order_file)
+        ? (source.movement_order_file as ApiRecord)
+        : null)
 
   if (block) {
     const name =
       pickScalar(block, ['name', 'file_name', 'fileName', 'filename']) ||
-      basenameFromPath(pickScalar(block, ['path', 'url', 'movement_order_path']))
+      basenameFromPath(
+        pickScalar(block, [
+          'path',
+          'url',
+          'note_sheet_path',
+          'noteSheetPath',
+          'movement_order_path',
+          'movementOrderPath',
+        ]),
+      )
     if (!name) return undefined
 
     const sizeRaw = readOptionalInteger(block, [
@@ -799,6 +932,8 @@ function readMovementOrderFile(record: ApiRecord): TripMovementOrderFile | undef
       'file_size',
       'fileSize',
       'bytes',
+      'note_sheet_file_size',
+      'noteSheetFileSize',
       'movement_order_file_size',
     ])
     const sizeLabel =
@@ -808,7 +943,13 @@ function readMovementOrderFile(record: ApiRecord): TripMovementOrderFile | undef
     const url =
       pickScalar(block, ['url', 'download_url', 'downloadUrl']) ||
       (() => {
-        const path = pickScalar(block, ['path', 'movement_order_path', 'movementOrderPath'])
+        const path = pickScalar(block, [
+          'path',
+          'note_sheet_path',
+          'noteSheetPath',
+          'movement_order_path',
+          'movementOrderPath',
+        ])
         return path && /^https?:\/\//i.test(path) ? path : ''
       })()
 
@@ -820,14 +961,35 @@ function readMovementOrderFile(record: ApiRecord): TripMovementOrderFile | undef
   }
 
   const fileName =
-    pickScalar(source, ['movement_order_file_name', 'movementOrderFileName']) ||
-    basenameFromPath(pickScalar(source, ['movement_order_path', 'movementOrderPath'])) ||
+    pickScalar(source, [
+      'note_sheet_file_name',
+      'noteSheetFileName',
+      'movement_order_file_name',
+      'movementOrderFileName',
+    ]) ||
     basenameFromPath(
-      pickScalar(source, ['movement_order_object_key', 'movementOrderObjectKey']),
+      pickScalar(source, [
+        'note_sheet_path',
+        'noteSheetPath',
+        'movement_order_path',
+        'movementOrderPath',
+      ]),
+    ) ||
+    basenameFromPath(
+      pickScalar(source, [
+        'note_sheet_object_key',
+        'noteSheetObjectKey',
+        'movement_order_object_key',
+        'movementOrderObjectKey',
+      ]),
     )
   if (!fileName) return undefined
 
   const sizeRaw = readOptionalInteger(source, [
+    'note_sheet_file_size',
+    'noteSheetFileSize',
+    'note_sheet_size',
+    'noteSheetSize',
     'movement_order_file_size',
     'movementOrderFileSize',
     'movement_order_size',
@@ -836,16 +998,126 @@ function readMovementOrderFile(record: ApiRecord): TripMovementOrderFile | undef
     'fileSize',
   ])
   const sizeLabel =
-    pickScalar(source, ['movement_order_file_size_label', 'movementOrderFileSizeLabel']) ||
+    pickScalar(source, [
+      'note_sheet_file_size_label',
+      'noteSheetFileSizeLabel',
+      'movement_order_file_size_label',
+      'movementOrderFileSizeLabel',
+    ]) ||
     (sizeRaw != null ? formatFileSizeLabel(sizeRaw) : '')
 
-  const path = pickScalar(source, ['movement_order_path', 'movementOrderPath'])
+  const path = pickScalar(source, [
+    'note_sheet_path',
+    'noteSheetPath',
+    'movement_order_path',
+    'movementOrderPath',
+  ])
   const url =
     pickScalar(source, [
+      'note_sheet_url',
+      'noteSheetUrl',
+      'note_sheet_download_url',
+      'noteSheetDownloadUrl',
       'movement_order_url',
       'movementOrderUrl',
       'movement_order_download_url',
       'movementOrderDownloadUrl',
+    ]) || (path && /^https?:\/\//i.test(path) ? path : '')
+
+  return {
+    name: fileName,
+    sizeLabel: sizeLabel || undefined,
+    url: url || undefined,
+  }
+}
+
+function readGeneratedMovementOrderFile(record: ApiRecord): TripNoteSheetFile | undefined {
+  const source = withNestedTripFields(record)
+  const path = pickScalar(source, [
+    'generated_movement_order_path',
+    'generatedMovementOrderPath',
+  ])
+  if (!path) return undefined
+
+  const block =
+    pickNestedRecord(source, ['generated_movement_order', 'generatedMovementOrder']) ??
+    (source.generated_movement_order_file &&
+    typeof source.generated_movement_order_file === 'object' &&
+    !Array.isArray(source.generated_movement_order_file)
+      ? (source.generated_movement_order_file as ApiRecord)
+      : null)
+
+  if (block) {
+    const name =
+      pickScalar(block, ['name', 'file_name', 'fileName', 'filename']) ||
+      basenameFromPath(
+        pickScalar(block, [
+          'path',
+          'url',
+          'generated_movement_order_path',
+          'generatedMovementOrderPath',
+        ]),
+      ) ||
+      basenameFromPath(path)
+    if (!name) return undefined
+
+    const sizeRaw = readOptionalInteger(block, [
+      'size',
+      'file_size',
+      'fileSize',
+      'bytes',
+      'generated_movement_order_file_size',
+      'generatedMovementOrderFileSize',
+    ])
+    const sizeLabel =
+      pickScalar(block, ['size_label', 'sizeLabel']) ||
+      (sizeRaw != null ? formatFileSizeLabel(sizeRaw) : '')
+
+    const url =
+      pickScalar(block, ['url', 'download_url', 'downloadUrl']) ||
+      (() => {
+        const blockPath = pickScalar(block, [
+          'path',
+          'generated_movement_order_path',
+          'generatedMovementOrderPath',
+        ])
+        return blockPath && /^https?:\/\//i.test(blockPath) ? blockPath : ''
+      })()
+
+    return {
+      name,
+      sizeLabel: sizeLabel || undefined,
+      url: url || undefined,
+    }
+  }
+
+  const fileName =
+    pickScalar(source, [
+      'generated_movement_order_file_name',
+      'generatedMovementOrderFileName',
+    ]) ||
+    basenameFromPath(path) ||
+    'Generated movement order'
+
+  const sizeRaw = readOptionalInteger(source, [
+    'generated_movement_order_file_size',
+    'generatedMovementOrderFileSize',
+    'file_size',
+    'fileSize',
+  ])
+  const sizeLabel =
+    pickScalar(source, [
+      'generated_movement_order_file_size_label',
+      'generatedMovementOrderFileSizeLabel',
+    ]) ||
+    (sizeRaw != null ? formatFileSizeLabel(sizeRaw) : '')
+
+  const url =
+    pickScalar(source, [
+      'generated_movement_order_url',
+      'generatedMovementOrderUrl',
+      'generated_movement_order_download_url',
+      'generatedMovementOrderDownloadUrl',
     ]) || (path && /^https?:\/\//i.test(path) ? path : '')
 
   return {
@@ -890,53 +1162,74 @@ function readSystemSuggestedIds(record: ApiRecord) {
 }
 
 function readSuggestedBlocks(record: ApiRecord) {
-  const assignment = mapAssignmentFromRecord(record)
   const recommendation = pickNestedRecord(record, ['recommendation'])
   const suggestedVehicleBlock =
     pickNestedRecord(record, [
+      'system_suggested_vehicle',
+      'systemSuggestedVehicle',
       'suggested_vehicle',
       'suggestedVehicle',
       'recommended_vehicle',
       'recommendedVehicle',
-      'system_suggested_vehicle',
-      'systemSuggestedVehicle',
     ]) ??
     pickNestedRecord(recommendation ?? {}, [
+      'system_suggested_vehicle',
+      'systemSuggestedVehicle',
       'suggested_vehicle',
       'suggestedVehicle',
       'vehicle',
       'recommended_vehicle',
-    ]) ??
-    (assignment.vehicle
-      ? {
-          plate_number: assignment.vehicle.plateNumber,
-          model: assignment.vehicle.model,
-          color: assignment.vehicle.color,
-        }
-      : null)
+    ])
   const suggestedDriverBlock =
     pickNestedRecord(record, [
+      'system_suggested_driver',
+      'systemSuggestedDriver',
       'suggested_driver',
       'suggestedDriver',
       'recommended_driver',
       'recommendedDriver',
-      'system_suggested_driver',
-      'systemSuggestedDriver',
     ]) ??
     pickNestedRecord(recommendation ?? {}, [
+      'system_suggested_driver',
+      'systemSuggestedDriver',
       'suggested_driver',
       'suggestedDriver',
       'driver',
       'recommended_driver',
-    ]) ??
-    (assignment.driver
-      ? {
-          name: assignment.driver.name,
-          contact: assignment.driver.contact,
-        }
-      : null)
+    ])
 
   return { suggestedVehicleBlock, suggestedDriverBlock }
+}
+
+function readAssignedBlocks(record: ApiRecord) {
+  const source = withNestedTripFields(record)
+  const assignedVehicleBlock = pickNestedRecord(source, ['assigned_vehicle', 'assignedVehicle'])
+  const assignedDriverBlock = pickNestedRecord(source, ['assigned_driver', 'assignedDriver'])
+  return { assignedVehicleBlock, assignedDriverBlock }
+}
+
+function pickAssignedVehicleIdOnly(record: ApiRecord): string {
+  const source = withNestedTripFields(record)
+  const vehicleBlock = pickNestedRecord(source, ['assigned_vehicle', 'assignedVehicle'])
+  return (
+    pickScalar(source, ['assigned_vehicle_id', 'assignedVehicleId']) ||
+    pickScalar(vehicleBlock ?? {}, ['id', 'vehicle_id', 'vehicleId', 'uuid']) ||
+    ''
+  )
+}
+
+function pickAssignedDriverIdOnly(record: ApiRecord): string {
+  const source = withNestedTripFields(record)
+  const driverBlock = pickNestedRecord(source, ['assigned_driver', 'assignedDriver'])
+  return (
+    pickScalar(source, [
+      'assign_driver_id',
+      'assigned_driver_id',
+      'assignedDriverId',
+    ]) ||
+    pickScalar(driverBlock ?? {}, ['id', 'driver_id', 'driverId', 'user_id', 'userId']) ||
+    ''
+  )
 }
 
 function readDriverLicenseNumber(record: ApiRecord): string {
@@ -1035,7 +1328,13 @@ function mapSuggestedDriverFromBlock(block: ApiRecord | null): TripSuggestedDriv
     name: pickScalar(block, ['name', 'full_name', 'driver_name']) || '—',
     rating: readNumber(block.rating ?? block.driver_rating ?? block.driverRating),
     contact:
-      pickScalar(block, ['contact', 'contact_number', 'phone', 'mobile']) || '—',
+      pickScalar(block, [
+        'contact',
+        'contact_no',
+        'contact_number',
+        'phone',
+        'mobile',
+      ]) || '—',
     licenseNumber: readDriverLicenseNumber(block) || undefined,
   }
 }
@@ -1045,25 +1344,31 @@ async function fetchSuggestedDriverById(driverId: string): Promise<TripSuggested
   return mapUserRecordToSuggestedDriver(record)
 }
 
-async function fetchSuggestedVehicleById(vehicleId: string): Promise<TripSuggestedVehicle> {
-  const record = await fetchVehicleById(vehicleId)
-  return mapVehicleRecordToSuggestedVehicle(record)
-}
-
 export async function enrichTripDetailSuggestions(trip: TripDetail): Promise<TripDetail> {
-  const [driver, vehicle] = await Promise.all([
-    trip.systemSuggestedDriverId
-      ? fetchSuggestedDriverById(trip.systemSuggestedDriverId).catch(() => null)
-      : Promise.resolve(null),
-    trip.systemSuggestedVehicleId
-      ? fetchSuggestedVehicleById(trip.systemSuggestedVehicleId).catch(() => null)
-      : Promise.resolve(null),
-  ])
+  if (!trip.systemSuggestedDriverId) return trip
+  if (
+    !isMissingSuggestedDriver(trip.suggestedDriver) &&
+    !isMissingDriverContact(trip.suggestedDriver)
+  ) {
+    return trip
+  }
+
+  const driver = await fetchSuggestedDriverById(trip.systemSuggestedDriverId).catch(() => null)
+  if (!driver) return trip
 
   return {
     ...trip,
-    suggestedDriver: driver ?? trip.suggestedDriver,
-    suggestedVehicle: vehicle ?? trip.suggestedVehicle,
+    suggestedDriver: {
+      ...trip.suggestedDriver,
+      name:
+        trip.suggestedDriver.name !== '—' && !isUuidLike(trip.suggestedDriver.name)
+          ? trip.suggestedDriver.name
+          : driver.name,
+      contact:
+        isMissingDriverContact(trip.suggestedDriver) ? driver.contact : trip.suggestedDriver.contact,
+      licenseNumber: trip.suggestedDriver.licenseNumber ?? driver.licenseNumber,
+      rating: trip.suggestedDriver.rating > 0 ? trip.suggestedDriver.rating : driver.rating,
+    },
   }
 }
 
@@ -1071,37 +1376,32 @@ function isMissingSuggestedDriver(driver: TripSuggestedDriver): boolean {
   return !driver.name || driver.name === '—' || isUuidLike(driver.name)
 }
 
-function isMissingSuggestedVehicle(vehicle: TripSuggestedVehicle): boolean {
-  const plate = vehicle.plateNumber?.trim() ?? ''
-  const model = vehicle.model?.trim() ?? ''
-  const hasPlate = Boolean(plate && plate !== '—' && !isUuidLike(plate))
-  const hasModel = Boolean(model && model !== '—')
-  return !hasPlate && !hasModel
+function isMissingDriverContact(driver: TripSuggestedDriver): boolean {
+  return !driver.contact || driver.contact === '—'
 }
 
 async function enrichTripDetailAssignment(
   trip: TripDetail,
-  record: ApiRecord,
 ): Promise<TripDetail> {
-  const source = withNestedTripFields(record)
-  const driverId = pickAssignedDriverId(source)
-  const vehicleId = pickAssignedVehicleId(source)
+  if (!trip.assignedDriverId || !isMissingDriverContact(trip.assignedDriver)) {
+    return trip
+  }
 
-  const [driver, vehicle] = await Promise.all([
-    isMissingSuggestedDriver(trip.suggestedDriver) && driverId
-      ? fetchSuggestedDriverById(driverId).catch(() => null)
-      : Promise.resolve(null),
-    isMissingSuggestedVehicle(trip.suggestedVehicle) && vehicleId
-      ? fetchSuggestedVehicleById(vehicleId).catch(() => null)
-      : Promise.resolve(null),
-  ])
+  const driver = await fetchSuggestedDriverById(trip.assignedDriverId).catch(() => null)
+  if (!driver) return trip
 
   return {
     ...trip,
-    suggestedDriver: driver ?? trip.suggestedDriver,
-    suggestedVehicle: vehicle ?? trip.suggestedVehicle,
-    systemSuggestedDriverId: trip.systemSuggestedDriverId || driverId || undefined,
-    systemSuggestedVehicleId: trip.systemSuggestedVehicleId || vehicleId || undefined,
+    assignedDriver: {
+      ...trip.assignedDriver,
+      name:
+        trip.assignedDriver.name !== '—' && !isUuidLike(trip.assignedDriver.name)
+          ? trip.assignedDriver.name
+          : driver.name,
+      contact: driver.contact,
+      licenseNumber: trip.assignedDriver.licenseNumber ?? driver.licenseNumber,
+      rating: trip.assignedDriver.rating > 0 ? trip.assignedDriver.rating : driver.rating,
+    },
   }
 }
 
@@ -1160,20 +1460,7 @@ export function mapTripDetail(
     '—'
   const tripType = resolveTripTypeLabel(record, lookups?.tripTypes) || '—'
   const purposeOfJourney = resolvePurposeLabel(record, lookups?.purposes) || '—'
-  const preferredVehicleTypeId = pickScalar(record, [
-    'preferred_vehicle_type_id',
-    'preferredVehicleTypeId',
-  ])
-  const preferredVehicleType =
-    pickScalar(record, [
-      'preferred_vehicle_type_name',
-      'preferredVehicleTypeName',
-      'preferred_vehicle_type_label',
-    ]) ||
-    (lookups?.vehicleTypes && preferredVehicleTypeId
-      ? labelForMasterOption(lookups.vehicleTypes, preferredVehicleTypeId)
-      : preferredVehicleTypeId) ||
-    '—'
+  const preferredVehicleType = resolvePreferredVehicleTypeLabel(record, lookups?.vehicleTypes) || '—'
   const journeyStartRaw = readJourneyStartDatetime(record)
   const journeyEndRaw = pickScalar(record, [
     'journey_end_datetime',
@@ -1194,12 +1481,14 @@ export function mapTripDetail(
     pickScalar(record, ['remarks', 'notes', 'comment']) ||
     tripDetailsJustification ||
     '—'
-  const movementOrderFile = readMovementOrderFile(record)
+  const noteSheetFile = readNoteSheetFile(record)
+  const generatedMovementOrderFile = readGeneratedMovementOrderFile(record)
   const priorityRaw = pickScalar(record, ['priority', 'trip_priority', 'tripPriority'])
   const statusCode = readTripStatusCode(record)
   const status = readTripDisplayStatus(record)
   const { systemSuggestedDriverId, systemSuggestedVehicleId } = readSystemSuggestedIds(record)
   const { suggestedVehicleBlock, suggestedDriverBlock } = readSuggestedBlocks(record)
+  const { assignedVehicleBlock, assignedDriverBlock } = readAssignedBlocks(record)
   const tripFeedback = readTripFeedback(record)
 
   return {
@@ -1241,11 +1530,16 @@ export function mapTripDetail(
     remarks,
     tripDetailsJustification: tripDetailsJustification || undefined,
     accompanyingOfficials: readAccompanyingOfficials(record),
-    movementOrderFile,
+    noteSheetFile,
+    generatedMovementOrderFile,
     suggestedVehicle: mapSuggestedVehicleFromBlock(suggestedVehicleBlock),
     suggestedDriver: mapSuggestedDriverFromBlock(suggestedDriverBlock),
+    assignedVehicle: mapSuggestedVehicleFromBlock(assignedVehicleBlock),
+    assignedDriver: mapSuggestedDriverFromBlock(assignedDriverBlock),
     systemSuggestedDriverId,
     systemSuggestedVehicleId,
+    assignedVehicleId: pickAssignedVehicleIdOnly(record) || undefined,
+    assignedDriverId: pickAssignedDriverIdOnly(record) || undefined,
     priority: priorityRaw ? normalizeTripRequestPriority(priorityRaw) : 'Normal',
     status,
     statusCode,
@@ -1266,7 +1560,7 @@ export async function fetchTripDetail(
   if (!record) throw new Error('Trip not found')
   const trip = mapTripDetail(record, lookups)
   const withSuggestions = await enrichTripDetailSuggestions(trip)
-  return enrichTripDetailAssignment(withSuggestions, record)
+  return enrichTripDetailAssignment(withSuggestions)
 }
 
 function pickFileUrlFromPayload(payload: unknown): string {
@@ -1282,6 +1576,10 @@ function pickFileUrlFromPayload(payload: unknown): string {
       'url',
       'download_url',
       'downloadUrl',
+      'note_sheet_url',
+      'noteSheetUrl',
+      'generated_movement_order_url',
+      'generatedMovementOrderUrl',
       'movement_order_url',
       'movementOrderUrl',
       'signed_url',
@@ -1290,7 +1588,7 @@ function pickFileUrlFromPayload(payload: unknown): string {
   )
 }
 
-function guessMovementOrderMimeType(fileName: string): string {
+function guessNoteSheetMimeType(fileName: string): string {
   const lower = fileName.trim().toLowerCase()
   if (lower.endsWith('.pdf')) return 'application/pdf'
   if (lower.endsWith('.png')) return 'image/png'
@@ -1298,8 +1596,8 @@ function guessMovementOrderMimeType(fileName: string): string {
   return 'application/octet-stream'
 }
 
-/** GET `/trips/{id}/movement-order` and open the file in a new browser tab. */
-export async function openTripMovementOrder(
+/** GET `/trips/{id}/note-sheet` and open the file in a new browser tab. */
+export async function openTripNoteSheet(
   tripId: string,
   fileName = '',
   targetWindow?: Window | null,
@@ -1309,13 +1607,13 @@ export async function openTripMovementOrder(
 
   try {
     const { blob, contentType } = await apiGetBlob(
-      `/trips/${encodeURIComponent(trimmed)}/movement-order`,
+      `/trips/${encodeURIComponent(trimmed)}/note-sheet`,
     )
 
     if (contentType.includes('application/json')) {
       const payload = JSON.parse(await blob.text()) as unknown
       const url = pickFileUrlFromPayload(payload)
-      if (!url) throw new Error('Movement order URL not found')
+      if (!url) throw new Error('Note sheet URL not found')
       navigateBrowserTab(targetWindow, url)
       return
     }
@@ -1323,7 +1621,43 @@ export async function openTripMovementOrder(
     const mimeType =
       contentType && contentType !== 'application/octet-stream'
         ? contentType
-        : guessMovementOrderMimeType(fileName)
+        : guessNoteSheetMimeType(fileName)
+    const fileBlob = mimeType === blob.type ? blob : blob.slice(0, blob.size, mimeType)
+    const objectUrl = URL.createObjectURL(fileBlob)
+    navigateBrowserTab(targetWindow, objectUrl)
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000)
+  } catch (error) {
+    closeBrowserTab(targetWindow)
+    throw error
+  }
+}
+
+/** GET `/trips/{id}/generated-movement-order` and open the file in a new browser tab. */
+export async function openTripGeneratedMovementOrder(
+  tripId: string,
+  fileName = '',
+  targetWindow?: Window | null,
+): Promise<void> {
+  const trimmed = tripId.trim()
+  if (!trimmed) throw new Error('Trip ID is required')
+
+  try {
+    const { blob, contentType } = await apiGetBlob(
+      `/trips/${encodeURIComponent(trimmed)}/generated-movement-order`,
+    )
+
+    if (contentType.includes('application/json')) {
+      const payload = JSON.parse(await blob.text()) as unknown
+      const url = pickFileUrlFromPayload(payload)
+      if (!url) throw new Error('Generated movement order URL not found')
+      navigateBrowserTab(targetWindow, url)
+      return
+    }
+
+    const mimeType =
+      contentType && contentType !== 'application/octet-stream'
+        ? contentType
+        : guessNoteSheetMimeType(fileName)
     const fileBlob = mimeType === blob.type ? blob : blob.slice(0, blob.size, mimeType)
     const objectUrl = URL.createObjectURL(fileBlob)
     navigateBrowserTab(targetWindow, objectUrl)
@@ -1542,6 +1876,14 @@ export async function completeTrip(tripId: string, endOdometer: number): Promise
   )
 }
 
+export async function dropOffTrip(tripId: string): Promise<void> {
+  const trimmed = tripId.trim()
+  if (!trimmed) throw new Error('Trip ID is required')
+  await apiClient<unknown>(`/trips/${encodeURIComponent(trimmed)}/drop-off`, {
+    method: 'POST',
+  })
+}
+
 function normalizeFeedbackRating(value: string | number): TripFeedbackRating | undefined {
   if (typeof value === 'number' && Number.isFinite(value)) {
     const stars = Math.min(5, Math.max(1, Math.round(value)))
@@ -1688,103 +2030,6 @@ function pickAssignedVehicleId(record: ApiRecord): string {
   )
 }
 
-function isMissingTripDisplayName(value: string): boolean {
-  const trimmed = value.trim()
-  return !trimmed || trimmed === '—' || isUuidLike(trimmed)
-}
-
-async function resolveFeedbackDriverNames(driverIds: string[]): Promise<Map<string, string>> {
-  const uniqueIds = [...new Set(driverIds.filter(Boolean))]
-  if (uniqueIds.length === 0) return new Map()
-
-  const entries = await Promise.all(
-    uniqueIds.map(async (driverId) => {
-      try {
-        const record = await fetchUserById(driverId)
-        const driver = mapUserRecordToSuggestedDriver(record)
-        return [driverId, driver.name !== '—' ? driver.name : driverId] as const
-      } catch {
-        return [driverId, driverId] as const
-      }
-    }),
-  )
-
-  return new Map(entries)
-}
-
-async function resolveFeedbackVehicleDetails(
-  vehicleIds: string[],
-): Promise<Map<string, { plate: string; model: string }>> {
-  const uniqueIds = [...new Set(vehicleIds.filter(Boolean))]
-  if (uniqueIds.length === 0) return new Map()
-
-  const entries = await Promise.all(
-    uniqueIds.map(async (vehicleId) => {
-      try {
-        const record = await fetchVehicleById(vehicleId)
-        const row = mapVehicleRecordToListRow(record)
-        return [
-          vehicleId,
-          {
-            plate:
-              row.registration_number !== '—' && !isUuidLike(row.registration_number)
-                ? row.registration_number
-                : vehicleId,
-            model: row.makeModel !== '—' ? row.makeModel : '—',
-          },
-        ] as const
-      } catch {
-        return [vehicleId, { plate: vehicleId, model: '—' }] as const
-      }
-    }),
-  )
-
-  return new Map(entries)
-}
-
-async function enrichDriverFeedbackRows(
-  rows: DriverFeedbackListItem[],
-): Promise<DriverFeedbackListItem[]> {
-  const driverIds = rows
-    .filter((row) => isMissingTripDisplayName(row.driverName))
-    .map((row) => row.driverId ?? '')
-  const vehicleIds = rows
-    .filter(
-      (row) =>
-        isMissingTripDisplayName(row.vehiclePlate) && isMissingTripDisplayName(row.vehicleModel),
-    )
-    .map((row) => row.vehicleId ?? '')
-
-  const [driverNames, vehicleDetails] = await Promise.all([
-    resolveFeedbackDriverNames(driverIds),
-    resolveFeedbackVehicleDetails(vehicleIds),
-  ])
-
-  return rows.map((row) => {
-    const vehicleDetail = row.vehicleId ? vehicleDetails.get(row.vehicleId) : undefined
-    return {
-      ...row,
-      driverName: !isMissingTripDisplayName(row.driverName)
-        ? row.driverName
-        : row.driverId
-          ? (driverNames.get(row.driverId) ?? row.driverName)
-          : row.driverName,
-      vehiclePlate:
-        !isMissingTripDisplayName(row.vehiclePlate)
-          ? row.vehiclePlate
-          : vehicleDetail?.plate && !isMissingTripDisplayName(vehicleDetail.plate)
-            ? vehicleDetail.plate
-            : row.vehiclePlate,
-      vehicleModel:
-        !isMissingTripDisplayName(row.vehicleModel)
-          ? row.vehicleModel
-          : vehicleDetail?.model && !isMissingTripDisplayName(vehicleDetail.model)
-            ? vehicleDetail.model
-            : row.vehicleModel,
-    }
-  })
-}
-
 function readAssignedVehicleModel(record: ApiRecord): string {
   const assignment = mapAssignmentFromRecord(record)
   if (assignment.vehicle?.model && assignment.vehicle.model !== '—') {
@@ -1825,11 +2070,20 @@ export function mapDriverFeedbackListRow(
       'trip_code',
     ]) || id
   const journeyStartRaw = readJourneyStartDatetime(source)
+  const statusCode = readTripStatusCode(source)
   const status = readTripDisplayStatus(source)
   const tripType = resolveTripTypeLabel(source, lookups?.tripTypes) || '—'
   const driverId = pickAssignedDriverId(source)
   const vehicleId = pickAssignedVehicleId(source)
   const hasFeedback = readHasFeedback(source)
+  const pickupRequired = readBoolean(source, ['pickup_required', 'pickupRequired'])
+  const feedbackLegs = normalizeFeedbackLegs(source.feedback_legs ?? source.feedbackLegs)
+  const feedbackStatus = resolvePickupDriverFeedbackStatus(
+    pickupRequired,
+    feedbackLegs,
+    hasFeedback,
+  )
+  const pendingFeedbackLeg = resolvePendingPickupFeedbackLeg(pickupRequired, feedbackLegs)
 
   return {
     id: id || tripId,
@@ -1844,11 +2098,17 @@ export function mapDriverFeedbackListRow(
     driverId: driverId || undefined,
     vehicleId: vehicleId || undefined,
     tripStatus: status,
-    feedbackStatus: hasFeedback ? 'Completed' : 'Pending',
+    tripStatusCode: statusCode || undefined,
+    pickupRequired,
+    feedbackLegs,
+    pendingFeedbackLeg,
+    feedbackStatus,
   }
 }
 
 export type DriverFeedbackTripsPageResult = TripsPageResult<DriverFeedbackListItem>
+
+export const DRIVER_FEEDBACK_TRIP_STATUSES = ['COMPLETED', 'DROPPED_OFF'] as const
 
 export async function fetchDriverFeedbackTripsPage(
   search: string,
@@ -1857,30 +2117,30 @@ export async function fetchDriverFeedbackTripsPage(
   lookups?: { tripTypes?: TripMasterOption[] },
   queryOptions?: { tripTypeId?: string },
 ): Promise<DriverFeedbackTripsPageResult> {
-  const result = await fetchTripsPage(
+  return fetchTripsPage(
     search,
     page,
     pageSize,
     (record) => mapDriverFeedbackListRow(record, lookups),
-    { status: 'COMPLETED', tripTypeId: queryOptions?.tripTypeId },
+    { status: [...DRIVER_FEEDBACK_TRIP_STATUSES], tripTypeId: queryOptions?.tripTypeId },
   )
-  const enrichedRows = await enrichDriverFeedbackRows(result.rows)
-  return {
-    ...result,
-    rows: enrichedRows,
-  }
 }
 
 export function mapTripDetailToDriverFeedbackTrip(trip: TripDetail): DriverFeedbackTrip {
-  const driverName = trip.suggestedDriver.name !== '—' ? trip.suggestedDriver.name : '—'
-  const driverContact =
-    trip.suggestedDriver.contact !== '—' ? trip.suggestedDriver.contact : '—'
-  const vehiclePlate =
-    trip.suggestedVehicle.plateNumber !== '—' ? trip.suggestedVehicle.plateNumber : '—'
-  const vehicleModelRaw = formatSuggestedVehicleMakeModel(trip.suggestedVehicle)
-  const vehicleModel =
-    vehicleModelRaw !== '—' ? vehicleModelRaw : trip.suggestedVehicle.model
+  const driver = trip.assignedDriver
+  const vehicle = trip.assignedVehicle
+  const driverName = driver.name !== '—' ? driver.name : '—'
+  const driverContact = driver.contact !== '—' ? driver.contact : '—'
+  const vehiclePlate = vehicle.plateNumber !== '—' ? vehicle.plateNumber : '—'
+  const vehicleModelRaw = formatSuggestedVehicleMakeModel(vehicle)
+  const vehicleModel = vehicleModelRaw !== '—' ? vehicleModelRaw : vehicle.model
   const hasFeedback = trip.hasFeedback
+  const feedbackLegs: number[] = []
+  const feedbackStatus = resolvePickupDriverFeedbackStatus(
+    trip.pickupRequired,
+    feedbackLegs,
+    hasFeedback,
+  )
   const tripType =
     trip.tripType && trip.tripType !== '—' && !isUuidLike(trip.tripType)
       ? trip.tripType
@@ -1897,12 +2157,13 @@ export function mapTripDetailToDriverFeedbackTrip(trip: TripDetail): DriverFeedb
     vehicleModel,
     driverName,
     tripStatus: trip.status,
-    feedbackStatus: hasFeedback ? 'Completed' : 'Pending',
+    pickupRequired: trip.pickupRequired,
+    feedbackLegs,
+    feedbackStatus,
     driverInitials: initialsFromName(driverName),
     driverRole: 'Driver',
     driverContact,
-    driverOverallRating:
-      trip.suggestedDriver.rating > 0 ? trip.suggestedDriver.rating : 0,
+    driverOverallRating: driver.rating > 0 ? driver.rating : 0,
     driverCompletedTrips: 0,
     driverRecommendation: '—',
     submittedRating: trip.feedbackRating
@@ -1916,47 +2177,154 @@ export function mapTripDetailToDriverFeedbackTrip(trip: TripDetail): DriverFeedb
 export type SubmitTripFeedbackBody = {
   rating: TripFeedbackRating
   reason_for_rating: string
+  leg: number
 }
 
-export type TripFeedback = {
+export type TripFeedbackItem = {
+  id?: string
+  tripId?: string
+  leg: number
   rating: TripFeedbackRating
   reasonForRating: string
+  vehiclePlate: string
+  vehicleModel: string
+  driverId?: string
+  driverName?: string
+  driverContact?: string
 }
 
-function mapTripFeedbackRecord(record: ApiRecord): TripFeedback | null {
+function unwrapDataList(payload: unknown): ApiRecord[] {
+  if (!payload || typeof payload !== 'object') return []
+  const root = payload as ApiRecord
+  const data = root.data
+  if (Array.isArray(data)) {
+    return data.filter((item): item is ApiRecord => Boolean(item && typeof item === 'object'))
+  }
+  if (Array.isArray(payload)) {
+    return payload.filter((item): item is ApiRecord => Boolean(item && typeof item === 'object'))
+  }
+  const items = root.items ?? root.results
+  if (Array.isArray(items)) {
+    return items.filter((item): item is ApiRecord => Boolean(item && typeof item === 'object'))
+  }
+  const record = unwrapDataRecord(payload)
+  return record ? [record] : []
+}
+
+function mapFeedbackVehicleFromRecord(record: ApiRecord): {
+  vehiclePlate: string
+  vehicleModel: string
+} {
+  const vehicleBlock = pickNestedRecord(record, ['assigned_vehicle', 'assignedVehicle'])
+  if (!vehicleBlock) {
+    return { vehiclePlate: '—', vehicleModel: '—' }
+  }
+
+  const vehiclePlate =
+    pickScalar(vehicleBlock, [
+      'registration_number',
+      'registrationNumber',
+      'plate_number',
+      'plateNumber',
+    ]) || '—'
+  const make = pickScalar(vehicleBlock, ['make', 'vehicle_make', 'manufacturerName']) || ''
+  const model =
+    pickScalar(vehicleBlock, ['model', 'vehicle_model', 'make_model', 'assetName']) || '—'
+  const parts = [make, model].filter((part) => part && part !== '—')
+  const vehicleModel = parts.length > 0 ? parts.join(' ') : model
+
+  return { vehiclePlate, vehicleModel }
+}
+
+function mapFeedbackDriverFromRecord(record: ApiRecord): {
+  driverId?: string
+  driverName?: string
+  driverContact?: string
+} {
+  const driverBlock = pickNestedRecord(record, [
+    'assigned_driver',
+    'assignedDriver',
+    'driver',
+  ])
+  const driverId =
+    pickScalar(record, ['driver_id', 'driverId']) ||
+    pickScalar(driverBlock ?? {}, ['id', 'driver_id', 'driverId']) ||
+    undefined
+  const driverName =
+    pickScalar(driverBlock ?? {}, ['name', 'full_name', 'fullName', 'driver_name']) ||
+    undefined
+  const driverContact =
+    pickScalar(driverBlock ?? {}, [
+      'contact_no',
+      'contactNo',
+      'contact',
+      'contact_number',
+      'phone',
+      'mobile',
+    ]) || undefined
+
+  return { driverId, driverName, driverContact }
+}
+
+function mapTripFeedbackItem(record: ApiRecord): TripFeedbackItem | null {
   const parsed = readTripFeedback(record)
   if (!parsed?.rating) return null
+
+  const { vehiclePlate, vehicleModel } = mapFeedbackVehicleFromRecord(record)
+  const { driverId, driverName, driverContact } = mapFeedbackDriverFromRecord(record)
+  const leg = readOptionalInteger(record, ['leg']) ?? 1
+
   return {
+    id: pickScalar(record, ['id', 'feedback_id', 'feedbackId']) || undefined,
+    tripId: pickScalar(record, ['trip_id', 'tripId']) || undefined,
+    leg,
     rating: parsed.rating,
     reasonForRating: parsed.reason ?? '',
+    vehiclePlate,
+    vehicleModel,
+    driverId,
+    driverName,
+    driverContact,
   }
 }
 
-export async function fetchTripFeedback(tripId: string): Promise<TripFeedback> {
+export function filterTripFeedbackForCurrentUser(
+  items: TripFeedbackItem[],
+  currentUserId: string,
+): TripFeedbackItem[] {
+  const trimmed = currentUserId.trim()
+  if (!trimmed) return items
+  return items.filter((item) => item.driverId === trimmed)
+}
+
+export function filterTripFeedbackByPickup(
+  items: TripFeedbackItem[],
+  pickupRequired?: boolean,
+): TripFeedbackItem[] {
+  const sorted = [...items].sort((a, b) => a.leg - b.leg)
+  if (pickupRequired === true) return sorted
+  return sorted.filter((item) => item.leg === 1)
+}
+
+export async function fetchTripFeedback(tripId: string): Promise<TripFeedbackItem[]> {
   const trimmed = tripId.trim()
   if (!trimmed) throw new Error('Trip ID is required')
   const payload = await apiGet<unknown>(`/trips/${encodeURIComponent(trimmed)}/feedback`)
-  let record = unwrapDataRecord(payload)
-  if (!record && Array.isArray(payload) && payload[0] && typeof payload[0] === 'object') {
-    record = payload[0] as ApiRecord
-  }
-  if (!record && payload && typeof payload === 'object') {
-    const root = payload as ApiRecord
-    const items = root.items ?? root.results
-    if (Array.isArray(items) && items[0] && typeof items[0] === 'object') {
-      record = items[0] as ApiRecord
-    }
-  }
-  if (!record) throw new Error('Feedback not found')
-  const feedback = mapTripFeedbackRecord(record)
-  if (!feedback) throw new Error('Feedback not found')
-  return feedback
+  const records = unwrapDataList(payload)
+  if (records.length === 0) throw new Error('Feedback not found')
+
+  const items = records
+    .map((record) => mapTripFeedbackItem(record))
+    .filter((item): item is TripFeedbackItem => item !== null)
+  if (items.length === 0) throw new Error('Feedback not found')
+  return items
 }
 
 export async function submitTripFeedback(
   tripId: string,
   rating: TripFeedbackRating,
   reasonForRating: string,
+  leg: number,
 ): Promise<void> {
   const trimmed = tripId.trim()
   if (!trimmed) throw new Error('Trip ID is required')
@@ -1965,8 +2333,38 @@ export async function submitTripFeedback(
     {
       rating,
       reason_for_rating: reasonForRating,
+      leg,
     },
   )
+}
+
+export type DriverRatingSummary = {
+  averageRating: number
+  totalReviews: number
+}
+
+export async function fetchDriverRating(driverId: string): Promise<DriverRatingSummary> {
+  const trimmed = driverId.trim()
+  if (!trimmed) throw new Error('Driver ID is required')
+  const payload = await apiGet<unknown>(
+    `/trips/drivers/${encodeURIComponent(trimmed)}/rating`,
+  )
+  const record = unwrapDataRecord(payload) ?? (payload as ApiRecord)
+  const averageRating = readNumber(
+    record.average_rating ?? record.averageRating ?? record.rating,
+  )
+  const totalReviews = Math.max(
+    0,
+    Math.trunc(
+      readNumber(
+        record.total_reviews ??
+          record.totalReviews ??
+          record.review_count ??
+          record.reviewCount,
+      ),
+    ),
+  )
+  return { averageRating, totalReviews }
 }
 
 export type AccompanyingOfficialInput = {
@@ -1991,10 +2389,10 @@ export type CreateTripRequisitionInput = {
   origin: string
   destinationDetails: string
   pickupRequired?: boolean
-  isMovementOrderRequired: boolean
+  isNoteSheetRequired: boolean
   tripDetailsJustification?: string
   accompanyingOfficials: AccompanyingOfficialInput[]
-  movementOrderFile?: File | null
+  noteSheetFile?: File | null
 }
 
 export async function lookupTripOfficialByCid(cid: string): Promise<TripOfficialLookup> {
@@ -2081,6 +2479,7 @@ function mapAssignmentFromRecord(record: ApiRecord): Pick<
         contact:
           pickScalar(driverBlock, [
             'contact',
+            'contact_no',
             'contact_number',
             'phone',
             'mobile',
@@ -2161,14 +2560,14 @@ type CreateTripRequisitionBody = {
   origin: string
   destination_details: string
   pickup_required?: boolean
-  is_movement_order_required: boolean
+  is_note_sheet_required: boolean
   trip_details_justification?: string
   accompanying_officials: { cid: string; full_name: string }[]
 }
 
 function buildTripRequisitionFormData(
   body: CreateTripRequisitionBody,
-  movementOrderFile?: File | null,
+  noteSheetFile?: File | null,
 ): FormData {
   const form = new FormData()
 
@@ -2197,15 +2596,15 @@ function buildTripRequisitionFormData(
   }
   appendScalar('origin', body.origin)
   appendScalar('destination_details', body.destination_details)
-  appendScalar('is_movement_order_required', body.is_movement_order_required)
+  appendScalar('is_note_sheet_required', body.is_note_sheet_required)
   if (body.pickup_required !== undefined) {
     form.append('pickup_required', body.pickup_required ? 'true' : 'false')
   }
   appendScalar('trip_details_justification', body.trip_details_justification)
   form.append('accompanying_officials', JSON.stringify(body.accompanying_officials))
 
-  if (movementOrderFile) {
-    form.append('movement_order_path', movementOrderFile, movementOrderFile.name)
+  if (noteSheetFile) {
+    form.append('note_sheet_path', noteSheetFile, noteSheetFile.name)
   }
 
   return form
@@ -2222,7 +2621,7 @@ function buildCreateTripRequisitionBody(
     journey_start_datetime: input.journeyStartDatetime,
     origin: input.origin,
     destination_details: input.destinationDetails,
-    is_movement_order_required: input.isMovementOrderRequired,
+    is_note_sheet_required: input.isNoteSheetRequired,
     accompanying_officials: input.accompanyingOfficials.map((official) => ({
       cid: official.cid,
       full_name: official.fullName,
@@ -2250,15 +2649,15 @@ export async function createTripRequisition(
 ): Promise<CreateTripRequisitionResult> {
   const body = buildCreateTripRequisitionBody(input)
 
-  if (input.isMovementOrderRequired && !input.movementOrderFile) {
-    throw new Error('Movement order upload is required for long trips.')
+  if (input.isNoteSheetRequired && !input.noteSheetFile) {
+    throw new Error('Note sheet upload is required for long trips.')
   }
 
   const payload =
-    input.isMovementOrderRequired || input.movementOrderFile
+    input.isNoteSheetRequired || input.noteSheetFile
       ? await apiClient<unknown>('/trips', {
           method: 'POST',
-          body: buildTripRequisitionFormData(body, input.movementOrderFile),
+          body: buildTripRequisitionFormData(body, input.noteSheetFile),
         })
       : await apiPost<unknown, CreateTripRequisitionBody>('/trips', body)
 

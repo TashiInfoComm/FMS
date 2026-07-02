@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button'
 import { TripDetailContent } from '@/features/trips/components/TripDetailContent'
 import { TripDetailSkeleton } from '@/features/trips/components/TripDetailSkeleton'
 import { fetchTripDetail } from '@/features/trips/lib/trips-api'
-import { fetchTripRequisitionMasterLists } from '@/features/trips/lib/trip-requisition-masters'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 
@@ -14,21 +13,9 @@ export default function TripRequisitionDetailPage() {
   const { tripId } = useParams<{ tripId: string }>()
   const crud = useRouteCrudPermissions('/trip/requisition')
 
-  const mastersQuery = useQuery({
-    queryKey: ['trips', 'masters'],
-    queryFn: fetchTripRequisitionMasterLists,
-    enabled: !crud.isResolved || crud.canRead,
-    staleTime: 5 * 60_000,
-  })
-
   const detailQuery = useQuery({
-    queryKey: ['trips', 'detail', tripId, mastersQuery.dataUpdatedAt],
-    queryFn: () =>
-      fetchTripDetail(tripId!, {
-        tripTypes: mastersQuery.data?.tripTypes,
-        purposes: mastersQuery.data?.journeyPurposes,
-        vehicleTypes: mastersQuery.data?.vehicleTypes,
-      }),
+    queryKey: ['trips', 'detail', tripId],
+    queryFn: () => fetchTripDetail(tripId!),
     enabled: Boolean(tripId?.trim()) && (!crud.isResolved || crud.canRead),
     staleTime: 30_000,
   })

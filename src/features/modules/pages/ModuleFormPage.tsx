@@ -152,7 +152,8 @@ function ModuleFormFields({ menuId, isEdit, initialRecord }: ModuleFormFieldsPro
       }
       if (isEdit) {
         if (!menuId) throw new Error('Missing module id.')
-        const { id: _menuId, ...body } = payload
+        const body = { ...payload }
+        delete body.id
         return apiPut<unknown, typeof body>(
           `/admin/menus/${encodeURIComponent(menuId)}`,
           body,

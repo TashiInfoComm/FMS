@@ -1,15 +1,10 @@
 /**
- * Resolves vehicle original/current organogram labels from `original_assignment` /
- * `current_assignment` via `GET /master/{entity_type}/id/{entity_id}`.
- * Status labels resolve via `GET /master/vehicle-statuses/{status_id}` and
- * `GET /master/vehicle-movement-statuses/{movement_status_id}`.
+ * Resolves vehicle original/current agency labels from `original_assignment` /
+ * `current_assignment` embedded on the vehicle detail response.
+ * Vehicle and movement status labels come from nested objects on the same response.
  */
-import { fetchUserById, mapUserDetailFields } from '@/features/user/lib/users-api'
-import {
-  fetchMasterEntityNameById,
-  fetchMasterRecordNameById,
-  isUuidLike,
-} from '@/shared/lib/organogram-master-lookup'
+import { isUuidLike } from '@/shared/lib/organogram-master-lookup'
+import { mapUserDetailFields } from '@/features/user/lib/users-api'
 
 type ApiRecord = Record<string, unknown>
 
@@ -69,6 +64,25 @@ function pickAssignmentObject(record: ApiRecord, kind: 'original' | 'current'): 
   return null
 }
 
+function pickAssignmentEntityName(assignment: ApiRecord): string | null {
+  const entity = assignment.entity
+  if (entity && typeof entity === 'object' && !Array.isArray(entity)) {
+    const entityRecord = entity as ApiRecord
+    const fromEntity =
+      toText(entityRecord.name).trim() ||
+      toText(entityRecord.label).trim() ||
+      toText(entityRecord.title).trim()
+    if (fromEntity && !isUuidLike(fromEntity)) return fromEntity
+  }
+
+  const fromAssignment =
+    toText(assignment.name).trim() ||
+    toText(assignment.entity_name).trim() ||
+    toText(assignment.entityName).trim() ||
+    toText(assignment.label).trim()
+  return fromAssignment && !isUuidLike(fromAssignment) ? fromAssignment : null
+}
+
 export function parseVehicleAssignmentRef(
   record: ApiRecord,
   kind: 'original' | 'current',
@@ -78,17 +92,13 @@ export function parseVehicleAssignmentRef(
 
   const entityId = toId(assignment.entity_id ?? assignment.entityId)
   const entityType = toText(assignment.entity_type ?? assignment.entityType).trim()
-  const embeddedName =
-    toText(assignment.name).trim() ||
-    toText(assignment.entity_name).trim() ||
-    toText(assignment.entityName).trim() ||
-    toText(assignment.label).trim()
+  const embeddedName = pickAssignmentEntityName(assignment) ?? undefined
 
   if (!entityId || !entityType) return null
   return {
     entityId,
     entityType,
-    ...(embeddedName && !isUuidLike(embeddedName) ? { embeddedName } : {}),
+    ...(embeddedName ? { embeddedName } : {}),
   }
 }
 
@@ -97,30 +107,60 @@ export type VehicleAssignmentNames = {
   current: string | null
 }
 
-async function resolveAssignmentName(
-  record: ApiRecord,
-  kind: 'original' | 'current',
-): Promise<string | null> {
-  const ref = parseVehicleAssignmentRef(record, kind)
-  if (!ref) return null
-  if (ref.embeddedName) return ref.embeddedName
-  return fetchMasterEntityNameById(ref.entityType, ref.entityId)
+/** Reads original/current agency display names from the vehicle detail response. */
+export function pickVehicleAssignmentNames(record: ApiRecord): VehicleAssignmentNames {
+  const flat = flattenVehicleDetailRecord(record)
+  const originalAssignment = pickAssignmentObject(record, 'original')
+  const currentAssignment = pickAssignmentObject(record, 'current')
+
+  const pickFlatAgencyName = (kind: 'original' | 'current'): string | null => {
+    const keys =
+      kind === 'original'
+        ? (['original_agency_name', 'original_agency', 'originalAgency'] as const)
+        : (['current_agency_name', 'current_agency', 'currentAgency'] as const)
+    return pickEmbeddedName(flat, keys)
+  }
+
+  return {
+    original:
+      (originalAssignment ? pickAssignmentEntityName(originalAssignment) : null) ||
+      pickFlatAgencyName('original'),
+    current:
+      (currentAssignment ? pickAssignmentEntityName(currentAssignment) : null) ||
+      pickFlatAgencyName('current'),
+  }
 }
 
-/** Fetches display names for original/current assignment tiers on a vehicle detail record. */
+/** @deprecated Use `pickVehicleAssignmentNames` — kept for callers expecting async shape. */
 export async function fetchVehicleAssignmentNames(
   record: ApiRecord,
 ): Promise<VehicleAssignmentNames> {
-  const [original, current] = await Promise.all([
-    resolveAssignmentName(record, 'original'),
-    resolveAssignmentName(record, 'current'),
-  ])
-  return { original, current }
+  return pickVehicleAssignmentNames(record)
 }
 
 export function isVehicleAgencyKindField(field: { keys: readonly string[] }): 'original' | 'current' | null {
-  if (field.keys.some((k) => k === 'original_agency_id' || k === 'originalAgencyId')) return 'original'
-  if (field.keys.some((k) => k === 'current_agency_id' || k === 'currentAgencyId')) return 'current'
+  if (
+    field.keys.some(
+      (k) =>
+        k === 'original_agency_id' ||
+        k === 'originalAgencyId' ||
+        k === 'original_assignment' ||
+        k === 'originalAssignment',
+    )
+  ) {
+    return 'original'
+  }
+  if (
+    field.keys.some(
+      (k) =>
+        k === 'current_agency_id' ||
+        k === 'currentAgencyId' ||
+        k === 'current_assignment' ||
+        k === 'currentAssignment',
+    )
+  ) {
+    return 'current'
+  }
   return null
 }
 
@@ -131,20 +171,6 @@ export function resolveVehicleAgencyDisplayName(
   if (!names) return '—'
   const name = kind === 'original' ? names.original : names.current
   return name?.trim() || '—'
-}
-
-function pickScalarId(record: ApiRecord, keys: readonly string[]): string {
-  for (const key of keys) {
-    if (!Object.prototype.hasOwnProperty.call(record, key)) continue
-    const value = record[key]
-    if (typeof value === 'string' && value.trim()) return value.trim()
-    if (typeof value === 'number' && Number.isFinite(value)) return String(value)
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-      const nestedId = toId((value as ApiRecord).id)
-      if (nestedId) return nestedId
-    }
-  }
-  return ''
 }
 
 function pickEmbeddedName(record: ApiRecord, keys: readonly string[]): string | null {
@@ -171,25 +197,11 @@ export type VehicleStatusNames = {
   movementStatus: string | null
 }
 
-const VEHICLE_STATUS_ID_KEYS = [
-  'status_id',
-  'statusId',
-  'vehicle_status_id',
-  'vehicleStatusId',
-] as const
-
 const VEHICLE_STATUS_NAME_KEYS = [
   'vehicle_status_name',
   'vehicleStatusName',
   'status_name',
   'statusName',
-] as const
-
-const MOVEMENT_STATUS_ID_KEYS = [
-  'movement_status_id',
-  'movementStatusId',
-  'vehicle_movement_status_id',
-  'vehicleMovementStatusId',
 ] as const
 
 const MOVEMENT_STATUS_NAME_KEYS = [
@@ -199,49 +211,32 @@ const MOVEMENT_STATUS_NAME_KEYS = [
   'movementStatusName',
 ] as const
 
-async function resolveStatusName(
-  record: ApiRecord,
-  idKeys: readonly string[],
-  nameKeys: readonly string[],
-  resourcePath: string,
-): Promise<string | null> {
+const VEHICLE_STATUS_OBJECT_KEYS = [
+  'vehicle_status',
+  'vehicleStatus',
+  'status',
+  ...VEHICLE_STATUS_NAME_KEYS,
+] as const
+
+const MOVEMENT_STATUS_OBJECT_KEYS = [
+  'movement_status',
+  'movementStatus',
+  'movement',
+  ...MOVEMENT_STATUS_NAME_KEYS,
+] as const
+
+/** Reads vehicle and movement status display names from the vehicle detail response. */
+export function pickVehicleStatusNames(record: ApiRecord): VehicleStatusNames {
   const flat = flattenVehicleDetailRecord(record)
-  const embedded = pickEmbeddedName(flat, nameKeys)
-  if (embedded) return embedded
-
-  for (const key of idKeys) {
-    if (!Object.prototype.hasOwnProperty.call(flat, key)) continue
-    const value = flat[key]
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-      const name =
-        toText((value as ApiRecord).name).trim() ||
-        toText((value as ApiRecord).label).trim()
-      if (name && !isUuidLike(name)) return name
-    }
+  return {
+    vehicleStatus: pickEmbeddedName(flat, VEHICLE_STATUS_OBJECT_KEYS),
+    movementStatus: pickEmbeddedName(flat, MOVEMENT_STATUS_OBJECT_KEYS),
   }
-
-  const id = pickScalarId(flat, idKeys)
-  if (!id) return null
-  return fetchMasterRecordNameById(resourcePath, id)
 }
 
-/** Fetches vehicle and movement status display names for a detail record. */
+/** @deprecated Use `pickVehicleStatusNames` — kept for callers expecting async shape. */
 export async function fetchVehicleStatusNames(record: ApiRecord): Promise<VehicleStatusNames> {
-  const [vehicleStatus, movementStatus] = await Promise.all([
-    resolveStatusName(
-      record,
-      VEHICLE_STATUS_ID_KEYS,
-      VEHICLE_STATUS_NAME_KEYS,
-      '/master/vehicle-statuses/id',
-    ),
-    resolveStatusName(
-      record,
-      MOVEMENT_STATUS_ID_KEYS,
-      MOVEMENT_STATUS_NAME_KEYS,
-      '/master/vehicle-movement-statuses/id',
-    ),
-  ])
-  return { vehicleStatus, movementStatus }
+  return pickVehicleStatusNames(record)
 }
 
 export type VehicleDetailResolvedNames = {
@@ -250,46 +245,31 @@ export type VehicleDetailResolvedNames = {
   createdBy: string | null
 }
 
-async function fetchCreatedByDisplayName(record: ApiRecord): Promise<string | null> {
+function pickCreatedByDisplayName(record: ApiRecord): string | null {
   const flat = flattenVehicleDetailRecord(record)
-  const id = pickScalarId(flat, ['created_by', 'createdBy'])
-  if (!id) return null
-  try {
-    const user = await fetchUserById(id)
-    const { name } = mapUserDetailFields(user)
-    const trimmed = name.trim()
-    return trimmed && trimmed !== '-' ? trimmed : null
-  } catch {
-    return null
+  for (const key of ['created_by', 'createdBy'] as const) {
+    const value = flat[key]
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const { name } = mapUserDetailFields(value as ApiRecord)
+      const trimmed = name.trim()
+      if (trimmed && trimmed !== '-') return trimmed
+    }
   }
-}
-
-/** Resolves agency and status display names for the vehicle detail page. */
-export async function fetchVehicleDetailResolvedNames(
-  record: ApiRecord,
-): Promise<VehicleDetailResolvedNames> {
-  const [assignments, statuses, createdBy] = await Promise.all([
-    fetchVehicleAssignmentNames(record),
-    fetchVehicleStatusNames(record),
-    fetchCreatedByDisplayName(record),
-  ])
-  return { assignments, statuses, createdBy }
-}
-
-export function isVehicleStatusKindField(field: {
-  lookup?: string
-}): 'vehicleStatus' | 'vehicleMovementStatus' | null {
-  if (field.lookup === 'vehicleStatus') return 'vehicleStatus'
-  if (field.lookup === 'vehicleMovementStatus') return 'vehicleMovementStatus'
   return null
 }
 
-export function resolveVehicleStatusDisplayName(
-  kind: 'vehicleStatus' | 'vehicleMovementStatus',
-  names: VehicleDetailResolvedNames | undefined,
-): string {
-  if (!names) return '—'
-  const name =
-    kind === 'vehicleStatus' ? names.statuses.vehicleStatus : names.statuses.movementStatus
-  return name?.trim() || '—'
+/** Reads display names embedded on the vehicle detail response. */
+export function pickVehicleDetailResolvedNames(record: ApiRecord): VehicleDetailResolvedNames {
+  return {
+    assignments: pickVehicleAssignmentNames(record),
+    statuses: pickVehicleStatusNames(record),
+    createdBy: pickCreatedByDisplayName(record),
+  }
+}
+
+/** @deprecated Use `pickVehicleDetailResolvedNames` — kept for callers expecting async shape. */
+export async function fetchVehicleDetailResolvedNames(
+  record: ApiRecord,
+): Promise<VehicleDetailResolvedNames> {
+  return pickVehicleDetailResolvedNames(record)
 }

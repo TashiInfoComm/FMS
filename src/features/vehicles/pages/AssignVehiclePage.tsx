@@ -189,8 +189,8 @@ export function AssignVehiclePage() {
     <section className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <PageHeader
-          title="Assign Vehicle"
-          subtitle="Manage driver records and assign vehicle configurations"
+          title="Assign Driver"
+          subtitle="Manage driver records"
         />
         {crud.canCreate && vehicleId.trim() ? (
           <Button asChild className="w-full sm:w-auto">
@@ -316,7 +316,9 @@ export function AssignVehiclePage() {
                                 title="Detail"
                                 aria-label="View assignment details"
                                 onClick={() =>
-                                  navigate(`/assign-driver/${encodeURIComponent(row.id)}`)
+                                  navigate(`/assign-driver/${encodeURIComponent(row.id)}`, {
+                                    state: { vehicleId },
+                                  })
                                 }
                               />
                               <EditRowActionButton
@@ -325,7 +327,9 @@ export function AssignVehiclePage() {
                                 title="Edit"
                                 aria-label="Edit assignment"
                                 onClick={() =>
-                                  navigate(`/assign-driver/${encodeURIComponent(row.id)}/edit`)
+                                  navigate(`/assign-driver/${encodeURIComponent(row.id)}/edit`, {
+                                    state: { vehicleId },
+                                  })
                                 }
                               />
                               <DeleteRowActionButton
@@ -387,7 +391,9 @@ export function AssignVehiclePage() {
                       title="Detail"
                       aria-label="View assignment details"
                       onClick={() =>
-                        navigate(`/assign-driver/${encodeURIComponent(row.id)}`)
+                        navigate(`/assign-driver/${encodeURIComponent(row.id)}`, {
+                          state: { vehicleId },
+                        })
                       }
                     />
                     <EditRowActionButton
@@ -396,9 +402,9 @@ export function AssignVehiclePage() {
                       title="Edit"
                       aria-label="Edit assignment"
                       onClick={() =>
-                        navigate(
-                          `/assign-driver/${encodeURIComponent(row.id)}/edit`,
-                        )
+                        navigate(`/assign-driver/${encodeURIComponent(row.id)}/edit`, {
+                          state: { vehicleId },
+                        })
                       }
                     />
                     <DeleteRowActionButton

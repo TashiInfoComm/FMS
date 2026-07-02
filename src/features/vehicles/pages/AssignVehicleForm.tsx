@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { Button } from '@/components/ui/button'
@@ -95,15 +95,29 @@ type AssignVehicleFormProps = {
   assignmentId?: string
 }
 
+type AssignVehicleLocationState = {
+  vehicleId?: string
+}
+
 export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps) {
   const { vehicleId: routeVehicleId = '' } = useParams<{ vehicleId: string }>()
+  const location = useLocation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const isVehicleAssign = Boolean(routeVehicleId.trim())
+  const locationState = (location.state as AssignVehicleLocationState | null) ?? null
+  const contextVehicleId = routeVehicleId.trim() || locationState?.vehicleId?.trim() || ''
+  const isVehicleAssign = Boolean(contextVehicleId)
   const vehicleCrud = useRouteCrudPermissions('/vehicle/list')
   const assignCrud = useRouteCrudPermissions('/assign-driver')
-  const crud = isVehicleAssign ? vehicleCrud : assignCrud
   const isEdit = mode === 'edit'
+  const crud =
+    isVehicleAssign || isEdit
+      ? vehicleCrud.isResolved
+        ? vehicleCrud
+        : assignCrud
+      : assignCrud.isResolved
+        ? assignCrud
+        : vehicleCrud
 
   const [formValues, setFormValues] = useState<Record<string, string>>({
     citizenId: '',
@@ -216,8 +230,8 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
     driverLookupMutation.mutate(trimmedCitizenId)
   }
 
-  const driversListPath = routeVehicleId.trim()
-    ? `/vehicle/list/${encodeURIComponent(routeVehicleId.trim())}/drivers`
+  const driversListPath = contextVehicleId
+    ? `/vehicle/list/${encodeURIComponent(contextVehicleId)}/drivers`
     : '/assign-driver'
 
   const saveMutation = useMutation({
@@ -228,8 +242,8 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
       const vehicleId = isEdit
         ? assignmentQuery.data?.vehicleId !== '—'
           ? assignmentQuery.data?.vehicleId ?? ''
-          : routeVehicleId.trim()
-        : routeVehicleId.trim()
+          : contextVehicleId
+        : contextVehicleId
       if (!isUuidLike(vehicleId)) {
         throw new Error('A valid vehicle is required.')
       }
@@ -250,7 +264,9 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
       showSuccessToast(isEdit ? 'Vehicle assignment updated' : 'Vehicle assignment saved')
       await queryClient.invalidateQueries({ queryKey: ['driver-vehicle-assignments'] })
       if (isEdit && assignmentId) {
-        navigate(`/assign-driver/${encodeURIComponent(assignmentId)}`)
+        navigate(`/assign-driver/${encodeURIComponent(assignmentId)}`, {
+          state: contextVehicleId ? { vehicleId: contextVehicleId } : undefined,
+        })
         return
       }
       navigate(driversListPath)
@@ -265,7 +281,7 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
     Boolean(formValues.licenseNumber.trim()) &&
     Boolean(formValues.licenseExpiryDate.trim()) &&
     Boolean(formValues.priority.trim()) &&
-    (isEdit || Boolean(routeVehicleId.trim())) &&
+    (isEdit || Boolean(contextVehicleId)) &&
     !saveMutation.isPending &&
     (isEdit ? formInitialized : true)
 
@@ -278,8 +294,8 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
     return (
       <section className="space-y-5">
         <PageHeader
-          title={isEdit ? 'Edit Assignment' : 'Assign Vehicle'}
-          subtitle={isEdit ? 'Update driver vehicle assignment.' : 'Enter the details of the new driver.'}
+          title={isEdit ? 'Edit Assignment' : 'Assign Driver'}
+          subtitle={isEdit ? 'Update driver assignment.' : 'Enter the details of the new driver.'}
         />
         <p className="text-sm text-[var(--fms-text-subheading)]">
           You do not have permission to {isEdit ? 'update' : 'create'} assignments.
@@ -288,7 +304,7 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
     )
   }
 
-  if (isEdit && assignmentQuery.isError) {
+  if (isEdit && (assignmentQuery.isError || (assignmentQuery.isSuccess && !assignmentQuery.data))) {
     return (
       <section className="space-y-5">
         <PageHeader title="Edit Assignment" subtitle="Update driver vehicle assignment." />
@@ -303,7 +319,7 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
   return (
     <section className="space-y-5">
       <PageHeader
-        title={isEdit ? 'Edit Assignment' : 'Assign Vehicle'}
+        title={isEdit ? 'Edit Assignment' : 'Assign Driver'}
         subtitle={isEdit ? 'Update driver vehicle assignment.' : 'Enter the details of the new driver.'}
       />
 
@@ -374,7 +390,7 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
                     return (
                       <div key={field.key} className="space-y-2">
                         <Label htmlFor={field.key}>
-                          {field.label} <span className="text-[var(--fms-delete)]">*</span>
+                          {field.label} <span className="text-[var(--fms-delete)]">{field.label === 'Employee ID' ? '' : '*'}</span>
                         </Label>
                         <Input
                           id={field.key}
@@ -414,11 +430,10 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
 
                 {section.title === 'Personal Details' && cidSearchTriggered && !isEdit ? (
                   <p
-                    className={`text-xs ${
-                      !driverLookupMutation.isPending && !driverLookup
+                    className={`text-xs ${!driverLookupMutation.isPending && !driverLookup
                         ? 'text-[var(--fms-delete)]'
                         : 'text-[var(--fms-text-subheading)]'
-                    }`}
+                      }`}
                   >
                     {driverLookupMutation.isPending
                       ? 'Fetching user details by CID...'

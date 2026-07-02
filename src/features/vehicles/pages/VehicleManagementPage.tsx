@@ -25,7 +25,6 @@ import {
   type VehicleListRow,
 } from "@/features/vehicles/lib/vehicles-api";
 import { cn } from "@/lib/utils";
-import { fetchVehicleListStatusLookups } from "@/shared/lib/organogram-master-lookup";
 import { apiDelete } from "@/services/apiClient";
 import { DeleteDialog } from "@/shared/components/DeleteDialog";
 import {
@@ -59,35 +58,9 @@ export function VehicleManagementPage() {
   const [assignQuotaVehicle, setAssignQuotaVehicle] =
     useState<VehicleListRow | null>(null);
   const [assignQuotaAmount, setAssignQuotaAmount] = useState("");
-  const statusLookupsQuery = useQuery({
-    queryKey: ["vehicles", "list", "status-lookups"],
-    queryFn: fetchVehicleListStatusLookups,
-    enabled: crud.isResolved && crud.canRead,
-    staleTime: 60_000,
-  });
-
   const vehiclesQuery = useQuery({
-    queryKey: [
-      "vehicles",
-      "list",
-      search,
-      page,
-      pageSize,
-      statusLookupsQuery.dataUpdatedAt,
-    ],
-    queryFn: () =>
-      fetchVehiclesPage(
-        search,
-        page,
-        pageSize,
-        statusLookupsQuery.data
-          ? {
-            vehicleStatuses: statusLookupsQuery.data.vehicleStatuses,
-            vehicleMovementStatuses:
-              statusLookupsQuery.data.vehicleMovementStatuses,
-          }
-          : undefined,
-      ),
+    queryKey: ["vehicles", "list", search, page, pageSize],
+    queryFn: () => fetchVehiclesPage(search, page, pageSize),
     enabled: crud.isResolved && crud.canRead,
     staleTime: 30_000,
   });
@@ -603,7 +576,7 @@ function VehicleTableRow({
             }
             onClick={() => onAssignDriver(vehicle.id)}
           >
-            Assign Driver
+             Driver Assignment
           </Button>
           <DetailRowActionButton
             type="button"

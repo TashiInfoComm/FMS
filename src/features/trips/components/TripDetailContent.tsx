@@ -1,5 +1,5 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, ArrowLeft, Car, CarFront, CloudUpload, Pencil, Star, User, Users } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Car, CarFront, CloudUpload, Pencil, User, Users } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 
@@ -28,26 +28,27 @@ import type {
   TripSuggestedDriver,
   TripSuggestedVehicle,
 } from '@/features/trips/lib/trip-request-mock-data'
+import { TripFeedbackSections } from '@/features/trips/components/TripFeedbackSections'
 import {
   approveTripAssign,
   callTripPickup,
   fetchTripFeedback,
-  openTripMovementOrder,
+  filterTripFeedbackByPickup,
+  filterTripFeedbackForCurrentUser,
+  openTripGeneratedMovementOrder,
+  openTripNoteSheet,
   overrideTripAssignment,
   rejectTrip,
   type TripDetail,
-  type TripMovementOrderFile,
+  type TripNoteSheetFile,
 } from '@/features/trips/lib/trips-api'
-import {
-  feedbackRatingToStars,
-  getFeedbackRatingLabel,
-  getRatingLabel,
-} from '@/features/trips/lib/trip-driver-feedback-mock-data'
 import { fetchUserById } from '@/features/user/lib/users-api'
 import { fetchDriverVehicleAssignments } from '@/features/vehicles/lib/driver-vehicle-assignments-api'
 import { fetchVehicles } from '@/features/vehicles/lib/vehicles-api'
+import { useUserStore } from '@/services/user-store'
 import { SearchableAutocomplete } from '@/shared/components/SearchableAutocomplete'
 import { PageHeader } from '@/shared/components/PageHeader'
+import { useAccessControl } from '@/shared/hooks/useAccessControl'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
 import { preOpenBrowserTab } from '@/shared/lib/open-in-new-tab'
@@ -133,13 +134,15 @@ function DetailLine({ value }: { value?: string }) {
   return <p className="text-sm text-[var(--fms-text-subheading)]">{value}</p>
 }
 
-function MovementOrderFileChip({
+function TripAttachmentChip({
   file,
   loading = false,
+  openingLabel = 'Opening attachment…',
   onClick,
 }: {
-  file: TripMovementOrderFile
+  file: TripNoteSheetFile
   loading?: boolean
+  openingLabel?: string
   onClick?: () => void
 }) {
   const chipClassName = cn(
@@ -152,7 +155,7 @@ function MovementOrderFileChip({
     <>
       <CloudUpload className="h-4 w-4 shrink-0" />
       <span className={cn('font-medium', onClick && 'underline-offset-2 hover:underline')}>
-        {loading ? 'Opening movement order…' : file.name}
+        {loading ? openingLabel : file.name}
       </span>
       {file.sizeLabel ? (
         <span className="text-[var(--fms-text-subheading)]">{file.sizeLabel}</span>
@@ -184,14 +187,20 @@ function MovementOrderFileChip({
   return <div className={chipClassName}>{content}</div>
 }
 
-function SuggestedVehicleCard({ vehicle }: { vehicle: TripSuggestedVehicle }) {
+function SuggestedVehicleCard({
+  vehicle,
+  title = 'Suggested Vehicle',
+}: {
+  vehicle: TripSuggestedVehicle
+  title?: string
+}) {
   const makeModel = formatSuggestedVehicleMakeModel(vehicle)
 
   return (
     <div className="rounded-lg border border-[#b8e6cf] bg-[#f0faf4] p-4">
       <div className="mb-2 flex items-center gap-2 text-sm font-medium text-[#0f8e5c]">
         <CarFront className="h-4 w-4" />
-        Suggested Vehicle
+        {title}
       </div>
       <p className="font-semibold text-[var(--fms-text-header)]">
         {vehicle.plateNumber !== '—' ? vehicle.plateNumber : '—'}
@@ -203,17 +212,25 @@ function SuggestedVehicleCard({ vehicle }: { vehicle: TripSuggestedVehicle }) {
   )
 }
 
-function SuggestedDriverCard({ driver }: { driver: TripSuggestedDriver }) {
+function SuggestedDriverCard({
+  driver,
+  title = 'Suggested Driver',
+}: {
+  driver: TripSuggestedDriver
+  title?: string
+}) {
   return (
     <div className="rounded-lg border border-[#b8e6cf] bg-[#f0faf4] p-4">
       <div className="mb-2 flex items-center gap-2 text-sm font-medium text-[#0f8e5c]">
         <User className="h-4 w-4" />
-        Suggested Driver
+        {title}
       </div>
       <p className="font-semibold text-[var(--fms-text-header)]">
         {driver.name !== '—' ? driver.name : '—'}
       </p>
-      <DetailLine value={driver.contact} />
+      <DetailLine
+        value={driver.contact !== '—' ? `Contact No. ${driver.contact}` : undefined}
+      />
       <DetailLine
         value={driver.licenseNumber ? `License No. ${driver.licenseNumber}` : undefined}
       />
@@ -236,27 +253,6 @@ const emptyOverrideForm = (): OverrideFormState => ({
 
 type TripDetailLocationState = {
   hasFeedback?: boolean
-}
-
-function FeedbackStars({ value, size = 'md' }: { value: number; size?: 'md' | 'sm' }) {
-  const starClass = size === 'md' ? 'h-6 w-6' : 'h-4 w-4'
-  return (
-    <div className="inline-flex items-center gap-0.5" aria-label={`${value} out of 5 stars`}>
-      {Array.from({ length: 5 }).map((_, index) => {
-        const starValue = index + 1
-        const filled = starValue <= value
-        return (
-          <Star
-            key={starValue}
-            className={cn(
-              starClass,
-              filled ? 'fill-[#facc15] text-[#facc15]' : 'text-[#d1d5db]',
-            )}
-          />
-        )
-      })}
-    </div>
-  )
 }
 
 export type TripDetailContentProps = {
@@ -289,9 +285,22 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
     retry: false,
   })
 
-  const feedbackRatingStars = feedbackQuery.data
-    ? feedbackRatingToStars(feedbackQuery.data.rating)
-    : 0
+  const { role } = useAccessControl()
+  const user = useUserStore((state) => state.user)
+  const currentUserId = useMemo(() => {
+    if (!user || typeof user !== 'object' || Array.isArray(user)) return ''
+    const profile = user as ApiRecord
+    return toText(profile.id) || toText(profile.user_id) || toText(profile.userId) || toText(profile.uuid)
+  }, [user])
+  const isDriverRole = role === 'fms-driver'
+
+  const visibleTripFeedback = useMemo(() => {
+    const source = feedbackQuery.data ?? []
+    const scoped = isDriverRole
+      ? filterTripFeedbackForCurrentUser(source, currentUserId)
+      : source
+    return filterTripFeedbackByPickup(scoped, trip.pickupRequired)
+  }, [feedbackQuery.data, isDriverRole, currentUserId, trip.pickupRequired])
 
   const showLocalFields = isLocalOrPickDropTrip(trip.tripType)
   const showLongFields = isLongTrip(trip.tripType)
@@ -305,29 +314,49 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
     [trip.journeyEndDatetime, trip.journeyStartDatetime, trip.tripDurationDays],
   )
   const isPlanned = isTripPlanned(trip.statusCode || trip.status)
-  const showApproveButton =
-    mode === 'request' && crud.isResolved && crud.canApprove && isPlanned
-  const showRejectButton =
-    mode === 'request' && crud.isResolved && crud.canReject && isPlanned
+  const canReviewPlannedTrip =
+    mode === 'request' && crud.isResolved && isPlanned
+  const showApproveButton = canReviewPlannedTrip && crud.canApprove
+  const showRejectButton = canReviewPlannedTrip && crud.canReject
+  const showOverrideButton =
+    canReviewPlannedTrip &&
+    (crud.canApprove || crud.canAssign || crud.canUpdate)
   const canApproveTrip = showApproveButton
   const canRejectTrip = showRejectButton
   const showReviewActions = showApproveButton || showRejectButton
   const showCallForPickupButton =
     mode === 'requisition' &&
     trip.pickupRequired === true &&
-    trip.pickupRequestedAt == null && trip.status === 'IN_PROGRESS'
+     trip.status === 'DROPPED_OFF'
 
-  const movementOrderMutation = useMutation({
+  const noteSheetMutation = useMutation({
     mutationFn: (targetWindow: Window | null) =>
-      openTripMovementOrder(trip.id, trip.movementOrderFile?.name || '', targetWindow),
+      openTripNoteSheet(trip.id, trip.noteSheetFile?.name || '', targetWindow),
     onError: (error, targetWindow) => {
       if (targetWindow && !targetWindow.closed) targetWindow.close()
-      showErrorToast(error, 'Could not open movement order')
+      showErrorToast(error, 'Could not open note sheet')
     },
   })
 
-  const handleMovementOrderClick = () => {
-    movementOrderMutation.mutate(preOpenBrowserTab())
+  const handleNoteSheetClick = () => {
+    noteSheetMutation.mutate(preOpenBrowserTab())
+  }
+
+  const generatedMovementOrderMutation = useMutation({
+    mutationFn: (targetWindow: Window | null) =>
+      openTripGeneratedMovementOrder(
+        trip.id,
+        trip.generatedMovementOrderFile?.name || '',
+        targetWindow,
+      ),
+    onError: (error, targetWindow) => {
+      if (targetWindow && !targetWindow.closed) targetWindow.close()
+      showErrorToast(error, 'Could not open generated movement order')
+    },
+  })
+
+  const handleGeneratedMovementOrderClick = () => {
+    generatedMovementOrderMutation.mutate(preOpenBrowserTab())
   }
 
   const selectedOverrideVehicleId = overrideForm.vehicleId.trim()
@@ -335,31 +364,36 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
   const vehiclesQuery = useQuery({
     queryKey: ['trips', 'override', 'vehicles'],
     queryFn: fetchVehicles,
-    enabled: overrideDialogOpen && showApproveButton,
+    enabled: overrideDialogOpen && showOverrideButton,
     staleTime: 30_000,
   })
 
   const driversQuery = useQuery({
     queryKey: ['trips', 'override', 'vehicle-drivers', selectedOverrideVehicleId],
     queryFn: () => fetchDriverVehicleAssignments(selectedOverrideVehicleId),
-    enabled: overrideDialogOpen && showApproveButton && Boolean(selectedOverrideVehicleId),
+    enabled: overrideDialogOpen && showOverrideButton && Boolean(selectedOverrideVehicleId),
     staleTime: 30_000,
   })
 
-  const assignmentDriverIds = useMemo(
+  const assignmentDriverIdsNeedingNames = useMemo(
     () =>
       Array.from(
         new Set(
           (driversQuery.data ?? [])
-            .map((assignment) => assignment.driverId)
-            .filter((id) => id && id !== '—'),
+            .filter(
+              (assignment) =>
+                assignment.driverId &&
+                assignment.driverId !== '—' &&
+                (!assignment.name || assignment.name === '—'),
+            )
+            .map((assignment) => assignment.driverId),
         ),
       ),
     [driversQuery.data],
   )
 
   const driverNameQueries = useQueries({
-    queries: assignmentDriverIds.map((driverId) => ({
+    queries: assignmentDriverIdsNeedingNames.map((driverId) => ({
       queryKey: ['trips', 'override', 'driver-name', driverId],
       queryFn: async () => {
         const record = await fetchUserById(driverId)
@@ -367,17 +401,18 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
       },
       enabled: overrideDialogOpen && Boolean(driverId),
       staleTime: 30_000,
+      retry: false,
     })),
   })
 
   const driverNameById = useMemo(() => {
     const map = new Map<string, string>()
-    assignmentDriverIds.forEach((driverId, index) => {
+    assignmentDriverIdsNeedingNames.forEach((driverId, index) => {
       const name = driverNameQueries[index]?.data
       if (name) map.set(driverId, name)
     })
     return map
-  }, [assignmentDriverIds, driverNameQueries])
+  }, [assignmentDriverIdsNeedingNames, driverNameQueries])
 
   const vehicleOptions = useMemo(
     () =>
@@ -409,9 +444,7 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
     [driversQuery.data, driverNameById],
   )
 
-  const driversLoading =
-    driversQuery.isLoading ||
-    driverNameQueries.some((query) => query.isLoading)
+  const driversQueryLoading = driversQuery.isLoading
 
   const approveMutation = useMutation({
     mutationFn: () => approveTripAssign(trip.id),
@@ -474,6 +507,47 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
     trip.systemSuggestedDriverId || trip.systemSuggestedVehicleId,
   )
 
+  const hasSuggestedVehicleData = !(
+    trip.suggestedVehicle.plateNumber === '—' &&
+    trip.suggestedVehicle.model === '—' &&
+    trip.suggestedVehicle.make === '—'
+  )
+  const hasSuggestedDriverData = trip.suggestedDriver.name !== '—'
+  const hasAssignedVehicleData = !(
+    trip.assignedVehicle.plateNumber === '—' &&
+    trip.assignedVehicle.model === '—' &&
+    trip.assignedVehicle.make === '—'
+  )
+  const hasAssignedDriverData = trip.assignedDriver.name !== '—'
+
+  const showRequisitionVehicleDriver =
+    mode === 'requisition' &&
+    (isPlanned
+      ? hasSuggestedVehicleData ||
+        hasSuggestedDriverData ||
+        Boolean(trip.systemSuggestedVehicleId || trip.systemSuggestedDriverId)
+      : hasAssignedVehicleData ||
+        hasAssignedDriverData ||
+        Boolean(trip.assignedVehicleId || trip.assignedDriverId))
+
+  const displayVehicle = mode === 'requisition' && !isPlanned ? trip.assignedVehicle : trip.suggestedVehicle
+  const displayDriver = mode === 'requisition' && !isPlanned ? trip.assignedDriver : trip.suggestedDriver
+  const vehicleCardTitle =
+    mode === 'requisition' && !isPlanned ? 'Assigned vehicle' : 'Suggested Vehicle'
+  const driverCardTitle =
+    mode === 'requisition' && !isPlanned ? 'Assigned Driver' : 'Suggested Driver'
+  const showVehicleCard =
+    mode === 'requisition' && !isPlanned
+      ? hasAssignedVehicleData || Boolean(trip.assignedVehicleId)
+      : hasSuggestedVehicleData || Boolean(trip.systemSuggestedVehicleId)
+  const showDriverCard =
+    mode === 'requisition' && !isPlanned
+      ? hasAssignedDriverData || Boolean(trip.assignedDriverId)
+      : hasSuggestedDriverData || Boolean(trip.systemSuggestedDriverId)
+
+  const showVehicleDriverSection =
+    mode === 'requisition' ? showRequisitionVehicleDriver : hasSuggestedAssignment || showReviewActions
+
   const handleApprove = () => {
     if (!canApproveTrip || approveMutation.isPending) return
     approveMutation.mutate()
@@ -501,7 +575,11 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
   }
 
   const openOverrideDialog = () => {
-    setOverrideForm(emptyOverrideForm())
+    setOverrideForm({
+      vehicleId: trip.systemSuggestedVehicleId ?? trip.assignedVehicleId ?? '',
+      driverId: trip.systemSuggestedDriverId ?? trip.assignedDriverId ?? '',
+      remarks: '',
+    })
     setOverrideDialogOpen(true)
   }
 
@@ -603,7 +681,7 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             <FieldReadOnly label="Trip Type" value={trip.tripType} />
             <FieldReadOnly label="Purpose of Journey" value={trip.purposeOfJourney} />
-            <FieldReadOnly label="Preferred Vehicle Type" value={trip.preferredVehicleType} />
+            <FieldReadOnly label="Preferred Vehicle Category" value={trip.preferredVehicleType} />
             <FieldReadOnly label="Origin" value={trip.origin} />
             <FieldReadOnly label="Final Destination" value={trip.destination} />
             <FieldReadOnly label="Date of Journey" value={trip.dateOfJourney} />
@@ -637,14 +715,30 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
             value={showLongFields ? trip.tripDetailsJustification : trip.remarks}
             className="w-full"
           />
-          {showLongFields && trip.movementOrderFile ? (
-            <div className="space-y-2">
-              <Label>Movement Order</Label>
-              <MovementOrderFileChip
-                file={trip.movementOrderFile}
-                loading={movementOrderMutation.isPending}
-                onClick={handleMovementOrderClick}
-              />
+          {(showLongFields && trip.noteSheetFile) || trip.generatedMovementOrderFile ? (
+            <div className="flex flex-wrap gap-6">
+              {showLongFields && trip.noteSheetFile ? (
+                <div className="space-y-2">
+                  <Label>Approval Note sheet</Label>
+                  <TripAttachmentChip
+                    file={trip.noteSheetFile}
+                    loading={noteSheetMutation.isPending}
+                    openingLabel="Opening note sheet…"
+                    onClick={handleNoteSheetClick}
+                  />
+                </div>
+              ) : null}
+              {trip.generatedMovementOrderFile ? (
+                <div className="space-y-2">
+                  <Label>Generated movement order</Label>
+                  <TripAttachmentChip
+                    file={trip.generatedMovementOrderFile}
+                    loading={generatedMovementOrderMutation.isPending}
+                    openingLabel="Opening generated movement order…"
+                    onClick={handleGeneratedMovementOrderClick}
+                  />
+                </div>
+              ) : null}
             </div>
           ) : null}
         </CardContent>
@@ -691,7 +785,7 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
         </CardContent>
       </Card>
 
-      {hasSuggestedAssignment || showReviewActions ? (
+      {showVehicleDriverSection ? (
         <Card className="border border-[var(--fms-strokes)] bg-white">
           <CardContent className="space-y-4 pt-5">
             <SectionHeader
@@ -699,7 +793,7 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
               title="Vehicle & Driver"
               subtitle="Suggestions and assignments for the trip."
               action={
-                showApproveButton ? (
+                showOverrideButton ? (
                   <Button
                     type="button"
                     variant="outline"
@@ -713,13 +807,13 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
               }
             />
 
-            {hasSuggestedAssignment ? (
+            {showVehicleCard || showDriverCard ? (
               <div className="grid gap-3 sm:grid-cols-2">
-                {trip.systemSuggestedVehicleId ? (
-                  <SuggestedVehicleCard vehicle={trip.suggestedVehicle} />
+                {showVehicleCard ? (
+                  <SuggestedVehicleCard vehicle={displayVehicle} title={vehicleCardTitle} />
                 ) : null}
-                {trip.systemSuggestedDriverId ? (
-                  <SuggestedDriverCard driver={trip.suggestedDriver} />
+                {showDriverCard ? (
+                  <SuggestedDriverCard driver={displayDriver} title={driverCardTitle} />
                 ) : null}
               </div>
             ) : (
@@ -866,7 +960,7 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
                   setOverrideForm((prev) => ({ ...prev, driverId: value }))
                 }
                 options={driverOptions}
-                loading={driversLoading}
+                loading={driversQueryLoading}
                 disabled={overrideMutation.isPending || !selectedOverrideVehicleId}
                 placeholder={selectedOverrideVehicleId ? 'Select driver' : 'Select a vehicle first'}
                 searchPlaceholder="Search by name or CID…"
@@ -902,7 +996,7 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
             </Button>
             <Button
               type="button"
-              disabled={overrideMutation.isPending || vehiclesQuery.isLoading || driversLoading}
+              disabled={overrideMutation.isPending || vehiclesQuery.isLoading || driversQueryLoading}
               onClick={confirmOverride}
             >
               {overrideMutation.isPending ? 'Saving…' : 'Save Override'}
@@ -912,7 +1006,13 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
       </Dialog>
 
       <Dialog open={feedbackDialogOpen} onOpenChange={setFeedbackDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent
+          className={cn(
+            visibleTripFeedback.length > 1
+              ? 'w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] sm:max-w-[calc(100vw-2rem)]'
+              : 'max-w-md sm:max-w-md',
+          )}
+        >
           <DialogHeader>
             <DialogTitle>Driver Rating</DialogTitle>
             <DialogDescription>
@@ -927,27 +1027,15 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
                 ? feedbackQuery.error.message
                 : 'Could not load driver rating.'}
             </p>
-          ) : feedbackQuery.data ? (
-            <div className="space-y-4">
-              <div className="space-y-2 rounded-lg border border-[var(--fms-strokes)] bg-[#f6f6f7] p-4">
-                <Label>Rating</Label>
-                <FeedbackStars value={feedbackRatingStars} />
-                <p className="text-sm text-[var(--fms-text-header)]">
-                  <span className="font-medium">{feedbackRatingStars} / 5 stars</span>
-                  <span className="text-[var(--fms-text-subheading)]"> · </span>
-                  <span>{getFeedbackRatingLabel(feedbackQuery.data.rating)}</span>
-                  <span className="text-[var(--fms-text-subheading)]"> · </span>
-                  <span>{getRatingLabel(feedbackRatingStars)}</span>
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label>Remarks</Label>
-                <div className="min-h-[96px] rounded-lg border border-[var(--fms-strokes)] bg-[#f8f8f9] px-3 py-2.5 text-sm text-[var(--fms-text-header)]">
-                  {feedbackQuery.data.reasonForRating.trim() || '—'}
-                </div>
-              </div>
-            </div>
-          ) : null}
+          ) : visibleTripFeedback.length > 0 ? (
+            <TripFeedbackSections
+              items={visibleTripFeedback}
+              pickupRequired={trip.pickupRequired}
+              layout={visibleTripFeedback.length > 1 ? 'horizontal' : 'auto'}
+            />
+          ) : (
+            <p className="text-sm text-[var(--fms-text-subheading)]">No feedback found.</p>
+          )}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setFeedbackDialogOpen(false)}>
               Close

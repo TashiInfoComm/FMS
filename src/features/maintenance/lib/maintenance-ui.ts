@@ -1,5 +1,33 @@
 import type { WorkOrderStatus } from '@/features/maintenance/lib/maintenance-mock-data'
 
+/** Minor work orders at or above this total require MTO escalation instead of approval. */
+export const MTO_MINOR_ESCALATION_THRESHOLD = 500_000
+
+export function resolveMaintenanceTypeKind(
+  typeLabel: string,
+  typeCode = '',
+): 'major' | 'minor' | null {
+  const label = typeLabel.trim().toLowerCase()
+  const code = typeCode.trim().toLowerCase()
+  if (label === 'major' || code === 'major') return 'major'
+  if (label === 'minor' || code === 'minor') return 'minor'
+  return null
+}
+
+export function shouldEscalateWorkOrderMtoApproval(input: {
+  maintenanceTypeLabel: string
+  maintenanceTypeCode?: string
+  totalAmount: number
+}): boolean {
+  const kind = resolveMaintenanceTypeKind(
+    input.maintenanceTypeLabel,
+    input.maintenanceTypeCode,
+  )
+  if (kind === 'major') return true
+  if (kind === 'minor') return input.totalAmount >= MTO_MINOR_ESCALATION_THRESHOLD
+  return false
+}
+
 export function formatNuAmount(amount: number): string {
   const formatted = amount.toLocaleString('en-US', {
     minimumFractionDigits: 0,

@@ -38,7 +38,7 @@ export function FuelTableListToolbar({
         onValueChange={onSearchChange}
         placeholder={searchPlaceholder}
         ariaLabel={searchAriaLabel}
-        className="w-full sm:max-w-sm sm:shrink-0"
+        className="w-full justify-end sm:max-w-sm sm:shrink-0"
       />
     </div>
   )

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Flag, Play, Star } from 'lucide-react'
-import { useState } from 'react'
+import { ArrowLeft, Flag, MapPin, Play, Users } from 'lucide-react'
+import { useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
@@ -16,27 +16,39 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { formatDriverRoute } from '@/features/trips/lib/trip-assignment-mock-data'
-import { formatTripDateTime } from '@/features/trips/lib/trip-request-mock-data'
+import {
+  formatAssignedVehicleDetail,
+  formatTripDateTime,
+} from '@/features/trips/lib/trip-request-mock-data'
 import {
   canCompleteTrip,
   canStartTrip,
+  isLocalOrPickDropTrip,
   isTripCompleted,
+  normalizeTripStatusCode,
 } from '@/features/trips/lib/trip-form-utils'
+import { TripFeedbackSections } from '@/features/trips/components/TripFeedbackSections'
 import {
   completeTrip,
   fetchTripDetail,
   fetchTripFeedback,
+  filterTripFeedbackByPickup,
+  filterTripFeedbackForCurrentUser,
   startTrip,
 } from '@/features/trips/lib/trips-api'
-import {
-  feedbackRatingToStars,
-  getFeedbackRatingLabel,
-  getRatingLabel,
-} from '@/features/trips/lib/trip-driver-feedback-mock-data'
-import { fetchTripRequisitionMasterLists } from '@/features/trips/lib/trip-requisition-masters'
+import { apiClient } from '@/services/apiClient'
+import { useUserStore } from '@/services/user-store'
 import { PageHeader } from '@/shared/components/PageHeader'
+import { useAccessControl } from '@/shared/hooks/useAccessControl'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
 import { cn } from '@/lib/utils'
+
+function resolveProfileUserId(user: unknown): string {
+  if (!user || typeof user !== 'object' || Array.isArray(user)) return ''
+  const profile = user as Record<string, unknown>
+  const rawId = profile.id ?? profile.user_id ?? profile.userId ?? profile.uuid
+  return typeof rawId === 'string' ? rawId.trim() : ''
+}
 
 function FieldReadOnly({
   label,
@@ -120,22 +132,24 @@ type UpdateTripStatusLocationState = {
   hasFeedback?: boolean
 }
 
-function FeedbackStars({ value }: { value: number }) {
+function SectionHeader({
+  icon: Icon,
+  title,
+  subtitle,
+}: {
+  icon: typeof Users
+  title: string
+  subtitle: string
+}) {
   return (
-    <div className="inline-flex items-center gap-0.5" aria-label={`${value} out of 5 stars`}>
-      {Array.from({ length: 5 }).map((_, index) => {
-        const starValue = index + 1
-        const filled = starValue <= value
-        return (
-          <Star
-            key={starValue}
-            className={cn(
-              'h-6 w-6',
-              filled ? 'fill-[#facc15] text-[#facc15]' : 'text-[#d1d5db]',
-            )}
-          />
-        )
-      })}
+    <div className="flex gap-3">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#e8f0ff] text-[var(--fms-primary)]">
+        <Icon className="h-4 w-4" />
+      </span>
+      <div>
+        <p className="text-base font-semibold text-[var(--fms-text-header)]">{title}</p>
+        <p className="text-xs text-[var(--fms-text-subheading)]">{subtitle}</p>
+      </div>
     </div>
   )
 }
@@ -146,33 +160,26 @@ export default function UpdateTripStatus() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const locationState = (location.state as UpdateTripStatusLocationState | null) ?? null
+  const listHasFeedback = locationState?.hasFeedback === true
+  const { role } = useAccessControl()
+  const user = useUserStore((state) => state.user)
+  const currentUserId = useMemo(() => resolveProfileUserId(user), [user])
+  const isDriverRole = role === 'fms-driver'
   const [startDialogOpen, setStartDialogOpen] = useState(false)
   const [completeDialogOpen, setCompleteDialogOpen] = useState(false)
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false)
   const [startOdometer, setStartOdometer] = useState('')
   const [endOdometer, setEndOdometer] = useState('')
 
-  const mastersQuery = useQuery({
-    queryKey: ['trips', 'masters'],
-    queryFn: fetchTripRequisitionMasterLists,
-    staleTime: 5 * 60_000,
-  })
-
   const detailQuery = useQuery({
-    queryKey: ['trips', 'detail', tripId, mastersQuery.dataUpdatedAt],
-    queryFn: () =>
-      fetchTripDetail(tripId, {
-        tripTypes: mastersQuery.data?.tripTypes,
-        purposes: mastersQuery.data?.journeyPurposes,
-        vehicleTypes: mastersQuery.data?.vehicleTypes,
-      }),
-    enabled:
-      Boolean(tripId.trim()) && (mastersQuery.isSuccess || mastersQuery.isError),
+    queryKey: ['trips', 'detail', tripId],
+    queryFn: () => fetchTripDetail(tripId),
+    enabled: Boolean(tripId.trim()),
     staleTime: 30_000,
   })
 
-  const showDriverRatingButton =
-    detailQuery.data?.hasFeedback === true || locationState?.hasFeedback === true
+  const hasFeedback = detailQuery.data?.hasFeedback === true || listHasFeedback
+  const showDriverRatingButton = hasFeedback
 
   const feedbackQuery = useQuery({
     queryKey: ['trips', 'feedback', tripId],
@@ -182,9 +189,13 @@ export default function UpdateTripStatus() {
     retry: false,
   })
 
-  const feedbackRatingStars = feedbackQuery.data
-    ? feedbackRatingToStars(feedbackQuery.data.rating)
-    : 0
+  const visibleTripFeedback = useMemo(() => {
+    const source = feedbackQuery.data ?? []
+    const scoped = isDriverRole
+      ? filterTripFeedbackForCurrentUser(source, currentUserId)
+      : source
+    return filterTripFeedbackByPickup(scoped, detailQuery.data?.pickupRequired)
+  }, [feedbackQuery.data, isDriverRole, currentUserId, detailQuery.data?.pickupRequired])
 
   const startMutation = useMutation({
     mutationFn: (odometer: number) => startTrip(tripId, odometer),
@@ -208,13 +219,33 @@ export default function UpdateTripStatus() {
       setEndOdometer('')
       await queryClient.invalidateQueries({ queryKey: ['trips', 'detail', tripId] })
       await queryClient.invalidateQueries({ queryKey: ['trips', 'driver-assignments'] })
+      navigate('/trip/my-assignments')
     },
     onError: (error) => {
       showErrorToast(error, 'Failed to complete trip.')
     },
   })
 
-  if (detailQuery.isLoading || mastersQuery.isLoading) {
+  const dropOffMutation = useMutation({
+    mutationFn: async () => {
+      const trimmed = tripId.trim()
+      if (!trimmed) throw new Error('Trip ID is required')
+      await apiClient(`/trips/${encodeURIComponent(trimmed)}/drop-off`, {
+        method: 'POST',
+      })
+    },
+    onSuccess: async () => {
+      showSuccessToast('Drop off recorded.')
+      await queryClient.invalidateQueries({ queryKey: ['trips', 'detail', tripId] })
+      await queryClient.invalidateQueries({ queryKey: ['trips', 'driver-assignments'] })
+      navigate('/trip/my-assignments')
+    },
+    onError: (error) => {
+      showErrorToast(error, 'Failed to record drop off.')
+    },
+  })
+
+  if (detailQuery.isLoading) {
     return (
       <section className="space-y-5">
         <PageHeader
@@ -254,13 +285,21 @@ export default function UpdateTripStatus() {
 
   const trip = detailQuery.data
   const routeLabel = formatDriverRoute(trip.origin, trip.destination)
-  const vehiclePlate =
-    trip.suggestedVehicle.plateNumber !== '—' ? trip.suggestedVehicle.plateNumber : '—'
+  const vehicleLabel = formatAssignedVehicleDetail(trip.assignedVehicle)
   const journeyStart = formatTripDateTime(trip.dateOfJourney, trip.timeOfJourney)
   const journeyEnd = formatTripDateTime(trip.dateOfReturn ?? '', trip.timeOfReturn ?? '')
   const canStart = canStartTrip(trip.statusCode)
-  const canEnd = canCompleteTrip(trip.statusCode)
+  const statusCode = normalizeTripStatusCode(trip.statusCode) ?? ''
+  const isPickupDropOff = trip.pickupRequired === true && !hasFeedback
+  const canEnd =
+    canCompleteTrip(trip.statusCode) ||
+    (trip.pickupRequired === true && hasFeedback && statusCode === 'DROPPED_OFF')
   const completed = isTripCompleted(trip.statusCode)
+  const showPickupRequired = isLocalOrPickDropTrip(trip.tripType)
+  const endActionPending = isPickupDropOff
+    ? dropOffMutation.isPending
+    : completeMutation.isPending
+
   const startDisabledReason = completed
     ? 'This trip is already completed.'
     : canEnd
@@ -322,12 +361,19 @@ export default function UpdateTripStatus() {
         </div>
       </div>
 
+
       <Card className="rounded-xl border border-[var(--fms-strokes)] bg-white p-4 sm:p-6">
         <CardContent className="space-y-6 p-0">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <FieldReadOnly label="Trip Type" value={trip.tripType} />
+            {showPickupRequired && trip.pickupRequired != null ? (
+              <FieldReadOnly
+                label="Pickup Required"
+                value={trip.pickupRequired ? 'Yes' : 'No'}
+              />
+            ) : null}
             <FieldReadOnly label="Route" value={routeLabel} />
-            <FieldReadOnly label="Vehicle" value={vehiclePlate} />
+            <FieldReadOnly label="Vehicle" value={vehicleLabel} />
             <FieldReadOnly label="Journey Start" value={journeyStart} />
             <FieldReadOnly label="Journey End" value={journeyEnd} />
             <FieldReadOnly label="Current Status" value={trip.status} />
@@ -341,6 +387,46 @@ export default function UpdateTripStatus() {
               <FieldReadOnly label="End Odometer" value={String(trip.endOdometer)} />
             ) : null}
           </div>
+          <Card className="rounded-xl border border-[var(--fms-strokes)] bg-white">
+            <CardContent className="space-y-4 pt-5">
+              <SectionHeader
+                icon={Users}
+                title="Accompanying Officials"
+                subtitle="Employees travelling with the applicant on this trip."
+              />
+              {trip.accompanyingOfficials.length === 0 ? (
+                <p className="text-sm text-[var(--fms-text-subheading)]">
+                  No accompanying officials on this request.
+                </p>
+              ) : (
+                <div className="overflow-hidden rounded-lg border border-[var(--fms-strokes)]">
+                  <table className="w-full text-sm">
+                    <thead className="bg-[#f6f6f7] text-[var(--fms-text-header)]">
+                      <tr>
+                        <th className="w-16 px-4 py-3 text-left font-semibold">Sl.No</th>
+                        <th className="px-4 py-3 text-left font-semibold">Employee CID</th>
+                        <th className="px-4 py-3 text-left font-semibold">Full Name</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {trip.accompanyingOfficials.map((official, index) => (
+                        <tr
+                          key={`${official.employeeCid}-${index}`}
+                          className="border-t border-[var(--fms-strokes)]"
+                        >
+                          <td className="px-4 py-3 tabular-nums text-[var(--fms-text-subheading)]">
+                            {index + 1}
+                          </td>
+                          <td className="px-4 py-3">{official.employeeCid}</td>
+                          <td className="px-4 py-3">{official.fullName}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           <div className="rounded-xl border border-[var(--fms-strokes)] bg-[#f6f6f7] p-4 sm:p-5">
             <p className="text-sm font-semibold text-[var(--fms-text-header)]">
@@ -353,7 +439,7 @@ export default function UpdateTripStatus() {
               </p>
               <p className="mt-1 text-sm text-[var(--fms-text-header)]">{routeLabel}</p>
               <p className="mt-1 text-xs text-[var(--fms-text-subheading)]">
-                Vehicle: {vehiclePlate}
+                Vehicle: {vehicleLabel}
               </p>
             </div>
 
@@ -427,13 +513,23 @@ export default function UpdateTripStatus() {
                   </div>
                   <div className="min-w-0 flex-1 space-y-2">
                     <div>
-                      <p className="font-semibold text-[var(--fms-text-header)]">End Trip</p>
+                      <p className="font-semibold text-[var(--fms-text-header)]">
+                        {isPickupDropOff ? 'Drop Off' : 'End Trip'}
+                      </p>
                       <p className="mt-0.5 text-xs text-[var(--fms-text-subheading)]">
                         {canEnd
-                          ? 'Record your ending odometer reading to complete this assignment.'
+                          ? isPickupDropOff
+                            ? 'Confirm drop off to complete this pickup assignment.'
+                            : trip.pickupRequired === true && hasFeedback
+                              ? 'Record your ending odometer reading to complete this pickup assignment.'
+                              : 'Record your ending odometer reading to complete this assignment.'
                           : completed
                             ? 'This trip has already been completed.'
-                            : 'End is available after the trip has been started.'}
+                            : isPickupDropOff
+                              ? 'Drop off is available after the trip has been started.'
+                              : trip.pickupRequired === true && hasFeedback
+                                ? 'End trip is available after drop off and passenger feedback.'
+                                : 'End is available after the trip has been started.'}
                       </p>
                     </div>
                     <Button
@@ -446,11 +542,25 @@ export default function UpdateTripStatus() {
                           ? 'border-[#16a34a] bg-[#16a34a] text-white shadow-md hover:bg-[#15803d]'
                           : 'border-[var(--fms-strokes)] bg-white text-[var(--fms-text-subheading)]',
                       )}
-                      disabled={!canEnd || completeMutation.isPending}
-                      onClick={() => setCompleteDialogOpen(true)}
+                      disabled={!canEnd || endActionPending}
+                      onClick={() =>
+                        isPickupDropOff
+                          ? dropOffMutation.mutate()
+                          : setCompleteDialogOpen(true)
+                      }
                     >
-                      <Flag className="mr-2 h-4 w-4" />
-                      {completeMutation.isPending ? 'Completing…' : 'End Trip Now'}
+                      {isPickupDropOff ? (
+                        <MapPin className="mr-2 h-4 w-4" />
+                      ) : (
+                        <Flag className="mr-2 h-4 w-4" />
+                      )}
+                      {endActionPending
+                        ? isPickupDropOff
+                          ? 'Dropping off…'
+                          : 'Completing…'
+                        : isPickupDropOff
+                          ? 'Drop Off'
+                          : 'End Trip Now'}
                     </Button>
                   </div>
                 </div>
@@ -472,6 +582,8 @@ export default function UpdateTripStatus() {
           </div>
         </CardContent>
       </Card>
+
+
 
       <OdometerDialog
         open={startDialogOpen}
@@ -504,7 +616,13 @@ export default function UpdateTripStatus() {
       />
 
       <Dialog open={feedbackDialogOpen} onOpenChange={setFeedbackDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent
+          className={cn(
+            visibleTripFeedback.length > 1
+              ? 'w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] sm:max-w-[calc(100vw-2rem)]'
+              : 'max-w-md sm:max-w-md',
+          )}
+        >
           <DialogHeader>
             <DialogTitle>Driver Rating</DialogTitle>
             <DialogDescription>
@@ -519,27 +637,15 @@ export default function UpdateTripStatus() {
                 ? feedbackQuery.error.message
                 : 'Could not load driver rating.'}
             </p>
-          ) : feedbackQuery.data ? (
-            <div className="space-y-4">
-              <div className="space-y-2 rounded-lg border border-[var(--fms-strokes)] bg-[#f6f6f7] p-4">
-                <Label>Rating</Label>
-                <FeedbackStars value={feedbackRatingStars} />
-                <p className="text-sm text-[var(--fms-text-header)]">
-                  <span className="font-medium">{feedbackRatingStars} / 5 stars</span>
-                  <span className="text-[var(--fms-text-subheading)]"> · </span>
-                  <span>{getFeedbackRatingLabel(feedbackQuery.data.rating)}</span>
-                  <span className="text-[var(--fms-text-subheading)]"> · </span>
-                  <span>{getRatingLabel(feedbackRatingStars)}</span>
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label>Remarks</Label>
-                <div className="min-h-[96px] rounded-lg border border-[var(--fms-strokes)] bg-[#f8f8f9] px-3 py-2.5 text-sm text-[var(--fms-text-header)]">
-                  {feedbackQuery.data.reasonForRating.trim() || '—'}
-                </div>
-              </div>
-            </div>
-          ) : null}
+          ) : visibleTripFeedback.length > 0 ? (
+            <TripFeedbackSections
+              items={visibleTripFeedback}
+              pickupRequired={trip.pickupRequired}
+              layout={visibleTripFeedback.length > 1 ? 'horizontal' : 'auto'}
+            />
+          ) : (
+            <p className="text-sm text-[var(--fms-text-subheading)]">No feedback found.</p>
+          )}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setFeedbackDialogOpen(false)}>
               Close

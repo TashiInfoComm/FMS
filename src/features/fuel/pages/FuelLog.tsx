@@ -9,6 +9,7 @@ import { FuelTableListToolbar } from '@/features/fuel/components/FuelTableListTo
 import { FuelLogStatusCell } from '@/features/fuel/components/FuelLogStatusCell'
 import {
   fetchFuelLogsPage,
+  formatFuelLogVehicleDisplay,
   type FuelLogListRow,
 } from '@/features/fuel/lib/fuel-logs-api'
 import {
@@ -170,7 +171,7 @@ export default function FuelLog() {
                         {row.driver}
                       </td>
                       <td className="px-4 py-3  text-[var(--fms-text-header)]">
-                        {row.vehicle}
+                        {formatFuelLogVehicleDisplay(row)}
                       </td>
                      
                       <td className="px-4 py-3 text-[var(--fms-text-subheading)]">
@@ -225,7 +226,9 @@ export default function FuelLog() {
                     {serialBase + index + 1}
                   </MobileListField>
                   <MobileListField label="Driver">{row.driver}</MobileListField>
-                  <MobileListField label="Vehicle">{row.vehicle}</MobileListField>
+                  <MobileListField label="Vehicle">
+                    {formatFuelLogVehicleDisplay(row)}
+                  </MobileListField>
                   <MobileListField label="Quota">
                     {formatFuelLogQuota(row.quotaUsed, row.quotaTotal)}
                   </MobileListField>

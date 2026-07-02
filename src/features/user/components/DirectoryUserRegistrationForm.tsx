@@ -25,10 +25,12 @@ import {
   type FetchedPerson,
 } from '@/features/user/lib/users-api'
 import {
+  applyCidHintsToAdminOrgSelection,
   childGroupsOf,
   emptyOrgLocks,
   emptyOrgSelection,
   fetchAdminGroups,
+  orgTierSelectionEqual,
   rootGroupNodes,
   resolveOrgSelectionFromHints,
   type OrgTierLocks,
@@ -47,7 +49,12 @@ import {
   isDirectoryUserFormValid,
   type DirectoryUserFormFieldKey,
 } from '@/features/user/lib/directory-user-form-schema'
-import { fetchAdminMasterOrgGroupNodes } from '@/features/vehicles/lib/vehicle-agency-assignment-api'
+import {
+  fetchAdminAgencyGroupNodes,
+  fetchAdminDepartmentGroupNodes,
+  fetchAdminDivisionGroupNodes,
+  fetchAdminSubDivisionGroupNodes,
+} from '@/features/vehicles/lib/vehicle-agency-assignment-api'
 import { apiPost } from '@/services/apiClient'
 
 function FieldError({ message }: { message?: string }) {
@@ -111,10 +118,65 @@ export function DirectoryUserRegistrationForm({
   })
 
   const groupsQuery = useQuery({
-    queryKey: isAdmin ? ['admin-master-org-nodes'] : ['public-groups'],
-    queryFn: isAdmin ? fetchAdminMasterOrgGroupNodes : fetchAdminGroups,
+    queryKey: ['public-groups'],
+    queryFn: fetchAdminGroups,
     staleTime: 60_000,
-    enabled: queriesEnabled,
+    enabled: queriesEnabled && !isAdmin,
+  })
+
+  const agencyQuery = useQuery({
+    queryKey: ['admin-master-org', 'agencies'],
+    queryFn: fetchAdminAgencyGroupNodes,
+    staleTime: 60_000,
+    enabled: queriesEnabled && isAdmin,
+  })
+
+  const selectedAgencyCode = useMemo(() => {
+    const node = (agencyQuery.data ?? []).find((item) => item.id === orgSelection.agencyId)
+    return node?.code?.trim() ?? ''
+  }, [agencyQuery.data, orgSelection.agencyId])
+
+  const departmentQuery = useQuery({
+    queryKey: ['admin-master-org', 'departments', selectedAgencyCode],
+    queryFn: () =>
+      fetchAdminDepartmentGroupNodes(selectedAgencyCode, orgSelection.agencyId),
+    staleTime: 60_000,
+    enabled:
+      queriesEnabled &&
+      isAdmin &&
+      Boolean(selectedAgencyCode && orgSelection.agencyId.trim()),
+  })
+
+  const selectedDepartmentCode = useMemo(() => {
+    const node = (departmentQuery.data ?? []).find((item) => item.id === orgSelection.departmentId)
+    return node?.code?.trim() ?? ''
+  }, [departmentQuery.data, orgSelection.departmentId])
+
+  const divisionQuery = useQuery({
+    queryKey: ['admin-master-org', 'divisions', selectedDepartmentCode],
+    queryFn: () =>
+      fetchAdminDivisionGroupNodes(selectedDepartmentCode, orgSelection.departmentId),
+    staleTime: 60_000,
+    enabled:
+      queriesEnabled &&
+      isAdmin &&
+      Boolean(selectedDepartmentCode && orgSelection.departmentId.trim()),
+  })
+
+  const selectedDivisionCode = useMemo(() => {
+    const node = (divisionQuery.data ?? []).find((item) => item.id === orgSelection.divisionId)
+    return node?.code?.trim() ?? ''
+  }, [divisionQuery.data, orgSelection.divisionId])
+
+  const subDivisionQuery = useQuery({
+    queryKey: ['admin-master-org', 'sub-divisions', selectedDivisionCode],
+    queryFn: () =>
+      fetchAdminSubDivisionGroupNodes(selectedDivisionCode, orgSelection.divisionId),
+    staleTime: 60_000,
+    enabled:
+      queriesEnabled &&
+      isAdmin &&
+      Boolean(selectedDivisionCode && orgSelection.divisionId.trim()),
   })
 
   useEffect(() => {
@@ -125,21 +187,38 @@ export function DirectoryUserRegistrationForm({
 
   const groupNodes = groupsQuery.data ?? []
   const agencyOptions = useMemo(() => {
+    if (isAdmin) return agencyQuery.data ?? []
     const roots = rootGroupNodes(groupNodes)
     return roots.length > 0 ? roots : groupNodes
-  }, [groupNodes])
+  }, [agencyQuery.data, groupNodes, isAdmin])
   const departmentOptions = useMemo(() => {
     if (!orgSelection.agencyId) return []
+    if (isAdmin) return departmentQuery.data ?? []
     return childGroupsOf(orgSelection.agencyId, groupNodes)
-  }, [groupNodes, orgSelection.agencyId])
+  }, [departmentQuery.data, groupNodes, isAdmin, orgSelection.agencyId])
   const divisionOptions = useMemo(() => {
     if (!orgSelection.departmentId) return []
+    if (isAdmin) return divisionQuery.data ?? []
     return childGroupsOf(orgSelection.departmentId, groupNodes)
-  }, [groupNodes, orgSelection.departmentId])
+  }, [divisionQuery.data, groupNodes, isAdmin, orgSelection.departmentId])
   const subDivisionOptions = useMemo(() => {
     if (!orgSelection.divisionId) return []
+    if (isAdmin) return subDivisionQuery.data ?? []
     return childGroupsOf(orgSelection.divisionId, groupNodes)
-  }, [groupNodes, orgSelection.divisionId])
+  }, [groupNodes, isAdmin, orgSelection.divisionId, subDivisionQuery.data])
+
+  const orgMasterLoading = isAdmin
+    ? agencyQuery.isLoading ||
+      departmentQuery.isLoading ||
+      divisionQuery.isLoading ||
+      subDivisionQuery.isLoading
+    : groupsQuery.isLoading
+  const orgMasterError = isAdmin
+    ? agencyQuery.isError ||
+      departmentQuery.isError ||
+      divisionQuery.isError ||
+      subDivisionQuery.isError
+    : groupsQuery.isError
 
   useEffect(() => {
     setTouched({})
@@ -182,13 +261,42 @@ export function DirectoryUserRegistrationForm({
       setOrgLocks(emptyOrgLocks())
       return
     }
+    if (isAdmin) return
     const nodes = groupsQuery.data
     if (!nodes?.length) return
     const hints = mergedOrganogramHintsForProfile(profile)
     const { selection, locks } = resolveOrgSelectionFromHints(hints, nodes)
     setOrgSelection(selection)
     setOrgLocks(locks)
-  }, [profileOrgKey, groupsQuery.data])
+  }, [isAdmin, profileOrgKey, groupsQuery.data])
+
+  useEffect(() => {
+    if (!isAdmin || !profile) return
+    const hints = mergedOrganogramHintsForProfile(profile)
+    if (!hints) return
+    const agencies = agencyQuery.data ?? []
+    if (!agencies.length) return
+
+    setOrgSelection((current) => {
+      const { selection, locks } = applyCidHintsToAdminOrgSelection(hints, {
+        agencies,
+        departments: departmentQuery.data?.length ? departmentQuery.data : undefined,
+        divisions: divisionQuery.data?.length ? divisionQuery.data : undefined,
+        subDivisions: subDivisionQuery.data?.length ? subDivisionQuery.data : undefined,
+      }, current)
+
+      setOrgLocks(locks)
+      if (orgTierSelectionEqual(selection, current)) return current
+      return selection
+    })
+  }, [
+    isAdmin,
+    profileOrgKey,
+    agencyQuery.data,
+    departmentQuery.data,
+    divisionQuery.data,
+    subDivisionQuery.data,
+  ])
 
   const lookupMutation = useMutation({
     mutationFn: async () => {
@@ -226,7 +334,7 @@ export function DirectoryUserRegistrationForm({
             : 'Look up details by CID first',
         )
       }
-      const nodes = groupsQuery.data ?? []
+      const nodes = isAdmin ? agencyOptions : groupsQuery.data ?? []
       if (!nodes.length) {
         throw new Error(
           isAdmin
@@ -449,10 +557,20 @@ export function DirectoryUserRegistrationForm({
                   <Input
                     id="lookup-cid"
                     value={lookupInput}
-                    onChange={(e) => setLookupInput(e.target.value)}
+                    onChange={(e) => {
+                      setLookupInput(e.target.value)
+                      if (lookupMutation.isError) lookupMutation.reset()
+                    }}
                     placeholder="Enter CID/Employee ID"
                     disabled={formLocked}
                   />
+                  {lookupMutation.isError ? (
+                    <p className="text-sm text-[var(--fms-error-text)]">
+                      {lookupMutation.error instanceof Error
+                        ? lookupMutation.error.message
+                        : 'Lookup failed'}
+                    </p>
+                  ) : null}
                 </div>
                 <Button
                   type="button"
@@ -467,13 +585,13 @@ export function DirectoryUserRegistrationForm({
 
           {profile ? (
             <>
-              {groupsQuery.isLoading ? (
+              {orgMasterLoading ? (
                 <p className="text-xs text-[var(--fms-text-subheading)]">
                   {isAdmin
                     ? 'Loading master organogram (agency, department, division, sub division)…'
                     : 'Loading group directory (/public/groups)…'}
                 </p>
-              ) : groupsQuery.isError ? (
+              ) : orgMasterError ? (
                 <p className="text-xs text-[var(--fms-delete)]">
                   {isAdmin
                     ? 'Could not load master organogram lists. Reload the page or try again—org assignment requires these lists.'
@@ -624,8 +742,8 @@ export function DirectoryUserRegistrationForm({
                     locked={orgLocks.agency}
                     disabled={
                       formLocked ||
-                      groupsQuery.isLoading ||
-                      !!groupsQuery.isError
+                      agencyQuery.isLoading ||
+                      !!agencyQuery.isError
                     }
                     placeholder="Search agency…"
                     error={Boolean(fieldError('agencyId'))}
@@ -647,8 +765,8 @@ export function DirectoryUserRegistrationForm({
                     locked={orgLocks.department}
                     disabled={
                       formLocked ||
-                      groupsQuery.isLoading ||
-                      !!groupsQuery.isError ||
+                      departmentQuery.isLoading ||
+                      !!departmentQuery.isError ||
                       (!orgLocks.department && !orgSelection.agencyId)
                     }
                     placeholder={
@@ -670,8 +788,8 @@ export function DirectoryUserRegistrationForm({
                     locked={orgLocks.division}
                     disabled={
                       formLocked ||
-                      groupsQuery.isLoading ||
-                      !!groupsQuery.isError ||
+                      divisionQuery.isLoading ||
+                      !!divisionQuery.isError ||
                       (!orgLocks.division && !orgSelection.departmentId)
                     }
                     placeholder={
@@ -693,8 +811,8 @@ export function DirectoryUserRegistrationForm({
                     locked={orgLocks.subDivision}
                     disabled={
                       formLocked ||
-                      groupsQuery.isLoading ||
-                      !!groupsQuery.isError ||
+                      subDivisionQuery.isLoading ||
+                      !!subDivisionQuery.isError ||
                       (!orgLocks.subDivision &&
                         (!orgSelection.divisionId ||
                           subDivisionOptions.length === 0))

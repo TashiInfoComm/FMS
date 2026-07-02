@@ -105,6 +105,45 @@ function pickFuelTypeLabel(record: ApiRecord, fuelTypeId: string, fuelTypes: Mas
   return fuelTypes.find((option) => option.value === fuelTypeId)?.label ?? fuelTypeId
 }
 
+function pickNestedOrgName(record: ApiRecord, ...keys: string[]): string {
+  for (const key of keys) {
+    const nested = nestedRecord(record[key])
+    if (!nested) continue
+    const name = toText(nested.name) || toText(nested.label) || toText(nested.code)
+    if (name.trim()) return name.trim()
+  }
+  return ''
+}
+
+function pickQuotaOrganizationName(record: ApiRecord): string {
+  const fromOrgUnit = pickNestedOrgName(record, 'org_unit', 'orgUnit')
+  if (fromOrgUnit) return fromOrgUnit
+
+  const orgIds = fuelQuotaOrgIdsFromRecord(record)
+  if (orgIds.subDivisionId) {
+    const name = pickNestedOrgName(record, 'sub_division', 'subDivision', 'subdivision')
+    if (name) return name
+  }
+  if (orgIds.divisionId) {
+    const name = pickNestedOrgName(record, 'division')
+    if (name) return name
+  }
+  if (orgIds.departmentId) {
+    const name = pickNestedOrgName(record, 'department')
+    if (name) return name
+  }
+  if (orgIds.agencyId) {
+    const name = pickNestedOrgName(record, 'agency')
+    if (name) return name
+  }
+  return '—'
+}
+
+function pickVehicleTypeName(record: ApiRecord): string {
+  const vehicleType = toText(record.vehicle_type) || toText(record.vehicleType)
+  return vehicleType.trim() || '—'
+}
+
 function pickEffectiveFrom(record: ApiRecord): string {
   const direct =
     toText(record.effective_from) ||
@@ -196,26 +235,16 @@ async function resolveFuelQuotaFuelTypeName(
   return label || id
 }
 
-async function enrichFuelQuotaRowsWithDetailNames(
+async function enrichFuelQuotaRowsWithFuelTypeNames(
   rows: FuelQuotaListRow[],
-  records: ApiRecord[],
 ): Promise<FuelQuotaListRow[]> {
-  const orgNameByKey = new Map<string, string>()
   const fuelTypeNameById = new Map<string, string>()
-
-  const resolveOrgName = async (orgIds: FuelQuotaOrgIds): Promise<string> => {
-    const key = organizationKeyFromOrgIds(orgIds)
-    if (!key) return '—'
-    const cached = orgNameByKey.get(key)
-    if (cached) return cached
-    const name = await resolveFuelQuotaOrganizationName(orgIds)
-    orgNameByKey.set(key, name)
-    return name
-  }
 
   const resolveFuelType = async (fuelTypeId: string, fallbackLabel: string): Promise<string> => {
     const id = fuelTypeId.trim()
     if (!id) return fallbackLabel.trim() || '—'
+    const label = fallbackLabel.trim()
+    if (label && !isUuidLike(label)) return label
     const cached = fuelTypeNameById.get(id)
     if (cached) return cached
     const name = await resolveFuelQuotaFuelTypeName(id, fallbackLabel)
@@ -224,14 +253,9 @@ async function enrichFuelQuotaRowsWithDetailNames(
   }
 
   return Promise.all(
-    rows.map(async (row, index) => {
-      const record = records[index]
-      const orgIds = fuelQuotaOrgIdsFromRecord(record)
-      const [organization, fuelType] = await Promise.all([
-        resolveOrgName(orgIds),
-        resolveFuelType(row.fuelTypeId, row.fuelType),
-      ])
-      return { ...row, organization, fuelType }
+    rows.map(async (row) => {
+      const fuelType = await resolveFuelType(row.fuelTypeId, row.fuelType)
+      return fuelType === row.fuelType ? row : { ...row, fuelType }
     }),
   )
 }
@@ -292,9 +316,9 @@ export function mapFuelQuotaRecord(
 
   return {
     id,
-    vehicleCategory: resolveVehicleCategoryLabel(vehicleType, assetNames),
+    vehicleCategory: pickVehicleTypeName(record),
     vehicleCategoryValue: resolveVehicleCategoryFormValue(vehicleType, assetNames),
-    organization: '—',
+    organization: pickQuotaOrganizationName(record),
     fuelTypeId,
     fuelType: pickFuelTypeLabel(record, fuelTypeId, fuelTypes),
     maximumQuota: toNumber(record.ceiling_amount ?? record.ceilingAmount),
@@ -335,13 +359,10 @@ export async function fetchFuelQuotasPage(
 ): Promise<FuelQuotasPageResult> {
   const payload = await apiGet<unknown>(fuelQuotasListPath(search, page, pageSize))
   const records = extractMasterList(payload)
-  const mapped = records
-    .map((record) => ({ record, row: mapFuelQuotaRecord(record, lookups) }))
-    .filter((entry): entry is { record: ApiRecord; row: FuelQuotaListRow } => entry.row !== null)
-  const enrichedRows = await enrichFuelQuotaRowsWithDetailNames(
-    mapped.map((entry) => entry.row),
-    mapped.map((entry) => entry.record),
-  )
+  const rows = records
+    .map((record) => mapFuelQuotaRecord(record, lookups))
+    .filter((row): row is FuelQuotaListRow => row !== null)
+  const enrichedRows = await enrichFuelQuotaRowsWithFuelTypeNames(rows)
   const paged = applyPagination(payload, enrichedRows, page, pageSize, {
     page,
     pageSize,

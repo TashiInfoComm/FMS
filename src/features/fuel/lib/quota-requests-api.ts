@@ -1,7 +1,5 @@
 import type { ApiRecord } from '@/features/user/lib/roles-api'
 import { toText } from '@/features/user/lib/users-api'
-import { fetchDriverVehicleAssignmentByVehicleId } from '@/features/vehicles/lib/driver-vehicle-assignments-api'
-import { fetchVehicleById } from '@/features/vehicles/lib/vehicles-api'
 import { apiClient, apiDelete, apiGet, apiPatch } from '@/services/apiClient'
 import { extractMasterList } from '@/shared/lib/organogram-master-lookup'
 import { applyPagination } from '@/shared/utils/pagination'
@@ -11,9 +9,12 @@ import type { QuotaRequestStatus } from '@/features/fuel/lib/quota-request-mock-
 export type QuotaRequestListRow = {
   id: string
   vehicleId: string
+  registrationNumber: string
+  make: string
+  model: string
+  year: string
+  /** Registration number; kept for pages that still bind `vehicle`. */
   vehicle: string
-  driverName: string
-  contactNumber: string
   requestSource: string
   balanceAtRequest: number
   recommendedAmount: number
@@ -69,35 +70,46 @@ function normalizeQuotaRequestStatus(value: unknown): QuotaRequestStatus {
   return 'PENDING'
 }
 
-function pickVehicleRegistration(record: ApiRecord): string {
-  const make = pickScalar(record, ['make', 'vehicle_make'])
-  const model = pickScalar(record, ['model', 'vehicle_model'])
-  const registration = pickScalar(record, [
-    'registration_number',
-    'registrationNumber',
-    'vehicle_number',
-    'vehicleNumber',
-  ])
-  if (registration) return registration
-  const makeModel = [make, model].filter(Boolean).join(' ').trim()
-  return makeModel || pickScalar(record, ['vehicle_name', 'vehicleName', 'name']) || ''
+function nestedRecord(value: unknown): ApiRecord | null {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as ApiRecord
+  }
+  return null
 }
 
-export function formatQuotaRequestSource(value: string): string {
-  const trimmed = value.trim()
-  if (!trimmed) return '—'
-  return trimmed
-    .toLowerCase()
-    .split('_')
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ')
+function pickVehicleDetails(record: ApiRecord): {
+  vehicleId: string
+  registrationNumber: string
+  make: string
+  model: string
+  year: string
+} {
+  const nestedVehicle = nestedRecord(record.vehicle)
+  const source = nestedVehicle ?? record
+  const vehicleId =
+    pickScalar(record, ['vehicle_id', 'vehicleId']) ||
+    (nestedVehicle ? pickScalar(nestedVehicle, ['id']) : '')
+
+  return {
+    vehicleId,
+    registrationNumber:
+      pickScalar(source, [
+        'registration_number',
+        'registrationNumber',
+        'vehicle_number',
+        'vehicleNumber',
+      ]) || '—',
+    make: pickScalar(source, ['make', 'vehicle_make']) || '—',
+    model: pickScalar(source, ['model', 'vehicle_model']) || '—',
+    year: pickScalar(source, ['year', 'vehicle_year']) || '—',
+  }
 }
 
 export function mapQuotaRequestListRow(record: ApiRecord): QuotaRequestListRow | null {
   const id = pickScalar(record, ['id', 'quota_request_id', 'quotaRequestId', 'request_id', 'uuid'])
   if (!id) return null
 
-  const vehicleId = pickScalar(record, ['vehicle_id', 'vehicleId'])
+  const vehicle = pickVehicleDetails(record)
   const remarks =
     pickScalar(record, ['mto_remarks', 'mtoRemarks']) ||
     pickScalar(record, ['finance_remarks', 'financeRemarks']) ||
@@ -105,10 +117,12 @@ export function mapQuotaRequestListRow(record: ApiRecord): QuotaRequestListRow |
 
   return {
     id,
-    vehicleId,
-    vehicle: vehicleId || '—',
-    driverName: '—',
-    contactNumber: '—',
+    vehicleId: vehicle.vehicleId,
+    registrationNumber: vehicle.registrationNumber,
+    make: vehicle.make,
+    model: vehicle.model,
+    year: vehicle.year,
+    vehicle: vehicle.registrationNumber,
     requestSource: pickScalar(record, ['request_source', 'requestSource']),
     balanceAtRequest: toNumber(record.balance_at_request ?? record.balanceAtRequest),
     recommendedAmount: toNumber(
@@ -127,141 +141,14 @@ export function mapQuotaRequestListRow(record: ApiRecord): QuotaRequestListRow |
   }
 }
 
-async function resolveVehicleLabels(vehicleIds: string[]): Promise<Map<string, string>> {
-  const uniqueIds = [...new Set(vehicleIds.filter(Boolean))]
-  if (uniqueIds.length === 0) return new Map()
-
-  const entries = await Promise.all(
-    uniqueIds.map(async (vehicleId) => {
-      try {
-        const vehicle = await fetchVehicleById(vehicleId)
-        const label = pickVehicleRegistration(vehicle)
-        return [vehicleId, label || vehicleId] as const
-      } catch {
-        return [vehicleId, vehicleId] as const
-      }
-    }),
-  )
-
-  return new Map(entries)
-}
-
-function unwrapUserRecord(payload: unknown): ApiRecord {
-  if (!payload || typeof payload !== 'object') return {}
-  const root = payload as ApiRecord
-  const data = root.data
-  if (data && typeof data === 'object' && !Array.isArray(data)) {
-    return data as ApiRecord
-  }
-  return root
-}
-
-function pickDriverName(record: ApiRecord): string {
-  const user =
-    record.user && typeof record.user === 'object' && !Array.isArray(record.user)
-      ? (record.user as ApiRecord)
-      : {}
-  const merged = { ...record, ...user }
-  const firstName = pickScalar(merged, ['first_name', 'firstName'])
-  const middleName = pickScalar(merged, ['middle_name', 'middleName'])
-  const lastName = pickScalar(merged, ['last_name', 'lastName'])
-  const fullName =
-    pickScalar(merged, ['name', 'full_name', 'fullName']) ||
-    [firstName, middleName, lastName].filter(Boolean).join(' ').trim()
-  return fullName || '—'
-}
-
-function pickContactNumber(record: ApiRecord): string {
-  const user =
-    record.user && typeof record.user === 'object' && !Array.isArray(record.user)
-      ? (record.user as ApiRecord)
-      : {}
-  const merged = { ...record, ...user }
-  return (
-    pickScalar(merged, [
-      'contact_no',
-      'contact_number',
-      'contactNumber',
-      'contact',
-      'phone',
-      'mobile',
-    ]) || '—'
-  )
-}
-
-async function fetchDriverDisplayById(
-  driverId: string,
-): Promise<{ name: string; contactNumber: string } | null> {
-  const trimmed = driverId.trim()
-  if (!trimmed || trimmed === '—') return null
-  try {
-    const payload = await apiGet<unknown>(`/admin/users/${encodeURIComponent(trimmed)}`)
-    const record = unwrapUserRecord(payload)
-    return {
-      name: pickDriverName(record),
-      contactNumber: pickContactNumber(record),
-    }
-  } catch {
-    return null
-  }
-}
-
-async function resolveDriverDetailsByVehicleIds(
-  vehicleIds: string[],
-): Promise<Map<string, { name: string; contactNumber: string }>> {
-  const uniqueVehicleIds = [...new Set(vehicleIds.filter(Boolean))]
-  if (uniqueVehicleIds.length === 0) return new Map()
-
-  const assignmentEntries = await Promise.all(
-    uniqueVehicleIds.map(async (vehicleId) => {
-      const assignment = await fetchDriverVehicleAssignmentByVehicleId(vehicleId)
-      return [vehicleId, assignment?.driverId ?? ''] as const
-    }),
-  )
-
-  const vehicleToDriverId = new Map(
-    assignmentEntries.filter(([, driverId]) => driverId && driverId !== '—'),
-  )
-  const uniqueDriverIds = [...new Set([...vehicleToDriverId.values()])]
-  if (uniqueDriverIds.length === 0) return new Map()
-
-  const driverEntries = await Promise.all(
-    uniqueDriverIds.map(async (driverId) => {
-      const details = await fetchDriverDisplayById(driverId)
-      return [driverId, details] as const
-    }),
-  )
-  const driverDetailsById = new Map(
-    driverEntries.filter((entry): entry is [string, { name: string; contactNumber: string }] =>
-      Boolean(entry[1]),
-    ),
-  )
-
-  const result = new Map<string, { name: string; contactNumber: string }>()
-  for (const [vehicleId, driverId] of vehicleToDriverId) {
-    const details = driverDetailsById.get(driverId)
-    if (details) result.set(vehicleId, details)
-  }
-  return result
-}
-
-async function enrichQuotaRequestRowsWithVehicleNames(
-  rows: QuotaRequestListRow[],
-): Promise<QuotaRequestListRow[]> {
-  const vehicleIds = rows.map((row) => row.vehicleId)
-  const [vehicleLabels, driverDetailsByVehicleId] = await Promise.all([
-    resolveVehicleLabels(vehicleIds),
-    resolveDriverDetailsByVehicleIds(vehicleIds),
-  ])
-  return rows.map((row) => {
-    const driverDetails = row.vehicleId ? driverDetailsByVehicleId.get(row.vehicleId) : undefined
-    return {
-      ...row,
-      vehicle: row.vehicleId ? (vehicleLabels.get(row.vehicleId) ?? row.vehicleId) : '—',
-      driverName: driverDetails?.name ?? '—',
-      contactNumber: driverDetails?.contactNumber ?? '—',
-    }
-  })
+export function formatQuotaRequestSource(value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) return '—'
+  return trimmed
+    .toLowerCase()
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
 }
 
 function unwrapQuotaRequestDetail(payload: unknown): ApiRecord | null {
@@ -334,14 +221,13 @@ export async function fetchQuotaRequestsPage(
     quotaRequestsListPath(search, statusFilter, page, pageSize),
   )
   const records = extractQuotaRequestList(payload)
-  const mapped = records
+  const rows = records
     .map((record) => mapQuotaRequestListRow(record))
     .filter((row): row is QuotaRequestListRow => row !== null)
-  const enrichedRows = await enrichQuotaRequestRowsWithVehicleNames(mapped)
-  const paged = applyPagination(payload, enrichedRows, page, pageSize, {
+  const paged = applyPagination(payload, rows, page, pageSize, {
     page,
     pageSize,
-    pageLength: enrichedRows.length,
+    pageLength: rows.length,
   })
   return {
     rows: paged.rows,
@@ -366,8 +252,7 @@ export async function fetchQuotaRequestById(requestId: string): Promise<QuotaReq
   if (!record) throw new Error('Invalid quota request response')
   const mapped = mapQuotaRequestListRow(record)
   if (!mapped) throw new Error('Invalid quota request response')
-  const [enriched] = await enrichQuotaRequestRowsWithVehicleNames([mapped])
-  return enriched
+  return mapped
 }
 
 export async function reviewQuotaRequestMto(

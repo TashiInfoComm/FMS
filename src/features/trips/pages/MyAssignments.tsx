@@ -56,7 +56,7 @@ export default function MyAssignments() {
 
   const openStatusUpdate = (row: (typeof rows)[number]) => {
     navigate(`/trip/my-assignments/${encodeURIComponent(row.id)}`, {
-      state: { hasFeedback: row.hasFeedback },
+      state: { hasFeedback: row.hasFeedback === true },
     })
   }
 
@@ -84,6 +84,7 @@ export default function MyAssignments() {
               <thead className="bg-[#f6f6f7] text-[var(--fms-text-header)]">
                 <tr>
                   <th className="w-16 px-4 py-3 text-left font-semibold">Sl.No</th>
+                  <th className="px-4 py-3 text-left font-semibold">Reference No.</th>
                   <th className="px-4 py-3 text-left font-semibold">Trip Type</th>
                   <th className="px-4 py-3 text-left font-semibold">Applicant</th>
                   <th className="px-4 py-3 text-left font-semibold">Route</th>
@@ -144,6 +145,9 @@ export default function MyAssignments() {
                     >
                       <td className="px-4 py-3 tabular-nums text-[var(--fms-text-subheading)]">
                         {(listQuery.data?.serialBase ?? 0) + index + 1}
+                      </td>
+                      <td className="px-4 py-3 font-medium text-[var(--fms-text-header)]">
+                        {row.requestId}
                       </td>
                       <td className="px-4 py-3">{row.tripType}</td>
                       <td className="px-4 py-3">
@@ -219,6 +223,7 @@ export default function MyAssignments() {
                   <MobileListField label="Sl.No">
                     {(listQuery.data?.serialBase ?? 0) + index + 1}
                   </MobileListField>
+                  <MobileListField label="Reference No.">{row.requestId}</MobileListField>
                   <MobileListField label="Trip Type">{row.tripType}</MobileListField>
                   <MobileListField label="Applicant">
                     <span className="font-medium text-[var(--fms-text-header)]">

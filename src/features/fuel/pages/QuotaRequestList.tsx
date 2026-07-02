@@ -41,9 +41,8 @@ import { useRouteCrudPermissions } from "@/shared/hooks/useRouteCrudPermissions"
 
 const TABLE_COLUMNS = [
   "Sl.No",
-  "Vehicle",
-  "Driver Name",
-  "Contact Number",
+  "Registration No.",
+  "Make & Model",
   "Request Source",
   "Current Quota",
   "Status",
@@ -268,14 +267,19 @@ export default function QuotaRequestList() {
                         {serialBase + index + 1}
                       </td>
                       <td className="px-4 py-3 font-medium text-[var(--fms-text-header)]">
-                        {row.vehicle}
+                        {row.registrationNumber}
                       </td>
                       <td className="px-4 py-3 text-[var(--fms-text-subheading)]">
-                        {row.driverName}
+                        {row.make && row.model && row.year ? (
+                          <>
+                            {row.make}{' '}{row.model} {`(${row.year})`}
+                          </>
+                        ) : (
+                          <span className="text-[var(--fms-text-subheading)]">—</span>
+                        )}
+
                       </td>
-                      <td className="px-4 py-3 tabular-nums text-[var(--fms-text-subheading)]">
-                        {row.contactNumber}
-                      </td>
+
                       <td className="px-4 py-3 text-[var(--fms-text-subheading)]">
                         {formatQuotaRequestSource(row.requestSource)}
                       </td>
@@ -343,13 +347,12 @@ export default function QuotaRequestList() {
                   <MobileListField label="Sl.No">
                     {serialBase + index + 1}
                   </MobileListField>
-                  <MobileListField label="Vehicle">{row.vehicle}</MobileListField>
-                  <MobileListField label="Driver Name">
-                    {row.driverName}
+                  <MobileListField label="Registration No.">
+                    {row.registrationNumber}
                   </MobileListField>
-                  <MobileListField label="Contact Number">
-                    {row.contactNumber}
-                  </MobileListField>
+                  <MobileListField label="Make">{row.make}</MobileListField>
+                  <MobileListField label="Model">{row.model}</MobileListField>
+                  <MobileListField label="Year">{row.year}</MobileListField>
                   <MobileListField label="Request Source">
                     {formatQuotaRequestSource(row.requestSource)}
                   </MobileListField>
@@ -385,7 +388,7 @@ export default function QuotaRequestList() {
                       <Pencil aria-hidden />
                       Replenish
                     </Button>
-                    
+
                   </div>
                 </MobileListCard>
               ))
@@ -408,7 +411,7 @@ export default function QuotaRequestList() {
         </CardContent>
       </Card>
 
-      
+
     </section>
   );
 }

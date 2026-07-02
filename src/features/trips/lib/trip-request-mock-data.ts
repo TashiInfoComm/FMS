@@ -23,6 +23,15 @@ export function formatSuggestedVehicleMakeModel(vehicle: TripSuggestedVehicle): 
   return '—'
 }
 
+/** Plate and make/model from an assigned vehicle block on trip detail. */
+export function formatAssignedVehicleDetail(vehicle: TripSuggestedVehicle): string {
+  const plate = vehicle.plateNumber !== '—' ? vehicle.plateNumber.trim() : ''
+  const makeModel = formatSuggestedVehicleMakeModel(vehicle)
+  const detail = makeModel !== '—' ? makeModel : ''
+  if (plate && detail) return `${plate} · ${detail}`
+  return plate || detail || '—'
+}
+
 export type TripAccompanyingOfficial = {
   employeeCid: string
   fullName: string

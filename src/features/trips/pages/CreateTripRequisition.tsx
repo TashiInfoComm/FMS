@@ -260,7 +260,7 @@ function CreateTripRequisition() {
 
   const [tripForm, setTripForm] = useState<TripFormState>(emptyTripForm)
   const [officials, setOfficials] = useState<OfficialRow[]>([])
-  const [movementOrderFile, setMovementOrderFile] = useState<File | null>(null)
+  const [noteSheetFile, setNoteSheetFile] = useState<File | null>(null)
   const [approvalDialogOpen, setApprovalDialogOpen] = useState(false)
   const [approvalResult, setApprovalResult] = useState<CreateTripRequisitionResult | null>(
     null,
@@ -299,11 +299,11 @@ function CreateTripRequisition() {
   }, [showLocalFields, tripForm.pickupRequired])
 
   useEffect(() => {
-    if (!showLongFields && movementOrderFile) {
-      setMovementOrderFile(null)
+    if (!showLongFields && noteSheetFile) {
+      setNoteSheetFile(null)
       if (fileInputRef.current) fileInputRef.current.value = ''
     }
-  }, [showLongFields, movementOrderFile])
+  }, [showLongFields, noteSheetFile])
 
   const tripDurationDisplay = useMemo(
     () =>
@@ -356,7 +356,7 @@ function CreateTripRequisition() {
         origin: tripForm.origin.trim(),
         destinationDetails: tripForm.finalDestination.trim(),
         pickupRequired: showLocalFields ? tripForm.pickupRequired : undefined,
-        isMovementOrderRequired: showLongFields,
+        isNoteSheetRequired: showLongFields,
         tripDetailsJustification,
         accompanyingOfficials: officials
           .filter((row) => row.cid.trim() || row.fullName.trim())
@@ -364,7 +364,7 @@ function CreateTripRequisition() {
             cid: row.cid.trim(),
             fullName: row.fullName.trim(),
           })),
-        movementOrderFile,
+        noteSheetFile,
       }).then((result) => ({
         ...result,
         tripTypeLabel: preferFormMasterLabel(result.tripTypeLabel, selectedTripTypeLabel),
@@ -408,8 +408,8 @@ function CreateTripRequisition() {
     if (!tripDurationDisplay.trim()) {
       return 'Trip duration could not be calculated from the selected dates.'
     }
-    if (showLongFields && !movementOrderFile) {
-      return 'Movement order upload is required for long trips.'
+    if (showLongFields && !noteSheetFile) {
+      return 'Approval Note sheet upload is required for long trips.'
     }
     for (const row of officials) {
       if (row.lookupLoading) {
@@ -422,9 +422,9 @@ function CreateTripRequisition() {
         return 'CID is required for each accompanying official.'
       }
     }
-    const maxBytes = 5 * 1024 * 1024
-    if (movementOrderFile && movementOrderFile.size > maxBytes) {
-      return 'Movement order must be 5MB or smaller.'
+    const maxBytes = 10 * 1024 * 1024
+    if (noteSheetFile && noteSheetFile.size > maxBytes) {
+      return 'Approval Note sheet must be 10MB or smaller.'
     }
     return null
   }
@@ -672,7 +672,7 @@ function CreateTripRequisition() {
             {showLongFields ? (
               <div className="space-y-2">
                 <Label>
-                  Upload Movement Order <RequiredMark />
+                  Upload Approval Note sheet <RequiredMark />
                 </Label>
                 <input
                   ref={fileInputRef}
@@ -681,7 +681,7 @@ function CreateTripRequisition() {
                   className="sr-only"
                   onChange={(event) => {
                     const file = event.target.files?.[0] ?? null;
-                    setMovementOrderFile(file);
+                    setNoteSheetFile(file);
                   }}
                 />
                 <button
@@ -689,14 +689,14 @@ function CreateTripRequisition() {
                   onClick={() => fileInputRef.current?.click()}
                   className={cn(
                     "flex w-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-[var(--fms-strokes)] bg-[#fafafa] px-4 py-8 text-center transition-colors hover:bg-[#f3f4f6]",
-                    movementOrderFile &&
+                    noteSheetFile &&
                       "border-[var(--fms-primary)] bg-[#f8fbff]",
                   )}
                 >
                   <CloudUpload className="h-8 w-8 text-[var(--fms-text-subheading)]" />
                   <span className="text-sm font-medium text-[var(--fms-text-header)]">
-                    {movementOrderFile
-                      ? movementOrderFile.name
+                    {noteSheetFile
+                      ? noteSheetFile.name
                       : "Click to upload or drag and drop"}
                   </span>
                   <span className="text-xs text-[var(--fms-text-subheading)]">

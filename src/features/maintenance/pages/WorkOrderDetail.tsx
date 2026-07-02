@@ -31,7 +31,11 @@ import {
   type WorkOrderServiceRecord,
 } from '@/features/maintenance/lib/maintenance-mock-data'
 import { fetchMaintenanceTypes } from '@/features/maintenance/lib/maintenance-masters-api'
-import { workOrderStatusBadgeClass } from '@/features/maintenance/lib/maintenance-ui'
+import {
+  resolveMaintenanceTypeKind,
+  shouldEscalateWorkOrderMtoApproval,
+  workOrderStatusBadgeClass,
+} from '@/features/maintenance/lib/maintenance-ui'
 import { formatFuelLogDate } from '@/features/fuel/lib/fuel-log-mock-data'
 import {
   approveWorkOrder,
@@ -73,6 +77,20 @@ function basenameFromObjectKey(value: string): string {
   if (!trimmed) return ''
   const parts = trimmed.split(/[/\\]/).filter(Boolean)
   return parts[parts.length - 1] ?? trimmed
+}
+
+function hasServiceRecordDetailData(
+  serviceRecord?: WorkOrderServiceRecord,
+): boolean {
+  if (!serviceRecord) return false
+  const invoiceNumber = serviceRecord.invoiceNumber?.trim()
+  const invoiceDate = serviceRecord.invoiceDate?.trim()
+  const invoiceUrl = serviceRecord.invoiceUrl?.trim()
+  return Boolean(
+    (invoiceNumber && invoiceNumber !== '—') ||
+      (invoiceDate && invoiceDate !== '—') ||
+      invoiceUrl,
+  )
 }
 
 function ServiceRecordDetailSection({
@@ -324,15 +342,20 @@ export default function WorkOrderDetail() {
       setRemarks('')
       void queryClient.invalidateQueries({ queryKey: ['maintenance-work-orders'] })
       void queryClient.invalidateQueries({ queryKey: ['maintenance-work-order'] })
-      const maintenanceTypeOnSubmit =
-        workOrder?.maintenanceType.trim().toLowerCase() ?? ''
+      const maintenanceTypeCodeOnSubmit =
+        maintenanceTypeQuery.data?.find(
+          (option) => option.value === workOrder?.maintenanceTypeId,
+        )?.code ?? workOrder?.maintenanceType ?? ''
       const statusOnSubmit = workOrder?.status.trim().toUpperCase() ?? ''
       const totalOnSubmit = sumLineItems(lineItems)
       const escalated =
         isMtoRole &&
         statusOnSubmit === 'PENDING_MTO_APPROVAL' &&
-        (maintenanceTypeOnSubmit === 'major' ||
-          (maintenanceTypeOnSubmit === 'minor' && totalOnSubmit >= 500_000))
+        shouldEscalateWorkOrderMtoApproval({
+          maintenanceTypeLabel: displayMaintenanceType,
+          maintenanceTypeCode: maintenanceTypeCodeOnSubmit,
+          totalAmount: totalOnSubmit,
+        })
       showSuccessToast(
         escalated
           ? 'Work order escalated successfully.'
@@ -447,10 +470,19 @@ export default function WorkOrderDetail() {
   }, [workOrder, servicePartOptions])
 
   const total = useMemo(() => sumLineItems(lineItems), [lineItems])
-  const maintenanceType = workOrder?.maintenanceType.trim().toLowerCase() ?? ''
+  const maintenanceTypeCode = useMemo(() => {
+    if (!workOrder?.maintenanceTypeId?.trim()) return workOrder?.maintenanceType ?? ''
+    const match = maintenanceTypeQuery.data?.find(
+      (option) => option.value === workOrder.maintenanceTypeId,
+    )
+    return match?.code ?? workOrder.maintenanceType
+  }, [workOrder?.maintenanceType, workOrder?.maintenanceTypeId, maintenanceTypeQuery.data])
+  const maintenanceTypeKind = resolveMaintenanceTypeKind(
+    displayMaintenanceType,
+    maintenanceTypeCode,
+  )
+  const isMajorType = maintenanceTypeKind === 'major'
   const normalizedStatus = workOrder?.status.trim().toUpperCase() ?? ''
-  const isMajorType = maintenanceType === 'major'
-  const isMinorType = maintenanceType === 'minor'
   const isApprovedForService = normalizedStatus === 'APPROVED_FOR_SERVICE'
   const isInProgress = normalizedStatus === 'IN_PROGRESS'
   const isPendingMtoApproval = normalizedStatus === 'PENDING_MTO_APPROVAL'
@@ -461,12 +493,15 @@ export default function WorkOrderDetail() {
   const isCancelled = normalizedStatus === 'CANCELLED'
   const canAddLineItems =
     canEditServicesParts && !isPendingVerification && !isCompleted && !isRejected && !isCancelled
-  const thresholdAmount = 50000
+  const restrictLineItemEdits = isPendingVerification || isCompleted
   const showMtoApproveRejectActions = isMtoRole && isPendingMtoApproval
-  const canMinorEscalate =
-    showMtoApproveRejectActions && isMinorType && total >= thresholdAmount
   const shouldShowEscalate =
-    (showMtoApproveRejectActions && isMajorType) || canMinorEscalate
+    showMtoApproveRejectActions &&
+    shouldEscalateWorkOrderMtoApproval({
+      maintenanceTypeLabel: displayMaintenanceType,
+      maintenanceTypeCode,
+      totalAmount: total,
+    })
   const showAgencyApproveRejectActions =
     isAgencyAdminRole && isPendingAgencyApproval
   const showApproveRejectActions =
@@ -483,10 +518,10 @@ export default function WorkOrderDetail() {
   const canShowVerifyButton =
     showVerifyMaintenance && crud.isResolved && crud.hasAction('verify')
   const showServiceRecordDetail = Boolean(
-    workOrder && (isCompleted || Boolean(workOrder.serviceRecord)),
+    workOrder && hasServiceRecordDetailData(workOrder.serviceRecord),
   )
   const serviceRecord = workOrder?.serviceRecord
-
+      
   const invoiceMutation = useMutation({
     mutationFn: (targetWindow: Window | null) => {
       if (!workOrderId.trim()) throw new Error('Missing work order id')
@@ -827,6 +862,10 @@ export default function WorkOrderDetail() {
               onItemChange={canEditServicesParts ? updateLineItem : undefined}
               onDelete={canEditServicesParts ? removeLineItem : undefined}
               isRowLocked={(row) => isApprovedForService && !row.isNew}
+              isServicePartLocked={() => restrictLineItemEdits}
+              isQuantityLocked={() => restrictLineItemEdits}
+              isNotesLocked={() => restrictLineItemEdits}
+              isDeleteHidden={() => restrictLineItemEdits}
             />
             {canEditServicesParts && isApprovedForService && lineItems.some((row) => row.isNew) ? (
               <div className="mt-4 flex justify-end">

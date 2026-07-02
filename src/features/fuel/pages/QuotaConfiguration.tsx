@@ -67,7 +67,7 @@ type QuotaFormValues = {
 
 const TABLE_COLUMNS = [
   'SL.No',
-  'Vehicle Category',
+  'Vehicle Type',
   'Organization',
   'Maximum Quota',
   'Threshold',
@@ -240,14 +240,7 @@ export default function QuotaConfiguration() {
   )
 
   const quotasQuery = useQuery({
-    queryKey: [
-      'fuel-quotas',
-      search,
-      page,
-      pageSize,
-      fuelTypesQuery.dataUpdatedAt,
-      assetNamesQuery.dataUpdatedAt,
-    ],
+    queryKey: ['fuel-quotas', search, page, pageSize, fuelTypesQuery.dataUpdatedAt],
     enabled: !crud.isResolved || crud.canRead,
     queryFn: () => fetchFuelQuotasPage(search, page, pageSize, listLookups),
     staleTime: 30_000,
@@ -598,7 +591,7 @@ export default function QuotaConfiguration() {
               </div>
 
               <div className="space-y-2">
-                <Label>Vehicle Category</Label>
+                <Label>Vehicle Type</Label>
                 <Select
                   value={form.vehicleCategory || undefined}
                   onValueChange={(value) =>
@@ -610,8 +603,8 @@ export default function QuotaConfiguration() {
                     <SelectValue
                       placeholder={
                         assetNamesQuery.isLoading
-                          ? 'Loading vehicle categories…'
-                          : 'Select Vehicle Category'
+                          ? 'Loading vehicle types…'
+                          : 'Select Vehicle Type'
                       }
                     />
                   </SelectTrigger>

@@ -1,5 +1,5 @@
 import type { ApiRecord } from '@/features/user/lib/roles-api'
-import { fetchUserById, mapUserDetailFields, toText } from '@/features/user/lib/users-api'
+import { toText } from '@/features/user/lib/users-api'
 import { fetchVehicleById, mapVehicleRecordToListRow } from '@/features/vehicles/lib/vehicles-api'
 import { apiClient, apiGet, apiGetBlob, apiPatch } from '@/services/apiClient'
 import {
@@ -15,6 +15,10 @@ import type { FuelLogStatus } from '@/features/fuel/lib/fuel-log-mock-data'
 export type FuelLogListRow = {
   id: string
   vehicleId: string
+  registrationNumber: string
+  make: string
+  model: string
+  year: string
   driverId: string
   driver: string
   vehicle: string
@@ -232,6 +236,71 @@ function pickVehicleRegistration(record: ApiRecord): string {
   )
 }
 
+function nestedRecord(value: unknown): ApiRecord | null {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as ApiRecord
+  }
+  return null
+}
+
+function pickFuelLogVehicleDetails(record: ApiRecord): {
+  vehicleId: string
+  registrationNumber: string
+  make: string
+  model: string
+  year: string
+  displayLabel: string
+} {
+  const nestedVehicle = nestedRecord(record.vehicle)
+  const source = nestedVehicle ? { ...record, ...nestedVehicle } : record
+  const vehicleId =
+    pickScalar(record, ['vehicle_id', 'vehicleId']) ||
+    (nestedVehicle ? pickScalar(nestedVehicle, ['id', 'vehicle_id', 'vehicleId']) : '')
+
+  const registrationNumber = pickVehicleRegistration(source) || '—'
+  const make = pickScalar(source, ['make', 'vehicle_make']) || '—'
+  const model = pickScalar(source, ['model', 'vehicle_model']) || '—'
+  const year = pickScalar(source, ['year', 'vehicle_year']) || '—'
+  const makeModel = pickVehicleMakeModel(source)
+  const { label: displayLabel } = formatVehicleDisplayLabel(source)
+
+  return {
+    vehicleId,
+    registrationNumber,
+    make,
+    model,
+    year,
+    displayLabel:
+      displayLabel !== '—'
+        ? displayLabel
+        : registrationNumber !== '—'
+          ? registrationNumber
+          : makeModel || vehicleId || '—',
+  }
+}
+
+export function formatFuelLogVehicleDisplay(
+  row: Pick<FuelLogListRow, 'registrationNumber' | 'make' | 'model' | 'year' | 'vehicle'>,
+): string {
+  const registration =
+    row.registrationNumber && row.registrationNumber !== '—' ? row.registrationNumber : ''
+  const make = row.make && row.make !== '—' ? row.make : ''
+  const model = row.model && row.model !== '—' ? row.model : ''
+  const year = row.year && row.year !== '—' ? row.year : ''
+  const makeModel = [make, model].filter(Boolean).join(' ').trim()
+
+  if (registration && makeModel && year) {
+    return `${registration} (${makeModel} ${year})`
+  }
+  if (registration && makeModel) {
+    return `${registration} (${makeModel})`
+  }
+  if (registration) return registration
+  if (makeModel && year) return `${makeModel} (${year})`
+  if (makeModel) return makeModel
+  return row.vehicle || '—'
+}
+
 function pickDriverId(record: ApiRecord): string {
   const driverBlock =
     record.driver && typeof record.driver === 'object' && !Array.isArray(record.driver)
@@ -309,7 +378,7 @@ export function mapFuelLogListRow(record: ApiRecord): FuelLogListRow | null {
   const id = pickScalar(record, ['id', 'fuel_log_id', 'fuelLogId', 'uuid'])
   if (!id) return null
 
-  const vehicleId = pickScalar(record, ['vehicle_id', 'vehicleId'])
+  const vehicle = pickFuelLogVehicleDetails(record)
   const driverId = pickDriverId(record)
   const receiptObjectKey = pickScalar(record, ['receipt_object_key', 'receiptObjectKey'])
   const receiptPath =
@@ -328,18 +397,14 @@ export function mapFuelLogListRow(record: ApiRecord): FuelLogListRow | null {
 
   return {
     id,
-    vehicleId,
+    vehicleId: vehicle.vehicleId,
+    registrationNumber: vehicle.registrationNumber,
+    make: vehicle.make,
+    model: vehicle.model,
+    year: vehicle.year,
     driverId,
     driver: pickDriverName(record),
-    vehicle:
-      pickScalar(record, [
-        'vehicle_number',
-        'vehicleNumber',
-        'registration_number',
-        'registrationNumber',
-        'vehicle_name',
-        'vehicleName',
-      ]) || vehicleId || '—',
+    vehicle: vehicle.displayLabel,
     quotaUsed: toNumber(record.quota_used ?? record.quotaUsed ?? record.used_quota),
     quotaTotal: toNumber(record.quota_total ?? record.quotaTotal ?? record.total_quota, 0),
     date:
@@ -362,67 +427,6 @@ export function mapFuelLogListRow(record: ApiRecord): FuelLogListRow | null {
   }
 }
 
-async function resolveVehicleLabels(vehicleIds: string[]): Promise<Map<string, string>> {
-  const uniqueIds = [...new Set(vehicleIds.filter(Boolean))]
-  if (uniqueIds.length === 0) return new Map()
-
-  const entries = await Promise.all(
-    uniqueIds.map(async (vehicleId) => {
-      try {
-        const detail = await fetchFuelLogVehicleDetail(vehicleId)
-        return [vehicleId, detail.displayLabel] as const
-      } catch {
-        return [vehicleId, vehicleId] as const
-      }
-    }),
-  )
-
-  return new Map(entries)
-}
-
-async function resolveDriverNames(driverIds: string[]): Promise<Map<string, string>> {
-  const uniqueIds = [...new Set(driverIds.filter(Boolean))]
-  if (uniqueIds.length === 0) return new Map()
-
-  const entries = await Promise.all(
-    uniqueIds.map(async (driverId) => {
-      try {
-        const record = await fetchUserById(driverId)
-        const { name } = mapUserDetailFields(record)
-        return [driverId, name && name !== '-' ? name : driverId] as const
-      } catch {
-        return [driverId, driverId] as const
-      }
-    }),
-  )
-
-  return new Map(entries)
-}
-
-async function enrichFuelLogRows(rows: FuelLogListRow[]): Promise<FuelLogListRow[]> {
-  const vehicleIds = rows.map((row) => row.vehicleId)
-  const driverIds = rows.map((row) => row.driverId)
-  const [vehicleLabels, driverLabels] = await Promise.all([
-    resolveVehicleLabels(vehicleIds),
-    resolveDriverNames(driverIds),
-  ])
-  return rows.map((row) => ({
-    ...row,
-    driver:
-      row.driver && row.driver !== '—'
-        ? row.driver
-        : row.driverId
-          ? (driverLabels.get(row.driverId) ?? row.driver)
-          : row.driver,
-    vehicle:
-      row.vehicle && row.vehicle !== '—' && row.vehicle !== row.vehicleId
-        ? row.vehicle
-        : row.vehicleId
-          ? (vehicleLabels.get(row.vehicleId) ?? row.vehicle)
-          : row.vehicle,
-  }))
-}
-
 export function fuelLogsListPath(search: string, page: number, pageSize: number): string {
   const params = new URLSearchParams()
   params.set('page', String(page))
@@ -439,14 +443,13 @@ export async function fetchFuelLogsPage(
 ): Promise<FuelLogsPageResult> {
   const payload = await apiGet<unknown>(fuelLogsListPath(search, page, pageSize))
   const records = extractFuelLogList(payload)
-  const mapped = records
+  const rows = records
     .map((record) => mapFuelLogListRow(record))
     .filter((row): row is FuelLogListRow => row !== null)
-  const enrichedRows = await enrichFuelLogRows(mapped)
-  const paged = applyPagination(payload, enrichedRows, page, pageSize, {
+  const paged = applyPagination(payload, rows, page, pageSize, {
     page,
     pageSize,
-    pageLength: enrichedRows.length,
+    pageLength: rows.length,
   })
   return {
     rows: paged.rows,

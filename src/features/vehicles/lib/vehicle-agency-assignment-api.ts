@@ -1,5 +1,6 @@
 // Master lists for agency → department → division → sub-division (`/master/*`), GET `/vehicles/agency-assignments/{vehicle_id}`,
-// POST `/vehicles/agency-assignment` (create), PUT `/vehicles/agency-assignment/{id}` (update).
+// POST `/vehicles/agency-assignment` (create), PUT `/vehicles/agency-assignments/{id}` (update).
+import type { UserOrgScopeType } from '@/features/user/lib/user-org-scopes-api'
 import type { AdminGroupNode } from '@/features/user/lib/groups-api'
 import { extractMasterList } from '@/features/vehicles/lib/vehicle-create-master-data'
 import { apiGet, apiPost, apiPut } from '@/services/apiClient'
@@ -40,13 +41,17 @@ export type VehicleAgencyAssignmentBody = {
 
 const PAGE_SIZE = 200;
 
-export type AgencyAssignmentRow = { id: string; name: string }
+function readCode(record: ApiRecord): string {
+  return toText(record.code).trim()
+}
 
-export type DepartmentAssignmentRow = { id: string; name: string; agencyId: string }
+export type AgencyAssignmentRow = { id: string; name: string; code: string }
 
-export type DivisionAssignmentRow = { id: string; name: string; departmentId: string }
+export type DepartmentAssignmentRow = { id: string; name: string; agencyId: string; code: string }
 
-export type SubDivisionAssignmentRow = { id: string; name: string; divisionId: string }
+export type DivisionAssignmentRow = { id: string; name: string; departmentId: string; code: string }
+
+export type SubDivisionAssignmentRow = { id: string; name: string; divisionId: string; code: string }
 
 function mapAgencyRows(records: ApiRecord[]): AgencyAssignmentRow[] {
   return records
@@ -54,50 +59,54 @@ function mapAgencyRows(records: ApiRecord[]): AgencyAssignmentRow[] {
     .map((item) => {
       const id = toId(item.id).trim()
       const name = toText(item.name).trim()
+      const code = readCode(item)
       if (!id || !name) return null
-      return { id, name }
+      return { id, name, code }
     })
     .filter((r): r is AgencyAssignmentRow => r !== null)
 }
 
-function mapDepartmentRows(records: ApiRecord[]): DepartmentAssignmentRow[] {
+function mapDepartmentRows(records: ApiRecord[], parentAgencyId = ''): DepartmentAssignmentRow[] {
   return records
     .filter(isActiveRecord)
     .map((item) => {
       const id = toId(item.id).trim()
       const name = toText(item.name).trim()
+      const code = readCode(item)
       const agencyObj = toObject(item.agency) ?? toObject(item.parent_agency)
-      const agencyId = (toId(item.agency_id) || readId(agencyObj)).trim()
-      if (!id || !name || !agencyId) return null
-      return { id, name, agencyId }
+      const agencyId = (toId(item.agency_id) || readId(agencyObj) || parentAgencyId).trim()
+      if (!id || !name) return null
+      return { id, name, agencyId, code }
     })
     .filter((r): r is DepartmentAssignmentRow => r !== null)
 }
 
-function mapDivisionRows(records: ApiRecord[]): DivisionAssignmentRow[] {
+function mapDivisionRows(records: ApiRecord[], parentDepartmentId = ''): DivisionAssignmentRow[] {
   return records
     .filter(isActiveRecord)
     .map((item) => {
       const id = toId(item.id).trim()
       const name = toText(item.name).trim()
+      const code = readCode(item)
       const departmentObj = toObject(item.department) ?? toObject(item.parent_department)
-      const departmentId = (toId(item.department_id) || readId(departmentObj)).trim()
-      if (!id || !name || !departmentId) return null
-      return { id, name, departmentId }
+      const departmentId = (toId(item.department_id) || readId(departmentObj) || parentDepartmentId).trim()
+      if (!id || !name) return null
+      return { id, name, departmentId, code }
     })
     .filter((r): r is DivisionAssignmentRow => r !== null)
 }
 
-function mapSubDivisionRows(records: ApiRecord[]): SubDivisionAssignmentRow[] {
+function mapSubDivisionRows(records: ApiRecord[], parentDivisionId = ''): SubDivisionAssignmentRow[] {
   return records
     .filter(isActiveRecord)
     .map((item) => {
       const id = toId(item.id).trim()
       const name = toText(item.name).trim()
+      const code = readCode(item)
       const divisionObj = toObject(item.division) ?? toObject(item.parent_division)
-      const divisionId = (toId(item.division_id) || readId(divisionObj)).trim()
-      if (!id || !name || !divisionId) return null
-      return { id, name, divisionId }
+      const divisionId = (toId(item.division_id) || readId(divisionObj) || parentDivisionId).trim()
+      if (!id || !name) return null
+      return { id, name, divisionId, code }
     })
     .filter((r): r is SubDivisionAssignmentRow => r !== null)
 }
@@ -107,6 +116,75 @@ export type VehicleAgencyAssignmentMasterData = {
   departments: DepartmentAssignmentRow[]
   divisions: DivisionAssignmentRow[]
   subDivisions: SubDivisionAssignmentRow[]
+}
+
+function toOrgNode(
+  id: string,
+  name: string,
+  parentId: string | null,
+  code = '',
+): AdminGroupNode {
+  const node: AdminGroupNode = { id, name, parentId }
+  if (code) node.code = code
+  return node
+}
+
+/** Agencies only (`GET /master/agencies`) for first-tier selector. */
+export async function fetchAdminAgencyGroupNodes(): Promise<AdminGroupNode[]> {
+  const payload = await apiGet<unknown>(
+    `/master/agencies?active=true&page_size=${PAGE_SIZE}&page=1&search=`,
+  )
+  return mapAgencyRows(extractMasterList(payload)).map((row) =>
+    toOrgNode(row.id, row.name, null, row.code),
+  )
+}
+
+/** Departments for a selected agency (`GET /master/agencies/{agency_code}/departments`). */
+export async function fetchAdminDepartmentGroupNodes(
+  agencyCode: string,
+  agencyId: string,
+): Promise<AdminGroupNode[]> {
+  const code = agencyCode.trim()
+  const parentAgencyId = agencyId.trim()
+  if (!code || !parentAgencyId) return []
+  const payload = await apiGet<unknown>(
+    `/master/agencies/${encodeURIComponent(code)}/departments?active=true&page_size=${PAGE_SIZE}&page=1&search=`,
+  )
+  return mapDepartmentRows(extractMasterList(payload), parentAgencyId).map((row) =>
+    toOrgNode(row.id, row.name, parentAgencyId, row.code),
+  )
+}
+
+/** Divisions for a selected department (`GET /master/departments/{department_code}/divisions`). */
+export async function fetchAdminDivisionGroupNodes(
+  departmentCode: string,
+  departmentId: string,
+): Promise<AdminGroupNode[]> {
+  const code = departmentCode.trim()
+  const parentDepartmentId = departmentId.trim()
+  if (!code || !parentDepartmentId) return []
+  const payload = await apiGet<unknown>(
+    `/master/departments/${encodeURIComponent(code)}/divisions?active=true&page_size=${PAGE_SIZE}&page=1&search=`,
+  )
+  return mapDivisionRows(extractMasterList(payload), parentDepartmentId).map((row) =>
+    toOrgNode(row.id, row.name, parentDepartmentId, row.code),
+  )
+}
+
+/** Sub-divisions for a selected division (`GET /master/divisions/{division_code}/sub-divisions`). */
+export async function fetchAdminSubDivisionGroupNodes(
+  divisionCode: string,
+  divisionId: string,
+): Promise<AdminGroupNode[]> {
+  const code = divisionCode.trim()
+  const parentDivisionId = divisionId.trim()
+  if (!code || !parentDivisionId) return []
+  const payload = await apiGet<unknown>(
+    `/master/divisions/${encodeURIComponent(code)}/sub-divisions?active=true&page_size=${PAGE_SIZE}&page=1&search=`,
+  )
+  return mapSubDivisionRows(extractMasterList(payload), parentDivisionId).map((row) =>
+    toOrgNode(row.id, row.name, parentDivisionId, row.code),
+  )
 }
 
 /** Search all master organogram lists for an entity id (vehicle assignments use master ids). */
@@ -212,6 +290,83 @@ export function resolveAssignmentPayload(
   if (dep) return { vehicle_id: vid, entity_type: 'DEPARTMENT', entity_id: dep }
   if (ag) return { vehicle_id: vid, entity_type: 'AGENCY', entity_id: ag }
   return null
+}
+
+export function assignmentEntityTypeToScopeType(
+  entityType: AssignmentEntityType,
+): UserOrgScopeType {
+  switch (entityType) {
+    case 'AGENCY':
+      return 'agency'
+    case 'DEPARTMENT':
+      return 'department'
+    case 'DIVISION':
+      return 'division'
+    case 'SUBDIVISION':
+      return 'sub_division'
+  }
+}
+
+export function scopeTypeToAssignmentEntityType(
+  scopeType: UserOrgScopeType,
+): AssignmentEntityType {
+  switch (scopeType) {
+    case 'agency':
+      return 'AGENCY'
+    case 'department':
+      return 'DEPARTMENT'
+    case 'division':
+      return 'DIVISION'
+    case 'sub_division':
+      return 'SUBDIVISION'
+  }
+}
+
+export function buildOrgScopeKey(scopeType: UserOrgScopeType, scopeId: string): string {
+  return `${scopeType}:${scopeId.trim()}`
+}
+
+export function parseOrgScopeKey(
+  key: string,
+): { scopeType: UserOrgScopeType; scopeId: string } | null {
+  const trimmed = key.trim()
+  if (!trimmed) return null
+  const separator = trimmed.indexOf(':')
+  if (separator <= 0) return null
+  const scopeType = trimmed.slice(0, separator) as UserOrgScopeType
+  const scopeId = trimmed.slice(separator + 1).trim()
+  if (
+    !scopeId ||
+    (scopeType !== 'agency' &&
+      scopeType !== 'department' &&
+      scopeType !== 'division' &&
+      scopeType !== 'sub_division')
+  ) {
+    return null
+  }
+  return { scopeType, scopeId }
+}
+
+export function orgScopeKeyFromAssignment(
+  entityType: AssignmentEntityType,
+  entityId: string,
+): string {
+  return buildOrgScopeKey(assignmentEntityTypeToScopeType(entityType), entityId)
+}
+
+export function resolveAssignmentPayloadFromOrgScopeKey(
+  organizationKey: string,
+  vehicleId: string,
+): VehicleAgencyAssignmentBody | null {
+  const parsed = parseOrgScopeKey(organizationKey)
+  if (!parsed) return null
+  const vid = vehicleId.trim()
+  if (!vid) return null
+  return {
+    vehicle_id: vid,
+    entity_type: scopeTypeToAssignmentEntityType(parsed.scopeType),
+    entity_id: parsed.scopeId,
+  }
 }
 
 function normalizeEntityType(value: unknown): AssignmentEntityType | null {

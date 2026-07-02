@@ -1,4 +1,4 @@
-export type DriverFeedbackStatus = 'Pending' | 'Completed'
+export type DriverFeedbackStatus = 'Pending' | 'Completed' | 'Dropped Off'
 
 export type TripFeedbackRating = 'POOR' | 'FAIR' | 'GOOD' | 'VERY_GOOD' | 'EXCELLENT'
 
@@ -23,6 +23,10 @@ export type DriverFeedbackListItem = {
   driverId?: string
   vehicleId?: string
   tripStatus: string
+  tripStatusCode?: string
+  pickupRequired?: boolean
+  feedbackLegs: number[]
+  pendingFeedbackLeg?: number
   feedbackStatus: DriverFeedbackStatus
 }
 

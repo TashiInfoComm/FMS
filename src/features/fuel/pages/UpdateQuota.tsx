@@ -25,7 +25,7 @@ import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
 
 const TABLE_COLUMNS = [
   'Sl.No',
-  'Driver',
+  'Registration No.',
   'Vehicle',
   'Current Quota',
   'Finance Approved Amount',
@@ -269,10 +269,12 @@ export default function UpdateQuota() {
                       </td>
 
                       <td className="px-4 py-3 text-[var(--fms-text-header)]">
-                        {row.driverName}
+                        {row.registrationNumber}
                       </td>
                       <td className="px-4 py-3 text-[var(--fms-text-header)]">
-                        {row.vehicle}
+                        {[row.make, row.model, row.year !== '—' ? row.year : '']
+                          .filter(Boolean)
+                          .join(' · ') || '—'}
                       </td>
                       <td className="px-4 py-3 text-[var(--fms-text-subheading)]">
                         {`${formatNuDisplay(row.balanceAtRequest)} / ${formatNuDisplay(row.recommendedAmount)}`}
@@ -317,8 +319,14 @@ export default function UpdateQuota() {
                 <MobileListCard key={row.id}>
                   <MobileListField label="Sl.No">{serialBase + index + 1}</MobileListField>
                   <MobileListField label="Request ID">{row.id}</MobileListField>
-                  <MobileListField label="Driver">{row.driverName}</MobileListField>
-                  <MobileListField label="Vehicle">{row.vehicle}</MobileListField>
+                  <MobileListField label="Registration No.">
+                    {row.registrationNumber}
+                  </MobileListField>
+                  <MobileListField label="Vehicle">
+                    {[row.make, row.model, row.year !== '—' ? row.year : '']
+                      .filter(Boolean)
+                      .join(' · ') || '—'}
+                  </MobileListField>
                   <MobileListField label="Current Quota">
                     {`${formatNuDisplay(row.balanceAtRequest)} / ${formatNuDisplay(row.recommendedAmount)}`}
                   </MobileListField>

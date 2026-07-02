@@ -14,6 +14,8 @@ export type AdminGroupNode = {
   id: string
   name: string
   parentId: string | null
+  /** Master organogram code used for nested `/master/.../{code}/...` lookups. */
+  code?: string
 }
 
 export type DirectoryOrganogramHints = {
@@ -592,3 +594,113 @@ export function resolveOrgSelectionFromHints(
 
   return { selection: sel, locks }
 }
+
+/** Resolve one tier from CID id/name hints against a loaded master-data option pool. */
+export function resolveOrgTierFromPool(
+  idHint: string | undefined,
+  nameHint: string | undefined,
+  pool: AdminGroupNode[],
+): { node?: AdminGroupNode; hadHint: boolean } {
+  const hadHint = Boolean(idHint?.trim() || nameHint?.trim())
+  if (!hadHint || pool.length === 0) return { hadHint }
+  const byId = nodesById(pool)
+  return resolveTierWithGlobalIdFallback(idHint, nameHint, pool, pool, byId)
+}
+
+export type AdminOrgTierPools = {
+  agencies?: AdminGroupNode[]
+  departments?: AdminGroupNode[]
+  divisions?: AdminGroupNode[]
+  subDivisions?: AdminGroupNode[]
+}
+
+function orgTierSelectionEqual(a: OrgTierSelection, b: OrgTierSelection): boolean {
+  return (
+    a.agencyId === b.agencyId &&
+    a.departmentId === b.departmentId &&
+    a.divisionId === b.divisionId &&
+    a.subDivisionId === b.subDivisionId
+  )
+}
+
+/**
+ * Maps CID organogram hints onto admin master-data tiers as each cascading list loads.
+ * Does not override a tier when the user already picked a different option for that tier.
+ */
+export function applyCidHintsToAdminOrgSelection(
+  hints: DirectoryOrganogramHints,
+  pools: AdminOrgTierPools,
+  current: OrgTierSelection = emptyOrgSelection(),
+): { selection: OrgTierSelection; locks: OrgTierLocks } {
+  const sel = { ...current }
+  const locks = emptyOrgLocks()
+
+  if (pools.agencies?.length) {
+    const a = resolveOrgTierFromPool(hints.level1Id, hints.level1Name, pools.agencies)
+    if (a.node && (!current.agencyId || current.agencyId === a.node.id)) {
+      if (sel.agencyId !== a.node.id) {
+        sel.agencyId = a.node.id
+        sel.agencyName = a.node.name
+        sel.departmentId = ''
+        sel.departmentName = ''
+        sel.divisionId = ''
+        sel.divisionName = ''
+        sel.subDivisionId = ''
+        sel.subDivisionName = ''
+      }
+    }
+    locks.agency = a.hadHint && !!a.node
+  }
+
+  if (sel.agencyId && pools.departments?.length) {
+    const d = resolveOrgTierFromPool(hints.level2Id, hints.level2Name, pools.departments)
+    if (d.node && (!current.departmentId || current.departmentId === d.node.id)) {
+      if (sel.departmentId !== d.node.id) {
+        sel.departmentId = d.node.id
+        sel.departmentName = d.node.name
+        sel.divisionId = ''
+        sel.divisionName = ''
+        sel.subDivisionId = ''
+        sel.subDivisionName = ''
+      }
+    }
+    locks.department = d.hadHint && !!d.node
+  }
+
+  if (sel.departmentId && pools.divisions?.length) {
+    const v = resolveOrgTierFromPool(hints.level3Id, hints.level3Name, pools.divisions)
+    if (v.node && (!current.divisionId || current.divisionId === v.node.id)) {
+      if (sel.divisionId !== v.node.id) {
+        sel.divisionId = v.node.id
+        sel.divisionName = v.node.name
+        sel.subDivisionId = ''
+        sel.subDivisionName = ''
+      }
+    }
+    locks.division = v.hadHint && !!v.node
+  }
+
+  if (sel.divisionId && pools.subDivisions?.length) {
+    const level4Id =
+      hints.level4Id?.trim() && hints.level4Id.trim() !== '0' ? hints.level4Id : undefined
+    let sub = resolveOrgTierFromPool(level4Id, hints.level4Name, pools.subDivisions)
+    const subHinted = Boolean(
+      level4Id ||
+        hints.level4Name?.trim() ||
+        hints.subGroupId?.trim() ||
+        hints.subGroupName?.trim(),
+    )
+    if (!sub.node && (hints.subGroupId?.trim() || hints.subGroupName?.trim())) {
+      sub = resolveOrgTierFromPool(hints.subGroupId, hints.subGroupName, pools.subDivisions)
+    }
+    if (sub.node && (!current.subDivisionId || current.subDivisionId === sub.node.id)) {
+      sel.subDivisionId = sub.node.id
+      sel.subDivisionName = sub.node.name
+    }
+    locks.subDivision = subHinted && !!sub.node
+  }
+
+  return { selection: sel, locks }
+}
+
+export { orgTierSelectionEqual }

@@ -29,7 +29,7 @@ import { TablePagination } from '@/shared/components/TablePagination'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
 
-const TABLE_COLUMN_COUNT = 8
+const TABLE_COLUMN_COUNT = 7
 
 type CancelTarget = {
   id: string
@@ -148,6 +148,7 @@ function TripRequisition() {
               <thead className="bg-[#f6f6f7] text-[var(--fms-text-header)]">
                 <tr>
                   <th className="px-4 py-3 text-left font-semibold">Sl.No</th>
+                  <th className="px-4 py-3 text-left font-semibold">Reference No.</th>
                   <th className="px-4 py-3 text-left font-semibold">Trip</th>
                   
                   <th className="px-4 py-3 text-left font-semibold">Journey Start Date</th>
@@ -205,6 +206,9 @@ function TripRequisition() {
                       onClick={() => openDetail(row)}
                     >
                       <td className="px-4 py-3">{row.serialNo}</td>
+                      <td className="px-4 py-3 font-medium text-[var(--fms-text-header)]">
+                        {row.referenceNo}
+                      </td>
                       <td className="px-4 py-3">{row.tripType}</td>
                       <td className="px-4 py-3">{row.journeyDate}</td>
                       <td className="px-4 py-3">{row.route}</td>
@@ -271,6 +275,7 @@ function TripRequisition() {
               rows.map((row) => (
                 <MobileListCard key={row.id} onClick={() => openDetail(row)}>
                   <MobileListField label="Sl.No">{row.serialNo}</MobileListField>
+                  <MobileListField label="Reference No.">{row.referenceNo}</MobileListField>
                   <MobileListField label="Trip">{row.tripType}</MobileListField>
                   <MobileListField label="Purpose">{row.purpose}</MobileListField>
                   <MobileListField label="Journey Start">{row.journeyDate}</MobileListField>

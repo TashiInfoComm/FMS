@@ -257,44 +257,41 @@ function splitFullNameForPerson(display: string): { first: string; middle: strin
 
 /** Maps an API user/profile record into the create/edit form shape (directory or saved user). */
 export function apiRecordToFetchedPerson(r: ApiRecord): FetchedPerson {
+  const merged = mergeNestedUserEnvelope(r)
   const emp =
-    toText(r.employee_id) ||
-    toText(r.emp_id) ||
-    toText(r.employeeNumber) ||
-    toText(r.empid) ||
-    toText(r.eid) ||
-    toText(r.accessToken) ||
+    toText(merged.employee_id) ||
+    toText(merged.emp_id) ||
+    toText(merged.employeeNumber) ||
+    toText(merged.empid) ||
+    toText(merged.eid) ||
+    toText(merged.accessToken) ||
     ''
-  const cid = pickCid(r)
+  const cid = pickCid(merged)
   const lookupId =
-    emp || cid || toText(r.id) || toText(r.user_id) || toText(r.uuid) || 'user'
-  let base = mapRecordToPerson(r, lookupId)
-  const fromGroups = organogramLabelsFromGroups(r)
-  const mergeTierLabel = (current: string, fromGroup: string) => {
-    const c = current.trim()
-    if (c && c !== '-') return current
-    const g = fromGroup.trim()
-    return g || current
+    emp || cid || toText(merged.id) || toText(merged.user_id) || toText(merged.uuid) || 'user'
+  let base = mapRecordToPerson(merged, lookupId)
+  const organogram = resolveUserOrganogramNames(merged)
+  const preferOrganogramLabel = (resolved: string, fallback: string): string => {
+    if (!isMissingOrganogramLabel(resolved)) return resolved.trim()
+    const f = fallback.trim()
+    return f && f !== '-' ? f : '-'
   }
   base = {
     ...base,
-    agency: mergeTierLabel(base.agency, fromGroups.agency),
-    department: mergeTierLabel(base.department, fromGroups.department),
-    division: mergeTierLabel(base.division, fromGroups.division),
-    subDivision: mergeTierLabel(base.subDivision, fromGroups.subDivision),
+    agency: preferOrganogramLabel(organogram.agency, base.agency),
+    department: preferOrganogramLabel(organogram.department, base.department),
+    division: preferOrganogramLabel(organogram.division, base.division),
+    subDivision: preferOrganogramLabel(organogram.subDivision, base.subDivision),
   }
-  const agency_id = toText(r.agency_id ?? r.agencyId).trim()
-  const department_id = toText(r.department_id ?? r.departmentId).trim()
-  const division_id = toText(r.division_id ?? r.divisionId).trim()
-  const sub_division_id = toText(r.sub_division_id ?? r.subDivisionId ?? r.subdivision_id).trim()
-  if (agency_id || department_id || division_id || sub_division_id) {
+  const ids = pickUserDetailOrganogramIds(merged)
+  if (ids.agencyId || ids.departmentId || ids.divisionId || ids.subDivisionId) {
     return {
       ...base,
       persistedOrgIds: {
-        ...(agency_id ? { agency_id } : {}),
-        ...(department_id ? { department_id } : {}),
-        ...(division_id ? { division_id } : {}),
-        ...(sub_division_id ? { sub_division_id } : {}),
+        ...(ids.agencyId ? { agency_id: ids.agencyId } : {}),
+        ...(ids.departmentId ? { department_id: ids.departmentId } : {}),
+        ...(ids.divisionId ? { division_id: ids.divisionId } : {}),
+        ...(ids.subDivisionId ? { sub_division_id: ids.subDivisionId } : {}),
       },
     }
   }
@@ -430,6 +427,46 @@ export async function fetchEmployeeById(empid: string): Promise<FetchedPerson> {
   return { ...person, employeeId, directoryLookup: 'employee' }
 }
 
+function isEmptyApiRecord(r: ApiRecord): boolean {
+  return Object.keys(r).length === 0
+}
+
+function hasUsableCitizenDetails(r: ApiRecord): boolean {
+  if (isEmptyApiRecord(r)) return false
+  if (recordHasDirectoryIdentity(r)) return true
+  return isDirectoryProvided(pickName(r))
+}
+
+const CID_LOOKUP_NOT_FOUND_MESSAGE =
+  'No citizen details found for this CID. Please verify the CID and try again.'
+
+/** Unwraps `data.citizenDetailsResponse` when present; rejects null/empty citizen payloads. */
+function resolveEmployeeLookupRecord(payload: unknown): ApiRecord {
+  const data = unwrapDataRecord(payload)
+  if (!data) {
+    throw new Error(CID_LOOKUP_NOT_FOUND_MESSAGE)
+  }
+
+  const hasCitizenWrapper =
+    'citizenDetailsResponse' in data || 'citizen_details_response' in data
+
+  if (hasCitizenWrapper) {
+    const citizenDetails =
+      data.citizenDetailsResponse ?? data.citizen_details_response ?? null
+    if (
+      citizenDetails == null ||
+      typeof citizenDetails !== 'object' ||
+      Array.isArray(citizenDetails) ||
+      isEmptyApiRecord(citizenDetails as ApiRecord)
+    ) {
+      throw new Error(CID_LOOKUP_NOT_FOUND_MESSAGE)
+    }
+    return citizenDetails as ApiRecord
+  }
+
+  return data
+}
+
 /**
  * `GET /public/employees/{cid}` → `FetchedPerson` for create-user flow (lookup by CID only).
  * Agencies / department / divisions are prefilled when the API returns them; otherwise they stay empty/`'-'` so the user can type them—same mapping as numeric employee lookups.
@@ -438,8 +475,10 @@ export async function fetchEmployeeByCid(cid: string): Promise<FetchedPerson> {
   const trimmed = cid.trim()
   if (!trimmed) throw new Error('Citizen ID is required')
   const payload = await apiGet<unknown>(`/public/employees/${encodeURIComponent(trimmed)}`)
-  const r = unwrapDataRecord(payload)
-  if (!r) throw new Error('No directory record found for this CID')
+  const r = resolveEmployeeLookupRecord(payload)
+  if (!hasUsableCitizenDetails(r)) {
+    throw new Error(CID_LOOKUP_NOT_FOUND_MESSAGE)
+  }
   const person = mapRecordToPerson(r, trimmed)
   const cidResolved = pickCid(r) || trimmed
   return { ...person, cid: cidResolved, directoryLookup: 'employee' }

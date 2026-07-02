@@ -1,29 +1,21 @@
 // Route: `/vehicle/list/:vehicleId`. Loads one vehicle from GET `/vehicles/{vehicle_id}`.
-// Agency names via `original_assignment` / `current_assignment` → GET `/master/{entity_type}/id/{entity_id}`.
-// Status names via `status_id` / `movement_status_id` → GET `/master/vehicle-statuses/{id}` etc.
-// Other nested relations (insurance, fuel type, …) use embedded objects from the vehicle response.
+// Agency, status, movement status, and other nested relations use embedded objects from the vehicle response.
 import { ArrowLeft, Pencil } from 'lucide-react'
 import { useMemo } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import {
-  DetailInlineValueSkeleton,
-  DetailLabeledValueSkeleton,
-} from '@/shared/components/detail-loading'
+import { Card, CardContent } from '@/components/ui/card'
+import { DetailLabeledValueSkeleton } from '@/shared/components/detail-loading'
 import { fetchVehicleById } from '@/features/vehicles/lib/vehicles-api'
 import {
-  fetchVehicleDetailResolvedNames,
+  pickVehicleAssignmentNames,
   flattenVehicleDetailRecord,
   isVehicleAgencyKindField,
-  isVehicleStatusKindField,
   resolveVehicleAgencyDisplayName,
-  resolveVehicleStatusDisplayName,
 } from '@/features/vehicles/lib/vehicle-organogram-display'
 import {
-  isGroupedVehicleDetailKey,
   VEHICLE_DETAIL_SECTIONS,
   type VehicleDetailField,
 } from '@/features/vehicles/pages/vehicle-detail-sections'
@@ -69,18 +61,6 @@ function tryFormatIsoDateTimeString(value: string): string | null {
   const parsed = new Date(trimmed)
   if (Number.isNaN(parsed.getTime())) return null
   return formatLocalDateTimeLabel(parsed)
-}
-
-function humanizeKey(key: string) {
-  const spaced = key
-    .replace(/_/g, ' ')
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .replace(/\s+/g, ' ')
-    .trim()
-  return spaced
-    .split(' ')
-    .map((word) => (word ? word.charAt(0).toUpperCase() + word.slice(1).toLowerCase() : ''))
-    .join(' ')
 }
 
 /** Nested API relations (e.g. `fuel_type`, `vehicle_category`) often expose `name`. */
@@ -171,56 +151,15 @@ function VehicleDetailLoadingContent() {
   )
 }
 
-const CREATED_BY_KEYS = new Set(['created_by', 'createdBy'])
-
-function fieldNeedsResolvedLookup(field: VehicleDetailField, sectionId: string): boolean {
-  return (
-    (sectionId === 'agency' && isVehicleAgencyKindField(field) !== null) ||
-    isVehicleStatusKindField(field) !== null
-  )
-}
-
-function isCreatedByKey(key: string): boolean {
-  return CREATED_BY_KEYS.has(key)
-}
-
-function resolveAdditionalEntryDisplayText(
-  key: string,
-  value: unknown,
-  resolvedNamesQuery: {
-    isLoading: boolean
-    data: Awaited<ReturnType<typeof fetchVehicleDetailResolvedNames>> | undefined
-  },
-): string {
-  if (CREATED_BY_KEYS.has(key)) {
-    if (resolvedNamesQuery.isLoading) return 'Loading…'
-    const name = resolvedNamesQuery.data?.createdBy?.trim()
-    if (name) return name
-  }
-  return formatDetailValue(value)
-}
-
 function resolveFieldDisplayText(
   field: VehicleDetailField,
   sectionId: string,
   raw: unknown,
-  resolvedNamesQuery: {
-    isLoading: boolean
-    data: Awaited<ReturnType<typeof fetchVehicleDetailResolvedNames>> | undefined
-  },
+  assignmentNames: ReturnType<typeof pickVehicleAssignmentNames>,
 ): string {
   const agencyKind = isVehicleAgencyKindField(field)
   if (sectionId === 'agency' && agencyKind !== null) {
-    return resolvedNamesQuery.isLoading
-      ? 'Loading…'
-      : resolveVehicleAgencyDisplayName(agencyKind, resolvedNamesQuery.data?.assignments)
-  }
-
-  const statusKind = isVehicleStatusKindField(field)
-  if (statusKind) {
-    return resolvedNamesQuery.isLoading
-      ? 'Loading…'
-      : resolveVehicleStatusDisplayName(statusKind, resolvedNamesQuery.data)
+    return resolveVehicleAgencyDisplayName(agencyKind, assignmentNames)
   }
 
   return formatDetailValue(raw)
@@ -239,25 +178,18 @@ export function VehicleDetailPage() {
     },
   })
 
-  const resolvedNamesQuery = useQuery({
-    queryKey: ['vehicles', 'detail', vehicleId, 'resolved-names'],
-    enabled: Boolean(vehicleQuery.data) && crud.isResolved && crud.canRead,
-    queryFn: () => fetchVehicleDetailResolvedNames(vehicleQuery.data as ApiRecord),
-    staleTime: 60_000,
-  })
+  const assignmentNames = useMemo(() => {
+    const record = vehicleQuery.data
+    if (!record) {
+      return { original: null, current: null }
+    }
+    return pickVehicleAssignmentNames(record)
+  }, [vehicleQuery.data])
 
   const title = useMemo(() => {
     const record = vehicleQuery.data
     if (!record) return 'Vehicle detail'
     return pickTitle(record)
-  }, [vehicleQuery.data])
-
-  const additionalEntries = useMemo(() => {
-    const record = vehicleQuery.data
-    if (!record) return []
-    return Object.entries(record)
-      .filter(([key]) => !isGroupedVehicleDetailKey(key) && key !== 'id')
-      .sort(([a], [b]) => a.localeCompare(b))
   }, [vehicleQuery.data])
 
   if (crud.isLoading || !crud.isResolved) {
@@ -332,53 +264,12 @@ export function VehicleDetailPage() {
                       field,
                       section.id,
                       raw,
-                      resolvedNamesQuery,
+                      assignmentNames,
                     )
-                    const needsLookup = fieldNeedsResolvedLookup(field, section.id)
-                    const isLookupLoading = needsLookup && resolvedNamesQuery.isLoading
-                    const multiline = !isLookupLoading && text.includes('\n')
+                    const multiline = text.includes('\n')
                     return (
                       <div key={`${section.id}-${field.label}`} className="min-w-0">
                         <p className="text-xs font-medium text-[var(--fms-text-subheading)]">{field.label}</p>
-                        {isLookupLoading ? (
-                          <DetailInlineValueSkeleton className="mt-1" />
-                        ) : (
-                          <p
-                            className={cn(
-                              'mt-1 text-sm text-[var(--fms-text-header)]',
-                              multiline &&
-                                'max-h-48 overflow-auto rounded-md bg-[#f6f6f7] p-2 font-mono text-xs whitespace-pre-wrap',
-                            )}
-                          >
-                            {text}
-                          </p>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-
-          {additionalEntries.length > 0 ? (
-            <Card className="border border-[var(--fms-strokes)] bg-white shadow-sm">
-              <CardHeader className="border-b border-[var(--fms-strokes)] pb-3">
-                <CardTitle className="text-base font-semibold text-[var(--fms-text-header)]">
-                  Additional information
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-x-6 gap-y-4 pt-4 sm:grid-cols-2 lg:grid-cols-3">
-                {additionalEntries.map(([key, value]) => {
-                  const text = resolveAdditionalEntryDisplayText(key, value, resolvedNamesQuery)
-                  const isLookupLoading = isCreatedByKey(key) && resolvedNamesQuery.isLoading
-                  const multiline = !isLookupLoading && text.includes('\n')
-                  return (
-                    <div key={key} className="min-w-0">
-                      <p className="text-xs font-medium text-[var(--fms-text-subheading)]">{humanizeKey(key)}</p>
-                      {isLookupLoading ? (
-                        <DetailInlineValueSkeleton className="mt-1" />
-                      ) : (
                         <p
                           className={cn(
                             'mt-1 text-sm text-[var(--fms-text-header)]',
@@ -388,13 +279,14 @@ export function VehicleDetailPage() {
                         >
                           {text}
                         </p>
-                      )}
-                    </div>
-                  )
-                })}
+                      </div>
+                    )
+                  })}
+                </div>
               </CardContent>
             </Card>
-          ) : null}
+          ))}
+
         </div>
       )}
     </section>
