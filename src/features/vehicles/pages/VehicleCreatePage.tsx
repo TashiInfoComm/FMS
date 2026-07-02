@@ -201,7 +201,12 @@ const VEHICLE_FORM_SECTIONS: {
         placeholder: "",
         type: "date",
       },
-      { key: "gps_device_imei", label: "GPS device IMEI", placeholder: "IMEI" },
+      {
+        key: "gps_device_imei",
+        label: "GPS device IMEI",
+        placeholder: "IMEI",
+        optional: true,
+      },
     ],
   },
 ];
