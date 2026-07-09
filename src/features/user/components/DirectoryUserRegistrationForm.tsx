@@ -753,12 +753,7 @@ export function DirectoryUserRegistrationForm({
                 </div>
                 <div className="space-y-2 md:col-span-2 lg:col-span-3">
                   <OrgGroupSelect
-                    label={
-                      <>
-                        Department{" "}
-                        <span className="text-[var(--fms-delete)]">*</span>
-                      </>
-                    }
+                    label="Department"
                     options={departmentOptions}
                     selectedId={orgSelection.departmentId}
                     selectedName={orgSelection.departmentName}

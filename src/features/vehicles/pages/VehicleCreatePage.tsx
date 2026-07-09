@@ -447,7 +447,7 @@ export function VehicleFormPage() {
       ) : (
         <div className="space-y-5 rounded-xl border border-[var(--fms-strokes)] bg-white p-4">
           {VEHICLE_FORM_SECTIONS.map((group) => (
-            <Card key={group.section} className="border border-[var(--fms-strokes)] bg-white">
+            <Card key={group.section} className="overflow-visible border border-[var(--fms-strokes)] bg-white">
               <CardContent className="space-y-4 pt-5">
                 <div>
                   <p className="text-base font-semibold text-[var(--fms-text-header)]">{group.section}</p>

@@ -72,6 +72,14 @@ function recordsToVehicleCategoryOptions(records: ApiRecord[]): VehicleCategoryO
     .filter((o): o is VehicleCategoryOption => o !== null)
 }
 
+/** Active vehicle categories only — single master endpoint. */
+export async function fetchVehicleCategoryOptions(): Promise<VehicleCategoryOption[]> {
+  const payload = await apiGet<unknown>(
+    `/master/vehicle-categories?active=true&page=1&page_size=${PAGE_SIZE}&code=&search=`,
+  )
+  return recordsToVehicleCategoryOptions(extractMasterList(payload))
+}
+
 /** Master rows keyed by UUID `id` (e.g. vehicle category, fuel type on `/vehicles`). */
 function recordsToIdNameOptions(records: ApiRecord[]): MasterOption[] {
   return records

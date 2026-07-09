@@ -65,6 +65,8 @@ import ParkingLogs from '@/features/parking/pages/ParkingLogs'
 import ReimbursementClaims from '@/features/parking/pages/ReimbursementClaims'
 import ReimbursementClaimDetailPage from '@/features/parking/pages/ReimbursementClaimDetailPage'
 import LoanRequisition from '@/features/inter-agency-vehicle-loan/pages/LoanRequisition'
+import LoanLendingRequisition from '@/features/inter-agency-vehicle-loan/pages/LoanLendingRequisition'
+import LoanRequisitionApprovalList from '@/features/inter-agency-vehicle-loan/pages/LoanRequisitionApprovalList'
 import CreateNewRequisition from '@/features/inter-agency-vehicle-loan/pages/CreateNewRequisition'
 import LoanRequisitionDetail from '@/features/inter-agency-vehicle-loan/pages/LoanRequisitionDetail'
 
@@ -224,7 +226,10 @@ export function AppRoutes() {
           />
           // inter-agency vehicle loan routes
           <Route path="/vehicle-loan/requisition" element={<LoanRequisition />} />
+          <Route path="/vehicle-loan/lending" element={<LoanLendingRequisition />} />
+          <Route path="/vehicle-loan/approval" element={<LoanRequisitionApprovalList />} />
           <Route path="/vehicle-loan/requisition/create" element={<CreateNewRequisition />} />
+          <Route path="/vehicle-loan/requisition/:loanId/edit" element={<CreateNewRequisition />} />
           <Route path="/vehicle-loan/:loanId" element={<LoanRequisitionDetail />} />
         </Route>
       </Routes>
