@@ -69,6 +69,9 @@ import LoanLendingRequisition from '@/features/inter-agency-vehicle-loan/pages/L
 import LoanRequisitionApprovalList from '@/features/inter-agency-vehicle-loan/pages/LoanRequisitionApprovalList'
 import CreateNewRequisition from '@/features/inter-agency-vehicle-loan/pages/CreateNewRequisition'
 import LoanRequisitionDetail from '@/features/inter-agency-vehicle-loan/pages/LoanRequisitionDetail'
+import DispatchVehicle from '@/features/inter-agency-vehicle-loan/pages/DispatchVehicle'
+import ReturnVehicle from '@/features/inter-agency-vehicle-loan/pages/ReturnVehicle'
+import CheckListItem from '@/features/master/pages/CheckListItem'
 
 export function AppRoutes() {
   return (
@@ -137,6 +140,7 @@ export function AppRoutes() {
             element={<VehicleCategoryDetailPage />}
           />
           <Route path="/master/trip-type" element={<TripTypePage />} />
+          <Route path="/master/checklist-items" element={<CheckListItem />} />
           // Vehicle routes
           <Route path="/vehicle/list" element={<VehicleManagementPage />} />
           <Route path="/vehicle/list/:vehicleId/edit" element={<VehicleFormPage />} />
@@ -230,6 +234,8 @@ export function AppRoutes() {
           <Route path="/vehicle-loan/approval" element={<LoanRequisitionApprovalList />} />
           <Route path="/vehicle-loan/requisition/create" element={<CreateNewRequisition />} />
           <Route path="/vehicle-loan/requisition/:loanId/edit" element={<CreateNewRequisition />} />
+          <Route path="/vehicle-loan/:loanId/dispatch" element={<DispatchVehicle />} />
+          <Route path="/vehicle-loan/:loanId/return" element={<ReturnVehicle />} />
           <Route path="/vehicle-loan/:loanId" element={<LoanRequisitionDetail />} />
         </Route>
       </Routes>

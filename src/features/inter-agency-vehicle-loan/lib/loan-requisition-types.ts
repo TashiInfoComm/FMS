@@ -42,8 +42,13 @@ export type LoanVehicleRequirement = {
 
 export type LoanAuditTimelineEntry = {
   step: LoanAuditStep
+  triggerLabel?: string
   completed: boolean
   date?: string
+}
+
+export type LoanAuditTimelineDisplayEntry = LoanAuditTimelineEntry & {
+  isCurrent: boolean
 }
 
 export type LoanRequisitionListRow = {
@@ -65,24 +70,26 @@ export type LoanRequisitionDetail = {
   requestId: string
   borrowingAgency: string
   lendingAgency: string
-  vehicleCategory: string
-  loanPeriodDays: number
-  requestedCount: number
-  acceptedCount: number
-  committedCount: number
+  lendingAgencyId: string
   fuelingResponsibility: FuelingResponsibility
   reason: string
-  driverRequired: boolean
-  borrowStartDatetime: string
-  borrowEndDatetime: string
   status: LoanRequisitionStatus
   requirements: LoanVehicleRequirement[]
-  auditTimeline: LoanAuditTimelineEntry[]
-  requestedVehicleSummary: string
-  committedVehicleSummary: string
+  committedVehicles: LoanCommittedVehicle[]
   handoverChecklistRecorded: boolean
   returnChecklistRecorded: boolean
   rejectionReason: string
+  highestAdminRemarks: string
+  borrowingHeadRemarks: string
+  lendingHeadRemarks: string
+  dispatchedAt: string
+  returnedAt: string
+  recommendedAgencies: LoanRecommendedAgency[]
+}
+
+export type LoanRecommendedAgency = {
+  id: string
+  name: string
 }
 
 export type CreateLoanRequisitionPayload = {
@@ -98,13 +105,33 @@ export type CreateLoanRequisitionPayload = {
   remarks: string
 }
 
-export type LoanFleetSearchAgency = {
+export type LoanFleetSearchVehicleOption = {
   id: string
-  name: string
-  code: string
-  availableVehicles: number
-  matchingCategories: string
-  capacitySummary: string
+  registrationNumber: string
+  make: string
+  model: string
+  year: string
+  color: string
+  primaryDriverId: string
+  primaryDriverName: string
+  primaryDriverLicense: string
+}
+
+export type LoanFleetSearchRequirement = {
+  vehicleCategory: string
+  vehicleCategoryId: string
+  requestedCount: number
+  availableCount: number
+  driverRequired: boolean
+  vehicles: LoanFleetSearchVehicleOption[]
+}
+
+export type LoanFleetSearchOption = {
+  id: string
+  agencyName: string
+  fullyMatches: boolean
+  totalAvailable: number
+  requirements: LoanFleetSearchRequirement[]
 }
 
 export type HighestAdminDecisionBody =
@@ -117,3 +144,100 @@ export type HighestAdminDecisionBody =
       action: 'reject'
       remarks: string
     }
+
+export type BorrowingHeadDecisionBody =
+  | {
+      action: 'approve'
+      lending_agency_id: string
+      remarks: string
+    }
+  | {
+      action: 'reject'
+      remarks: string
+    }
+
+export type LendingHeadDecisionBody = {
+  action: 'approve' | 'reject'
+  remarks: string
+}
+
+export type CommitLoanVehicleItem = {
+  vehicle_id: string
+  driver_id: string | null
+  notes: string
+}
+
+export type CommitLoanVehiclesBody = {
+  vehicles: CommitLoanVehicleItem[]
+}
+
+export type LoanCommitVehicleRow = {
+  vehicleId: string
+  registrationNumber: string
+  makeModelDisplay: string
+  vehicleCategory: string
+  requirementKey: string
+  vehicleCountRequested: number
+  driverRequired: boolean
+  primaryDriverId: string
+  primaryDriverDisplay: string
+}
+
+export type LoanCommittedVehicle = {
+  vehicleId: string
+  registrationNumber: string
+  makeModelDisplay: string
+  vehicleCategory: string
+  driverRequired: boolean
+  driverName: string
+  notes: string
+  fuelLevelAtDispatch: string
+  odometerAtDispatch: string
+  fuelLevelAtReturn: string
+  odometerAtReturn: string
+  returnNotes: string
+  preDispatchChecklist: LoanVehicleChecklist | null
+  postReturnChecklist: LoanVehicleChecklist | null
+}
+
+export type LoanVehicleChecklist = {
+  checklistType: string
+  recordedByName: string
+  items: LoanDispatchChecklistItem[]
+}
+
+export type LoanDispatchChecklistItem = {
+  item: string
+  status: string
+  notes: string | null
+}
+
+export type LoanVehicleDispatchItem = {
+  vehicle_id: string
+  fuel_level_at_dispatch: string
+  odometer_at_dispatch: number
+  checklist_items: LoanDispatchChecklistItem[]
+}
+
+export type DispatchLoanVehiclesBody = {
+  vehicle_dispatches: LoanVehicleDispatchItem[]
+}
+
+export type LoanVehicleReturnItem = {
+  vehicle_id: string
+  fuel_level_at_return: string
+  odometer_at_return: number
+  notes: string | null
+  checklist_items: LoanDispatchChecklistItem[]
+}
+
+export type ReturnLoanVehiclesBody = {
+  vehicle_returns: LoanVehicleReturnItem[]
+}
+
+export type ChecklistItemOption = {
+  code: string
+  name: string
+  description: string
+  active: boolean
+}

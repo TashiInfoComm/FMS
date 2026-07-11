@@ -1,0 +1,661 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ArrowLeft, Plus, Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
+  fetchChecklistItemOptions,
+  fetchLoanDetail,
+  returnLoanVehicles,
+} from '@/features/inter-agency-vehicle-loan/lib/loan-requisition-api'
+import type { ChecklistItemOption } from '@/features/inter-agency-vehicle-loan/lib/loan-requisition-types'
+import {
+  LOAN_DISPATCH_CHECKLIST_STATUS_OPTIONS,
+  LOAN_DISPATCH_FUEL_LEVEL_OPTIONS,
+} from '@/features/inter-agency-vehicle-loan/lib/loan-requisition-ui'
+import { SearchableAutocomplete } from '@/shared/components/SearchableAutocomplete'
+import { PageHeader } from '@/shared/components/PageHeader'
+import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
+import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
+
+type ChecklistFormRow = {
+  key: string
+  item: string
+  status: string
+  notes: string
+}
+
+type VehicleReturnFormRow = {
+  key: string
+  vehicleId: string
+  fuelLevel: string
+  odometer: string
+  notes: string
+  checklistItems: ChecklistFormRow[]
+}
+
+function createRowKey(prefix: string) {
+  return `${prefix}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+function createChecklistRowsFromMaster(items: ChecklistItemOption[]): ChecklistFormRow[] {
+  return items.map((item) => ({
+    key: item.code || createRowKey('checklist'),
+    item: item.name,
+    status: 'OK',
+    notes: '',
+  }))
+}
+
+function createEmptyReturnRow(checklistItems: ChecklistFormRow[] = []): VehicleReturnFormRow {
+  return {
+    key: createRowKey('return'),
+    vehicleId: '',
+    fuelLevel: 'FULL',
+    odometer: '',
+    notes: '',
+    checklistItems,
+  }
+}
+
+function ReturnVehicle() {
+  const { loanId } = useParams<{ loanId: string }>()
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const crud = useRouteCrudPermissions('/vehicle-loan/requisition')
+  const [returnRows, setReturnRows] = useState<VehicleReturnFormRow[]>([createEmptyReturnRow()])
+
+  const detailQuery = useQuery({
+    queryKey: ['vehicle-loan', 'detail', loanId],
+    queryFn: () => fetchLoanDetail(loanId!),
+    enabled: Boolean(loanId?.trim()) && (!crud.isResolved || crud.canRead),
+    staleTime: 30_000,
+  })
+
+  const checklistQuery = useQuery({
+    queryKey: ['master', 'item-names', 'return'],
+    queryFn: fetchChecklistItemOptions,
+    enabled: !crud.isResolved || crud.canCreate || crud.canUpdate,
+    staleTime: 60_000,
+  })
+
+  const detail = detailQuery.data
+  const committedVehicles = useMemo(
+    () => detail?.committedVehicles ?? [],
+    [detail?.committedVehicles],
+  )
+  const masterChecklistItems = useMemo(
+    () => checklistQuery.data ?? [],
+    [checklistQuery.data],
+  )
+
+  useEffect(() => {
+    if (masterChecklistItems.length === 0) return
+
+    setReturnRows((prev) => {
+      const nextChecklist = createChecklistRowsFromMaster(masterChecklistItems)
+      const shouldSeedVehicle =
+        Boolean(detail) &&
+        committedVehicles.length > 0 &&
+        prev.length === 1 &&
+        !prev[0].vehicleId
+
+      return prev.map((row, index) => {
+        const existingByItem = new Map(
+          row.checklistItems
+            .filter((item) => item.item.trim())
+            .map((item) => [item.item, item] as const),
+        )
+
+        return {
+          ...row,
+          vehicleId:
+            shouldSeedVehicle && index === 0
+              ? committedVehicles[0].vehicleId
+              : row.vehicleId,
+          checklistItems: nextChecklist.map((item) => {
+            const existing = existingByItem.get(item.item)
+            return existing
+              ? {
+                  ...item,
+                  status: existing.status || 'OK',
+                  notes: existing.notes,
+                }
+              : item
+          }),
+        }
+      })
+    })
+  }, [committedVehicles, detail, masterChecklistItems])
+
+  const vehicleOptions = useMemo(
+    () =>
+      committedVehicles.map((vehicle) => ({
+        value: vehicle.vehicleId,
+        label: vehicle.registrationNumber || vehicle.vehicleId,
+        description: [vehicle.makeModelDisplay, vehicle.vehicleCategory]
+          .filter(Boolean)
+          .join(' · '),
+        searchText: [
+          vehicle.registrationNumber,
+          vehicle.makeModelDisplay,
+          vehicle.vehicleCategory,
+          vehicle.vehicleId,
+        ]
+          .filter(Boolean)
+          .join(' '),
+      })),
+    [committedVehicles],
+  )
+
+  const returnMutation = useMutation({
+    mutationFn: async () => {
+      if (!loanId?.trim()) throw new Error('Missing loan id')
+
+      const vehicle_returns = returnRows.map((row) => {
+        const odometer = Number(row.odometer)
+        return {
+          vehicle_id: row.vehicleId.trim(),
+          fuel_level_at_return: row.fuelLevel.trim(),
+          odometer_at_return: odometer,
+          notes: row.notes.trim() ? row.notes.trim() : null,
+          checklist_items: row.checklistItems.map((item) => ({
+            item: item.item.trim(),
+            status: item.status.trim(),
+            notes: item.notes.trim() ? item.notes.trim() : null,
+          })),
+        }
+      })
+
+      return returnLoanVehicles(loanId, { vehicle_returns })
+    },
+    onSuccess: async () => {
+      showSuccessToast('Vehicles returned successfully.')
+      await queryClient.invalidateQueries({ queryKey: ['vehicle-loan'] })
+      navigate(`/vehicle-loan/${loanId}`, {
+        state: { backPath: '/vehicle-loan/requisition' },
+      })
+    },
+    onError: (error) => {
+      showErrorToast(error, 'Failed to return vehicles')
+    },
+  })
+
+  const selectedVehicleIds = useMemo(
+    () => new Set(returnRows.map((row) => row.vehicleId).filter(Boolean)),
+    [returnRows],
+  )
+
+  const updateReturnRow = (key: string, patch: Partial<VehicleReturnFormRow>) => {
+    setReturnRows((prev) =>
+      prev.map((row) => (row.key === key ? { ...row, ...patch } : row)),
+    )
+  }
+
+  const addReturnRow = () => {
+    if (returnRows.length >= committedVehicles.length) {
+      showErrorToast('You can only return committed vehicles for this loan.')
+      return
+    }
+    if (masterChecklistItems.length === 0) {
+      showErrorToast('Checklist items are still loading. Please wait.')
+      return
+    }
+    setReturnRows((prev) => [
+      ...prev,
+      createEmptyReturnRow(createChecklistRowsFromMaster(masterChecklistItems)),
+    ])
+  }
+
+  const removeReturnRow = (key: string) => {
+    setReturnRows((prev) => (prev.length <= 1 ? prev : prev.filter((row) => row.key !== key)))
+  }
+
+  const updateChecklistRow = (
+    returnKey: string,
+    checklistKey: string,
+    patch: Partial<Pick<ChecklistFormRow, 'status' | 'notes'>>,
+  ) => {
+    setReturnRows((prev) =>
+      prev.map((row) => {
+        if (row.key !== returnKey) return row
+        return {
+          ...row,
+          checklistItems: row.checklistItems.map((item) =>
+            item.key === checklistKey ? { ...item, ...patch } : item,
+          ),
+        }
+      }),
+    )
+  }
+
+  const removeChecklistRow = (returnKey: string, checklistKey: string) => {
+    setReturnRows((prev) =>
+      prev.map((row) => {
+        if (row.key !== returnKey) return row
+        if (row.checklistItems.length <= 1) {
+          showErrorToast('At least one checklist item is required.')
+          return row
+        }
+        return {
+          ...row,
+          checklistItems: row.checklistItems.filter((item) => item.key !== checklistKey),
+        }
+      }),
+    )
+  }
+
+  const validateAndSubmit = () => {
+    if (!detail) return
+    if (committedVehicles.length === 0) {
+      showErrorToast('No committed vehicles available to return.')
+      return
+    }
+
+    for (const [index, row] of returnRows.entries()) {
+      if (!row.vehicleId.trim()) {
+        showErrorToast(`Select a vehicle for return entry ${index + 1}.`)
+        return
+      }
+      if (!committedVehicles.some((vehicle) => vehicle.vehicleId === row.vehicleId)) {
+        showErrorToast(`Return entry ${index + 1} must use a committed vehicle.`)
+        return
+      }
+      if (!row.fuelLevel.trim()) {
+        showErrorToast(`Select fuel level for return entry ${index + 1}.`)
+        return
+      }
+      const odometer = Number(row.odometer)
+      if (!row.odometer.trim() || !Number.isFinite(odometer) || odometer < 0) {
+        showErrorToast(`Enter a valid odometer reading for return entry ${index + 1}.`)
+        return
+      }
+      if (row.checklistItems.length === 0) {
+        showErrorToast(`Checklist items are required for return entry ${index + 1}.`)
+        return
+      }
+      for (const [itemIndex, item] of row.checklistItems.entries()) {
+        if (!item.item.trim()) {
+          showErrorToast(
+            `Checklist item ${itemIndex + 1} is missing for return entry ${index + 1}.`,
+          )
+          return
+        }
+        if (!item.status.trim()) {
+          showErrorToast(
+            `Select checklist status for ${item.item} in return entry ${index + 1}.`,
+          )
+          return
+        }
+      }
+    }
+
+    const uniqueVehicleIds = new Set(returnRows.map((row) => row.vehicleId))
+    if (uniqueVehicleIds.size !== returnRows.length) {
+      showErrorToast('Each vehicle can only be returned once.')
+      return
+    }
+
+    returnMutation.mutate()
+  }
+
+  if (crud.isResolved && !crud.canRead) {
+    return (
+      <section className="space-y-5">
+        <PageHeader title="Return Vehicles" subtitle="Vehicle loan return" />
+        <p className="text-sm text-[var(--fms-text-subheading)]">
+          You do not have permission to return vehicles for this loan.
+        </p>
+      </section>
+    )
+  }
+
+  if (detailQuery.isLoading) {
+    return (
+      <section className="space-y-5">
+        <PageHeader title="Return Vehicles" subtitle="Loading loan details…" />
+        <div className="h-48 animate-pulse rounded-xl border border-[var(--fms-strokes)] bg-white" />
+      </section>
+    )
+  }
+
+  if (detailQuery.isError || !detail) {
+    return (
+      <section className="space-y-5">
+        <Button variant="outline" size="icon" asChild>
+          <Link
+            to={`/vehicle-loan/${loanId}`}
+            state={{ backPath: '/vehicle-loan/requisition' }}
+            aria-label="Back to loan detail"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Link>
+        </Button>
+        <PageHeader title="Return Vehicles" subtitle="Loan not found" />
+        <p className="text-sm text-[var(--fms-text-subheading)]">
+          {detailQuery.error instanceof Error
+            ? detailQuery.error.message
+            : `No requisition matches "${loanId}".`}
+        </p>
+      </section>
+    )
+  }
+
+  if (detail.status !== 'ACTIVE') {
+    return (
+      <section className="space-y-5">
+        <Button variant="outline" asChild>
+          <Link
+            to={`/vehicle-loan/${loanId}`}
+            state={{ backPath: '/vehicle-loan/requisition' }}
+            className="inline-flex items-center gap-2"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to detail
+          </Link>
+        </Button>
+        <PageHeader
+          title="Return Vehicles"
+          subtitle={`${detail.requestId} is not ready for return`}
+        />
+        <p className="text-sm text-[var(--fms-text-subheading)]">
+          Return is only available when the loan status is Active.
+        </p>
+      </section>
+    )
+  }
+
+  return (
+    <section className="space-y-5">
+      <div className="space-y-3">
+        <Button variant="outline" asChild>
+          <Link
+            to={`/vehicle-loan/${loanId}`}
+            state={{ backPath: '/vehicle-loan/requisition' }}
+            className="inline-flex items-center gap-2"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to detail
+          </Link>
+        </Button>
+        <PageHeader
+          title="Return Vehicles"
+          subtitle={`Record return checklist for ${detail.requestId}`}
+        />
+      </div>
+
+      {committedVehicles.length === 0 ? (
+        <Card className="border border-[var(--fms-strokes)] bg-white shadow-sm">
+          <CardContent className="pt-5">
+            <p className="text-sm text-[var(--fms-text-subheading)]">
+              No committed vehicles found for this loan.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          <div className="space-y-4">
+            {returnRows.map((row, index) => {
+              const availableVehicleOptions = vehicleOptions.filter(
+                (option) =>
+                  option.value === row.vehicleId || !selectedVehicleIds.has(option.value),
+              )
+
+              return (
+                <Card
+                  key={row.key}
+                  className="border border-[var(--fms-strokes)] bg-white shadow-sm"
+                >
+                  <CardContent className="space-y-4 pt-5">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-base font-semibold text-[var(--fms-text-header)]">
+                        Vehicle Return {index + 1}
+                      </p>
+                      {returnRows.length > 1 ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="text-[var(--fms-error-text)]"
+                          onClick={() => removeReturnRow(row.key)}
+                          disabled={returnMutation.isPending}
+                        >
+                          <Trash2 className="mr-1 h-4 w-4" />
+                          Remove
+                        </Button>
+                      ) : null}
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <div className="space-y-2 md:col-span-1">
+                        <Label>
+                          Vehicle <span className="text-[var(--fms-delete)]">*</span>
+                        </Label>
+                        <SearchableAutocomplete
+                          value={row.vehicleId}
+                          onChange={(value) => updateReturnRow(row.key, { vehicleId: value })}
+                          options={availableVehicleOptions}
+                          placeholder="Select committed vehicle"
+                          searchPlaceholder="Search registration, make, model…"
+                          emptyMessage="No committed vehicles available"
+                          disabled={returnMutation.isPending}
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>
+                          Fuel Level at Return{' '}
+                          <span className="text-[var(--fms-delete)]">*</span>
+                        </Label>
+                        <Select
+                          value={row.fuelLevel}
+                          onValueChange={(value) =>
+                            updateReturnRow(row.key, { fuelLevel: value })
+                          }
+                          disabled={returnMutation.isPending}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Select fuel level" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {LOAN_DISPATCH_FUEL_LEVEL_OPTIONS.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor={`odometer-return-${row.key}`}>
+                          Odometer at Return{' '}
+                          <span className="text-[var(--fms-delete)]">*</span>
+                        </Label>
+                        <Input
+                          id={`odometer-return-${row.key}`}
+                          type="number"
+                          min={0}
+                          value={row.odometer}
+                          onChange={(event) =>
+                            updateReturnRow(row.key, { odometer: event.target.value })
+                          }
+                          placeholder="e.g. 45890"
+                          disabled={returnMutation.isPending}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor={`return-notes-${row.key}`}>Notes</Label>
+                      <Input
+                        id={`return-notes-${row.key}`}
+                        value={row.notes}
+                        onChange={(event) =>
+                          updateReturnRow(row.key, { notes: event.target.value })
+                        }
+                        placeholder="Optional return notes"
+                        disabled={returnMutation.isPending}
+                      />
+                    </div>
+
+                    <div className="space-y-3 border-t border-[var(--fms-strokes)] pt-4">
+                      <div>
+                        <p className="text-sm font-semibold text-[var(--fms-text-header)]">
+                          Checklist Items
+                        </p>
+                        <p className="text-xs text-[var(--fms-text-subheading)]">
+                          Review each master checklist item and record status
+                        </p>
+                      </div>
+
+                      {checklistQuery.isLoading ? (
+                        <p className="text-sm text-[var(--fms-text-subheading)]">
+                          Loading checklist items…
+                        </p>
+                      ) : checklistQuery.isError ? (
+                        <p className="text-sm text-[var(--fms-error-text)]">
+                          {checklistQuery.error instanceof Error
+                            ? checklistQuery.error.message
+                            : 'Could not load checklist items.'}
+                        </p>
+                      ) : row.checklistItems.length === 0 ? (
+                        <p className="text-sm text-[var(--fms-text-subheading)]">
+                          No checklist items found.
+                        </p>
+                      ) : (
+                        <div className="overflow-x-auto rounded-lg border border-[var(--fms-strokes)]">
+                          <table className="min-w-full text-sm">
+                            <thead className="bg-[#f6f6f7] text-[var(--fms-text-header)]">
+                              <tr>
+                                <th className="px-4 py-3 text-left font-semibold">Item</th>
+                                <th className="px-4 py-3 text-left font-semibold">Status</th>
+                                <th className="px-4 py-3 text-left font-semibold">Notes</th>
+                                <th className="px-4 py-3 text-right font-semibold">
+                                  <span className="sr-only">Actions</span>
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {row.checklistItems.map((item) => (
+                                <tr
+                                  key={item.key}
+                                  className="border-t border-[var(--fms-strokes)]"
+                                >
+                                  <td className="px-4 py-3 font-medium text-[var(--fms-text-header)]">
+                                    {item.item}
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <Select
+                                      value={item.status}
+                                      onValueChange={(value) =>
+                                        updateChecklistRow(row.key, item.key, { status: value })
+                                      }
+                                      disabled={returnMutation.isPending}
+                                    >
+                                      <SelectTrigger className="w-full min-w-[140px]">
+                                        <SelectValue placeholder="Select status" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {LOAN_DISPATCH_CHECKLIST_STATUS_OPTIONS.map((option) => (
+                                          <SelectItem key={option.value} value={option.value}>
+                                            {option.label}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <Input
+                                      value={item.notes}
+                                      onChange={(event) =>
+                                        updateChecklistRow(row.key, item.key, {
+                                          notes: event.target.value,
+                                        })
+                                      }
+                                      placeholder="Optional notes"
+                                      disabled={returnMutation.isPending}
+                                    />
+                                  </td>
+                                  <td className="px-4 py-3 text-right">
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      className="text-[var(--fms-error-text)]"
+                                      onClick={() => removeChecklistRow(row.key, item.key)}
+                                      disabled={
+                                        returnMutation.isPending || row.checklistItems.length <= 1
+                                      }
+                                      aria-label={`Remove ${item.item}`}
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              )
+            })}
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={addReturnRow}
+              disabled={
+                returnMutation.isPending || returnRows.length >= committedVehicles.length
+              }
+            >
+              <Plus className="mr-1 h-4 w-4" />
+              Add vehicle
+            </Button>
+
+            <div className="flex flex-wrap gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                asChild
+                disabled={returnMutation.isPending}
+              >
+                <Link
+                  to={`/vehicle-loan/${loanId}`}
+                  state={{ backPath: '/vehicle-loan/requisition' }}
+                >
+                  Cancel
+                </Link>
+              </Button>
+              <Button
+                type="button"
+                disabled={returnMutation.isPending || (!crud.canCreate && !crud.canUpdate)}
+                onClick={validateAndSubmit}
+              >
+                {returnMutation.isPending ? 'Returning…' : 'Return'}
+              </Button>
+            </div>
+          </div>
+        </>
+      )}
+    </section>
+  )
+}
+
+export default ReturnVehicle

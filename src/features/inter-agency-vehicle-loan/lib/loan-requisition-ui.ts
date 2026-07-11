@@ -1,6 +1,7 @@
 import type {
   FuelingResponsibility,
   LoanAuditStep,
+  LoanFleetSearchRequirement,
   LoanRequisitionStatus,
 } from '@/features/inter-agency-vehicle-loan/lib/loan-requisition-types'
 
@@ -129,6 +130,21 @@ export function formatFuelingResponsibilityLabel(value: FuelingResponsibility): 
   return FUELING_LABELS[value]
 }
 
+export function formatFleetSearchRequirementsSummary(
+  requirements: LoanFleetSearchRequirement[],
+): string {
+  if (requirements.length === 0) return '—'
+  return requirements
+    .map((requirement) => {
+      const category = requirement.vehicleCategory || 'Vehicle'
+      if (requirement.requestedCount > 0 || requirement.availableCount > 0) {
+        return `${category}: ${requirement.requestedCount} number of vehicle(s)`
+      }
+      return category
+    })
+    .join('; ')
+}
+
 export function formatLoanPeriodDays(days: number): string {
   return `${days} day${days === 1 ? '' : 's'}`
 }
@@ -142,6 +158,20 @@ export function formatLoanDate(value: string): string {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
+  })
+}
+
+export function formatLoanDateTime(value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) return '—'
+  const parsed = new Date(trimmed)
+  if (Number.isNaN(parsed.getTime())) return trimmed
+  return parsed.toLocaleString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
   })
 }
 
@@ -201,6 +231,68 @@ export const FUELING_RESPONSIBILITY_OPTIONS = [
   { value: 'LENDING_AGENCY' as const, label: 'Lending Agency' },
 ]
 
-export function vehicleCategoryLabel(value: string): string {
-  return VEHICLE_CATEGORY_OPTIONS.find((option) => option.value === value)?.label ?? value
+export const LOAN_DISPATCH_FUEL_LEVEL_OPTIONS = [
+  { value: 'FULL', label: 'Full' },
+  { value: 'THREE_QUARTER', label: '3/4' },
+  { value: 'HALF', label: '1/2' },
+  { value: 'QUARTER', label: '1/4' },
+  { value: 'EMPTY', label: 'Empty' },
+] as const
+
+export const LOAN_DISPATCH_CHECKLIST_STATUS_OPTIONS = [
+  { value: 'OK', label: 'OK' },
+  { value: 'DAMAGED', label: 'Damaged' },
+  { value: 'MISSING', label: 'Missing' },
+  { value: 'NOT_APPLICABLE', label: 'Not Applicable' },
+] as const
+
+export function formatLoanChecklistStatusLabel(value: string): string {
+  const normalized = value.trim().toUpperCase()
+  const match = LOAN_DISPATCH_CHECKLIST_STATUS_OPTIONS.find(
+    (option) => option.value === normalized,
+  )
+  if (match) return match.label
+  if (!normalized) return '—'
+  return normalized
+    .toLowerCase()
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
+export function formatLoanDispatchFuelLevelLabel(value: string): string {
+  const normalized = value.trim().toUpperCase()
+  const match = LOAN_DISPATCH_FUEL_LEVEL_OPTIONS.find((option) => option.value === normalized)
+  if (match) return match.label
+  if (!normalized) return '—'
+  return normalized
+    .toLowerCase()
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
+export function formatFleetSearchMakeModelDisplay(
+  make: string,
+  model: string,
+  year: string,
+  color: string,
+): string {
+  const base = [make, model].map((value) => value.trim()).filter(Boolean).join(' ')
+  if (!base) return '—'
+
+  const yearText = year.trim()
+  const colorText = color.trim()
+  if (!yearText && !colorText) return base
+
+  return `${base}((${yearText})(${colorText}))`
+}
+
+export function formatFleetSearchPrimaryDriverDisplay(name: string, license: string): string {
+  const nameText = name.trim()
+  const licenseText = license.trim()
+  if (!nameText && !licenseText) return '—'
+  if (!nameText) return `(${licenseText})`
+  if (!licenseText) return nameText
+  return `${nameText} (${licenseText})`
 }

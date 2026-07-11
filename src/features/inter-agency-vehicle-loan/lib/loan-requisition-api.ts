@@ -4,14 +4,29 @@ import { extractMasterList } from '@/shared/lib/organogram-master-lookup'
 import { applyPagination } from '@/shared/utils/pagination'
 import {
   calculateLoanDurationDays,
+  formatFleetSearchMakeModelDisplay,
+  formatFleetSearchPrimaryDriverDisplay,
   LOAN_AUDIT_STEPS,
 } from '@/features/inter-agency-vehicle-loan/lib/loan-requisition-ui'
 import type {
   FuelingResponsibility,
+  BorrowingHeadDecisionBody,
   HighestAdminDecisionBody,
+  ChecklistItemOption,
+  CommitLoanVehiclesBody,
+  DispatchLoanVehiclesBody,
+  ReturnLoanVehiclesBody,
+  LendingHeadDecisionBody,
+  LoanCommittedVehicle,
+  LoanCommitVehicleRow,
+  LoanVehicleChecklist,
   LoanAuditStep,
   LoanAuditTimelineEntry,
-  LoanFleetSearchAgency,
+  LoanAuditTimelineDisplayEntry,
+  LoanFleetSearchOption,
+  LoanFleetSearchRequirement,
+  LoanFleetSearchVehicleOption,
+  LoanRecommendedAgency,
   LoanRequisitionDetail,
   LoanRequisitionListRow,
   LoanRequisitionStatus,
@@ -154,6 +169,37 @@ function pickAgencyName(record: ApiRecord, nestedKeys: string[], scalarKeys: str
   return pickScalar(record, scalarKeys) || '—'
 }
 
+function extractRecommendedAgencies(record: ApiRecord): LoanRecommendedAgency[] {
+  const nested = record.recommended_agencies ?? record.recommendedAgencies
+  if (Array.isArray(nested)) {
+    return nested
+      .filter((item): item is ApiRecord => !!item && typeof item === 'object')
+      .map((item) => {
+        const nestedAgency = pickNestedRecord(item, ['agency'])
+        const id =
+          pickScalar(item, ['agency_id', 'agencyId']) ||
+          pickScalar(nestedAgency ?? {}, ['id', 'agency_id', 'agencyId', 'uuid']) ||
+          pickScalar(item, ['id', 'uuid'])
+        if (!id) return null
+        return {
+          id,
+          name:
+            pickScalar(item, ['name', 'agency_name', 'agencyName', 'label']) ||
+            pickScalar(nestedAgency ?? {}, ['name', 'agency_name', 'agencyName', 'label']),
+        }
+      })
+      .filter((agency): agency is LoanRecommendedAgency => agency !== null)
+  }
+
+  const ids = record.recommended_agency_ids ?? record.recommendedAgencyIds
+  if (!Array.isArray(ids)) return []
+
+  return ids
+    .map((value) => (typeof value === 'string' ? value.trim() : ''))
+    .filter(Boolean)
+    .map((id) => ({ id, name: '' }))
+}
+
 function normalizeFuelingResponsibility(value: unknown): FuelingResponsibility {
   const normalized = (
     typeof value === 'string'
@@ -178,6 +224,7 @@ function normalizeLoanStatus(value: unknown): LoanRequisitionStatus {
   )
     .trim()
     .toUpperCase()
+    .replace(/\s+/g, '_')
 
   if (status === 'DRAFT') return 'DRAFT'
   if (status === 'PENDING_HIGHEST_ADMIN') return 'PENDING_HIGHEST_ADMIN'
@@ -266,48 +313,282 @@ function mapVehicleRequirement(
   }
 }
 
-function mapAuditTimeline(record: ApiRecord, status: LoanRequisitionStatus): LoanAuditTimelineEntry[] {
-  const historyCandidates = [
-    record.audit_timeline,
-    record.auditTimeline,
-    record.status_history,
-    record.statusHistory,
-    record.lifecycle_events,
-    record.lifecycleEvents,
-  ]
-
-  for (const candidate of historyCandidates) {
-    if (!Array.isArray(candidate) || candidate.length === 0) continue
-
-    const mapped: LoanAuditTimelineEntry[] = []
-    for (const [index, entry] of candidate.entries()) {
-      if (!entry || typeof entry !== 'object') continue
-      const item = entry as ApiRecord
-      const step = pickScalar(item, ['step', 'status', 'event', 'name']).toUpperCase()
-      const normalizedStep = LOAN_AUDIT_STEPS.includes(step as LoanAuditStep)
-        ? (step as LoanAuditStep)
-        : LOAN_AUDIT_STEPS[Math.min(index, LOAN_AUDIT_STEPS.length - 1)]
-      const date =
-        pickScalar(item, ['date', 'occurred_at', 'occurredAt', 'created_at', 'createdAt']) ||
-        undefined
-
-      mapped.push({
-        step: normalizedStep,
-        completed: toBoolean(item.completed ?? item.is_completed ?? item.isCompleted ?? true),
-        ...(date ? { date } : {}),
-      })
-    }
-
-    if (mapped.length > 0) return mapped
+function normalizeAuditStep(value: string): LoanAuditStep | null {
+  const normalized = value.trim().toUpperCase().replace(/[\s-]+/g, '_')
+  if (LOAN_AUDIT_STEPS.includes(normalized as LoanAuditStep)) {
+    return normalized as LoanAuditStep
   }
 
-  const completedSteps = statusToCompletedSteps(status)
+  const aliases: Record<string, LoanAuditStep> = {
+    VEHICLE_COMMITTED: 'VEHICLES_COMMITTED',
+    VEHICLES_COMMIT: 'VEHICLES_COMMITTED',
+    LOAN_ACTIVATED: 'LOAN_ACTIVE',
+    ACTIVE: 'LOAN_ACTIVE',
+    RETURN_COMPLETED: 'VEHICLE_RETURNED',
+    RETURNED: 'VEHICLE_RETURNED',
+  }
 
-  return LOAN_AUDIT_STEPS.map((step, index) => ({
+  return aliases[normalized] ?? null
+}
+
+function mapVehicleChecklist(record: ApiRecord): LoanVehicleChecklist | null {
+  const itemsRaw = record.items
+  const items = Array.isArray(itemsRaw)
+    ? itemsRaw
+        .filter((item): item is ApiRecord => !!item && typeof item === 'object')
+        .map((item) => ({
+          item: pickScalar(item, ['item', 'name', 'item_name', 'itemName']),
+          status: pickScalar(item, ['status']),
+          notes: pickScalar(item, ['notes']) || null,
+        }))
+        .filter((item) => item.item.trim())
+    : []
+
+  const checklistType = pickScalar(record, ['checklist_type', 'checklistType', 'type'])
+  const recordedByName = pickScalar(record, [
+    'recorded_by_name',
+    'recordedByName',
+    'recorded_by',
+    'recordedBy',
+  ])
+
+  if (items.length === 0 && !checklistType && !recordedByName) return null
+
+  return {
+    checklistType,
+    recordedByName,
+    items,
+  }
+}
+
+function pickVehicleChecklist(record: ApiRecord, keys: string[]): LoanVehicleChecklist | null {
+  for (const key of keys) {
+    const value = record[key]
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const mapped = mapVehicleChecklist(value as ApiRecord)
+      if (mapped) return mapped
+    }
+  }
+  return null
+}
+
+function mapCommittedVehicle(record: ApiRecord): LoanCommittedVehicle | null {
+  const nestedVehicle = pickNestedRecord(record, ['vehicle', 'vehicle_details', 'vehicleDetails'])
+  const source = nestedVehicle ?? record
+  const vehicleId =
+    pickScalar(record, ['vehicle_id', 'vehicleId']) ||
+    pickScalar(source, ['vehicle_id', 'vehicleId', 'id', 'uuid'])
+  if (!vehicleId) return null
+
+  const make = pickScalar(source, ['make', 'vehicle_make', 'vehicleMake'])
+  const model = pickScalar(source, ['model', 'vehicle_model', 'vehicleModel'])
+  const year = pickScalar(source, ['year', 'vehicle_year', 'vehicleYear', 'model_year', 'modelYear'])
+  const color = pickScalar(source, ['color', 'vehicle_color', 'vehicleColor'])
+  const categoryRecord = pickNestedRecord(source, ['vehicle_category', 'vehicleCategory', 'category'])
+
+  return {
+    vehicleId,
+    registrationNumber: pickScalar(source, [
+      'registration_number',
+      'registrationNumber',
+      'vehicle_registration_number',
+      'vehicleRegistrationNumber',
+    ]),
+    makeModelDisplay: formatFleetSearchMakeModelDisplay(make, model, year, color),
+    vehicleCategory:
+      pickScalar(record, [
+        'vehicle_category_name',
+        'vehicleCategoryName',
+        'vehicle_category',
+        'vehicleCategory',
+        'category_name',
+        'categoryName',
+      ]) ||
+      pickScalar(source, [
+        'vehicle_category_name',
+        'vehicleCategoryName',
+        'vehicle_category',
+        'vehicleCategory',
+        'category_name',
+        'categoryName',
+      ]) ||
+      pickScalar(categoryRecord ?? {}, ['name', 'label', 'title']),
+    driverRequired: toBoolean(
+      record.driver_required ??
+        record.driverRequired ??
+        source.driver_required ??
+        source.driverRequired,
+    ),
+    driverName: pickScalar(record, [
+      'driver_name',
+      'driverName',
+      'assigned_driver_name',
+      'assignedDriverName',
+    ]),
+    notes: pickScalar(record, ['notes', 'commit_notes', 'commitNotes', 'remarks', 'remark']),
+    fuelLevelAtDispatch: pickScalar(record, [
+      'fuel_level_at_dispatch',
+      'fuelLevelAtDispatch',
+    ]),
+    odometerAtDispatch: pickScalar(record, [
+      'odometer_at_dispatch',
+      'odometerAtDispatch',
+    ]),
+    fuelLevelAtReturn: pickScalar(record, [
+      'fuel_level_at_return',
+      'fuelLevelAtReturn',
+    ]),
+    odometerAtReturn: pickScalar(record, [
+      'odometer_at_return',
+      'odometerAtReturn',
+    ]),
+    returnNotes: pickScalar(record, [
+      'return_notes',
+      'returnNotes',
+      'notes_at_return',
+      'notesAtReturn',
+    ]),
+    preDispatchChecklist: pickVehicleChecklist(record, [
+      'pre_dispatch_checklist',
+      'preDispatchChecklist',
+    ]),
+    postReturnChecklist: pickVehicleChecklist(record, [
+      'post_return_checklist',
+      'postReturnChecklist',
+    ]),
+  }
+}
+
+function extractCommittedVehicles(record: ApiRecord): LoanCommittedVehicle[] {
+  const candidates = [record.committed_vehicles, record.committedVehicles]
+  for (const candidate of candidates) {
+    if (!Array.isArray(candidate)) continue
+    return candidate
+      .filter((item): item is ApiRecord => !!item && typeof item === 'object')
+      .map((item) => mapCommittedVehicle(item))
+      .filter((vehicle): vehicle is LoanCommittedVehicle => vehicle !== null)
+  }
+  return []
+}
+
+function extractTrackerEntries(payload: unknown): ApiRecord[] {
+  if (!payload || typeof payload !== 'object') return []
+
+  const root = payload as ApiRecord
+  const data = root.data
+  const dataObj =
+    data && typeof data === 'object' && !Array.isArray(data) ? (data as ApiRecord) : null
+
+  const candidates = [
+    dataObj?.tracker,
+    dataObj?.timeline,
+    dataObj?.steps,
+    dataObj?.events,
+    dataObj?.audit_timeline,
+    dataObj?.auditTimeline,
+    root.tracker,
+    root.timeline,
+    root.steps,
+    root.events,
+    root.audit_timeline,
+    root.auditTimeline,
+    Array.isArray(data) ? data : null,
+    Array.isArray(root) ? root : null,
+  ]
+
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) {
+      return candidate.filter((item): item is ApiRecord => !!item && typeof item === 'object')
+    }
+  }
+
+  const objectCandidates = [dataObj?.tracker, dataObj?.timeline, root.tracker, root.timeline]
+  for (const candidate of objectCandidates) {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue
+    const entries = Object.entries(candidate as ApiRecord)
+    if (entries.length === 0) continue
+    return entries.map(([key, value]) => {
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        return { step: key, ...(value as ApiRecord) }
+      }
+      return { step: key, completed: value, date: typeof value === 'string' ? value : undefined }
+    })
+  }
+
+  return []
+}
+
+function mapTrackerEntry(
+  record: ApiRecord,
+  index: number,
+): LoanAuditTimelineEntry | null {
+  const triggerLabel = pickScalar(record, ['trigger_label', 'triggerLabel'])
+  if (!triggerLabel) return null
+
+  const stepValue = pickScalar(record, ['step', 'trigger', 'status', 'event', 'name', 'key', 'code', 'label'])
+  const step =
+    (stepValue ? normalizeAuditStep(stepValue) : null) ??
+    LOAN_AUDIT_STEPS[Math.min(index, LOAN_AUDIT_STEPS.length - 1)]
+  const date =
+    pickScalar(record, [
+      'date',
+      'occurred_at',
+      'occurredAt',
+      'completed_at',
+      'completedAt',
+      'created_at',
+      'createdAt',
+      'timestamp',
+    ]) || undefined
+  const statusValue = pickScalar(record, ['status']).toLowerCase()
+  const completed =
+    statusValue === 'completed' ||
+    toBoolean(
+      record.completed ??
+        record.is_completed ??
+        record.isCompleted ??
+        record.done ??
+        record.is_done ??
+        record.isDone ??
+        Boolean(date),
+    )
+
+  return {
     step,
-    completed: index < completedSteps,
-    date: undefined,
-  }))
+    triggerLabel,
+    completed,
+    ...(date ? { date } : {}),
+  }
+}
+
+export function mapLoanTracker(payload: unknown): LoanAuditTimelineEntry[] {
+  const records = extractTrackerEntries(payload)
+  if (records.length === 0) return []
+
+  return records
+    .map((record, index) => mapTrackerEntry(record, index))
+    .filter((entry): entry is LoanAuditTimelineEntry => entry !== null)
+}
+
+export function buildLoanAuditTimeline(
+  status: LoanRequisitionStatus,
+  trackerEntries: LoanAuditTimelineEntry[] = [],
+): LoanAuditTimelineDisplayEntry[] {
+  const completedCount = statusToCompletedSteps(status)
+  const labeledTracker = trackerEntries.filter((entry) => entry.triggerLabel?.trim())
+
+  return LOAN_AUDIT_STEPS.map((step, index) => {
+    const completed = index < completedCount
+    const trackerEntry = completed ? labeledTracker[index] : undefined
+
+    return {
+      step,
+      triggerLabel: trackerEntry?.triggerLabel,
+      completed,
+      ...(trackerEntry?.date ? { date: trackerEntry.date } : {}),
+      isCurrent: completed && index === completedCount - 1,
+    }
+  })
 }
 
 export function mapLoanListRow(record: ApiRecord): LoanRequisitionListRow | null {
@@ -401,29 +682,18 @@ export function mapLoanDetail(record: ApiRecord): LoanRequisitionDetail | null {
       ['lending_agency', 'lendingAgency'],
       ['lending_agency_name', 'lendingAgencyName'],
     ),
-    vehicleCategory: listRow.vehicleCategories.join(', '),
-    loanPeriodDays: listRow.loanPeriodDays,
-    requestedCount: Math.max(
-      listRow.numberOfVehicles,
-      toNumber(record.requested_count ?? record.requestedCount),
-    ),
-    acceptedCount: toNumber(record.accepted_count ?? record.acceptedCount),
-    committedCount: toNumber(record.committed_count ?? record.committedCount),
+    lendingAgencyId:
+      pickScalar(record, ['lending_agency_id', 'lendingAgencyId']) ||
+      pickScalar(pickNestedRecord(record, ['lending_agency', 'lendingAgency']) ?? {}, [
+        'id',
+        'agency_id',
+        'agencyId',
+      ]),
     fuelingResponsibility,
     reason:
       pickScalar(record, ['reason', 'remarks', 'remark']) ||
       pickScalar(firstRequirement ?? {}, ['reason']) ||
       '—',
-    driverRequired:
-      toBoolean(record.driver_required ?? record.driverRequired) ||
-      requirements.some((requirement) =>
-        toBoolean(requirement.driver_required ?? requirement.driverRequired),
-      ),
-    borrowStartDatetime:
-      pickScalar(firstRequirement ?? record, ['start_date', 'startDate', 'borrow_start_date']) ||
-      '',
-    borrowEndDatetime:
-      pickScalar(firstRequirement ?? record, ['end_date', 'endDate', 'borrow_end_date']) || '',
     status: listRow.status,
     requirements:
       requirements.length > 0
@@ -444,17 +714,7 @@ export function mapLoanDetail(record: ApiRecord): LoanRequisitionDetail | null {
             endDate: listRow.endDate,
             driverRequired: false,
           })),
-    auditTimeline: mapAuditTimeline(record, listRow.status),
-    requestedVehicleSummary:
-      pickScalar(record, [
-        'requested_vehicle_summary',
-        'requestedVehicleSummary',
-        'recommended_vehicle_summary',
-        'recommendedVehicleSummary',
-      ]) || 'No recommended vehicle recorded',
-    committedVehicleSummary:
-      pickScalar(record, ['committed_vehicle_summary', 'committedVehicleSummary']) ||
-      'No vehicle committed',
+    committedVehicles: extractCommittedVehicles(record),
     handoverChecklistRecorded: toBoolean(
       record.handover_checklist_recorded ??
         record.handoverChecklistRecorded ??
@@ -471,6 +731,18 @@ export function mapLoanDetail(record: ApiRecord): LoanRequisitionDetail | null {
       'rejected_reason',
       'rejectedReason',
     ]),
+    highestAdminRemarks: pickScalar(record, [
+      'highest_admin_remarks',
+      'highestAdminRemarks',
+    ]),
+    borrowingHeadRemarks: pickScalar(record, [
+      'borrowing_head_remarks',
+      'borrowingHeadRemarks',
+    ]),
+    lendingHeadRemarks: pickScalar(record, ['lending_head_remarks', 'lendingHeadRemarks']),
+    dispatchedAt: pickScalar(record, ['dispatched_at', 'dispatchedAt']),
+    returnedAt: pickScalar(record, ['returned_at', 'returnedAt']),
+    recommendedAgencies: extractRecommendedAgencies(record),
   }
 }
 
@@ -603,23 +875,22 @@ export async function fetchLoanDetail(loanId: string): Promise<LoanRequisitionDe
   return mapLoanDetail(record)
 }
 
-function extractFleetSearchAgencies(payload: unknown): ApiRecord[] {
-  const records = extractMasterList(payload)
-  if (records.length > 0) return records
+export async function fetchLoanTracker(loanId: string): Promise<LoanAuditTimelineEntry[]> {
+  const trimmed = loanId.trim()
+  if (!trimmed) return []
+
+  const payload = await apiGet<unknown>(`/loans/${encodeURIComponent(trimmed)}/tracker`)
+  return mapLoanTracker(payload)
+}
+
+function extractFleetSearchOptions(payload: unknown): ApiRecord[] {
   if (!payload || typeof payload !== 'object') return []
 
   const root = payload as ApiRecord
   const data = root.data
   const dataObj =
     data && typeof data === 'object' && !Array.isArray(data) ? (data as ApiRecord) : null
-  const candidates = [
-    root.agencies,
-    root.recommended_agencies,
-    root.recommendedAgencies,
-    dataObj?.agencies,
-    dataObj?.recommended_agencies,
-    dataObj?.recommendedAgencies,
-  ]
+  const candidates = [dataObj?.options, root.options]
 
   for (const candidate of candidates) {
     if (Array.isArray(candidate)) {
@@ -630,85 +901,239 @@ function extractFleetSearchAgencies(payload: unknown): ApiRecord[] {
   return []
 }
 
-function formatMatchingCategories(value: unknown): string {
-  if (Array.isArray(value)) {
-    return value
-      .map((item) => {
-        if (typeof item === 'string') return item.trim()
-        if (item && typeof item === 'object') {
-          return pickScalar(item as ApiRecord, ['name', 'label', 'title', 'category', 'category_name'])
-        }
-        return ''
-      })
-      .filter(Boolean)
-      .join(', ')
-  }
-  if (typeof value === 'string') return value.trim()
-  return ''
-}
-
-export function mapFleetSearchAgency(record: ApiRecord): LoanFleetSearchAgency | null {
-  const nestedAgency = pickNestedRecord(record, ['agency'])
-  const id =
-    pickScalar(record, ['id', 'agency_id', 'agencyId', 'uuid']) ||
-    pickScalar(nestedAgency ?? {}, ['id', 'agency_id', 'agencyId', 'uuid'])
+function mapFleetSearchVehicle(record: ApiRecord): LoanFleetSearchVehicleOption | null {
+  const id = pickScalar(record, ['vehicle_id', 'vehicleId', 'id', 'uuid'])
   if (!id) return null
+
+  const primaryDriver = pickPrimaryFleetSearchDriver(record)
 
   return {
     id,
-    name:
-      pickScalar(record, ['name', 'agency_name', 'agencyName', 'title', 'label']) ||
-      pickScalar(nestedAgency ?? {}, ['name', 'agency_name', 'agencyName', 'title', 'label']),
-    code:
-      pickScalar(record, ['code', 'agency_code', 'agencyCode']) ||
-      pickScalar(nestedAgency ?? {}, ['code', 'agency_code', 'agencyCode']),
-    availableVehicles: Math.max(
-      0,
-      toNumber(
-        record.available_vehicles ??
-          record.availableVehicles ??
-          record.vehicle_count ??
-          record.vehicleCount ??
-          record.capacity ??
-          record.matching_vehicle_count ??
-          record.matchingVehicleCount,
-      ),
-    ),
-    matchingCategories:
-      formatMatchingCategories(
-        record.matching_categories ??
-          record.matchingCategories ??
-          record.vehicle_categories ??
-          record.vehicleCategories ??
-          record.categories,
-      ) ||
-      pickScalar(record, [
-        'matching_category',
-        'matchingCategory',
-        'vehicle_category',
-        'vehicleCategory',
-      ]),
-    capacitySummary: pickScalar(record, [
-      'capacity_summary',
-      'capacitySummary',
-      'summary',
-      'match_summary',
-      'matchSummary',
-      'notes',
-      'remark',
-      'remarks',
+    registrationNumber: pickScalar(record, [
+      'registration_number',
+      'registrationNumber',
+      'vehicle_registration_number',
+      'vehicleRegistrationNumber',
     ]),
+    make: pickScalar(record, ['make', 'vehicle_make', 'vehicleMake']),
+    model: pickScalar(record, ['model', 'vehicle_model', 'vehicleModel']),
+    year: pickScalar(record, ['year', 'vehicle_year', 'vehicleYear', 'model_year', 'modelYear']),
+    color: pickScalar(record, ['color', 'vehicle_color', 'vehicleColor']),
+    primaryDriverId: primaryDriver.driverId,
+    primaryDriverName: primaryDriver.driverName,
+    primaryDriverLicense: primaryDriver.licenseNumber,
   }
 }
 
-export async function fetchLoanFleetSearch(loanId: string): Promise<LoanFleetSearchAgency[]> {
+function pickPrimaryFleetSearchDriver(record: ApiRecord): {
+  driverId: string
+  driverName: string
+  licenseNumber: string
+} {
+  const driversRaw = record.assigned_drivers ?? record.assignedDrivers
+  if (!Array.isArray(driversRaw)) {
+    return { driverId: '', driverName: '', licenseNumber: '' }
+  }
+
+  const drivers = driversRaw.filter((item): item is ApiRecord => !!item && typeof item === 'object')
+  const primary =
+    drivers.find((driver) => {
+      const priority = pickScalar(driver, ['priority']).toUpperCase()
+      if (priority === 'PRIMARY') return true
+      return toNumber(driver.priority) === 1
+    }) ?? drivers[0]
+
+  if (!primary) {
+    return { driverId: '', driverName: '', licenseNumber: '' }
+  }
+
+  const nestedDriver = pickNestedRecord(primary, ['driver', 'user'])
+  const nestedDriverUser = pickNestedRecord(nestedDriver ?? {}, ['user'])
+  const nestedLicense = pickNestedRecord(primary, ['license', 'driving_license', 'drivingLicense'])
+
+  const driverNameCandidates = [primary, nestedDriver, nestedDriverUser]
+  let driverName = ''
+  for (const candidate of driverNameCandidates) {
+    if (!candidate) continue
+    driverName =
+      pickScalar(candidate, ['driver_name', 'driverName', 'name', 'full_name', 'fullName']) ||
+      [
+        pickScalar(candidate, ['first_name', 'firstName']),
+        pickScalar(candidate, ['middle_name', 'middleName']),
+        pickScalar(candidate, ['last_name', 'lastName']),
+      ]
+        .filter(Boolean)
+        .join(' ')
+    if (driverName.trim()) break
+  }
+
+  return {
+    driverId:
+      pickScalar(primary, ['driver_id', 'driverId']) ||
+      pickScalar(nestedDriver ?? {}, ['id', 'driver_id', 'driverId', 'uuid']),
+    driverName,
+    licenseNumber:
+      pickScalar(primary, ['license_number', 'licenseNumber', 'license_no', 'licenseNo']) ||
+      pickScalar(nestedLicense ?? {}, ['license_number', 'licenseNumber', 'license_no', 'licenseNo']),
+  }
+}
+
+function mapFleetSearchRequirement(record: ApiRecord): LoanFleetSearchRequirement {
+  const categoryRecord = pickNestedRecord(record, [
+    'vehicle_category',
+    'vehicleCategory',
+    'category',
+  ])
+  const vehiclesRaw = record.vehicles
+
+  return {
+    vehicleCategory:
+      pickScalar(record, [
+        'vehicle_category_name',
+        'vehicleCategoryName',
+        'vehicle_category',
+        'vehicleCategory',
+        'category_name',
+        'categoryName',
+      ]) ||
+      pickScalar(categoryRecord ?? {}, ['name', 'label', 'title']),
+    vehicleCategoryId:
+      pickScalar(record, [
+        'vehicle_category_id',
+        'vehicleCategoryId',
+        'category_id',
+        'categoryId',
+      ]) || pickScalar(categoryRecord ?? {}, ['id', 'category_id', 'categoryId']),
+    requestedCount: Math.max(
+      0,
+      toNumber(
+        record.vehicle_count_requested ??
+          record.vehicleCountRequested ??
+          record.requested_count ??
+          record.requestedCount ??
+          record.vehicle_count ??
+          record.vehicleCount ??
+          record.count,
+      ),
+    ),
+    availableCount: Math.max(
+      0,
+      toNumber(
+        record.vehicles_available ??
+          record.vehiclesAvailable ??
+          record.available_count ??
+          record.availableCount ??
+          record.total_available ??
+          record.totalAvailable ??
+          record.available,
+      ),
+    ),
+    driverRequired: toBoolean(record.driver_required ?? record.driverRequired),
+    vehicles: Array.isArray(vehiclesRaw)
+      ? vehiclesRaw
+          .filter((item): item is ApiRecord => !!item && typeof item === 'object')
+          .map((item) => mapFleetSearchVehicle(item))
+          .filter((vehicle): vehicle is LoanFleetSearchVehicleOption => vehicle !== null)
+      : [],
+  }
+}
+
+export function mapFleetSearchOption(record: ApiRecord): LoanFleetSearchOption | null {
+  const nestedAgency = pickNestedRecord(record, ['agency'])
+  const id =
+    pickScalar(record, ['agency_id', 'agencyId', 'id', 'uuid']) ||
+    pickScalar(nestedAgency ?? {}, ['id', 'agency_id', 'agencyId', 'uuid'])
+  if (!id) return null
+
+  const requirementsRaw = record.requirements
+  const requirements = Array.isArray(requirementsRaw)
+    ? requirementsRaw
+        .filter((item): item is ApiRecord => !!item && typeof item === 'object')
+        .map((item) => mapFleetSearchRequirement(item))
+    : []
+
+  return {
+    id,
+    agencyName:
+      pickScalar(record, ['agency_name', 'agencyName', 'name']) ||
+      pickScalar(nestedAgency ?? {}, ['name', 'agency_name', 'agencyName', 'title', 'label']),
+    fullyMatches: toBoolean(record.fully_matches ?? record.fullyMatches),
+    totalAvailable: Math.max(
+      0,
+      toNumber(record.total_available ?? record.totalAvailable ?? record.available_vehicles),
+    ),
+    requirements,
+  }
+}
+
+export async function fetchLoanFleetSearch(loanId: string): Promise<LoanFleetSearchOption[]> {
   const trimmed = loanId.trim()
   if (!trimmed) return []
 
   const payload = await apiGet<unknown>(`/loans/${encodeURIComponent(trimmed)}/fleet-search`)
-  return extractFleetSearchAgencies(payload)
-    .map((record) => mapFleetSearchAgency(record))
-    .filter((agency): agency is LoanFleetSearchAgency => agency !== null)
+  return extractFleetSearchOptions(payload)
+    .map((record) => mapFleetSearchOption(record))
+    .filter((option): option is LoanFleetSearchOption => option !== null)
+}
+
+export function flattenFleetSearchCommitVehicles(
+  options: LoanFleetSearchOption[],
+  lendingAgencyId?: string,
+): LoanCommitVehicleRow[] {
+  const matchedOption = lendingAgencyId
+    ? options.find((option) => option.id === lendingAgencyId)
+    : options.find((option) => option.fullyMatches) ?? options[0]
+  if (!matchedOption) return []
+
+  return matchedOption.requirements.flatMap((requirement, requirementIndex) =>
+    requirement.vehicles.map((vehicle) => ({
+      vehicleId: vehicle.id,
+      registrationNumber: vehicle.registrationNumber,
+      makeModelDisplay: formatFleetSearchMakeModelDisplay(
+        vehicle.make,
+        vehicle.model,
+        vehicle.year,
+        vehicle.color,
+      ),
+      vehicleCategory: requirement.vehicleCategory,
+      requirementKey:
+        requirement.vehicleCategoryId ||
+        `${requirement.vehicleCategory || 'requirement'}-${requirementIndex}`,
+      vehicleCountRequested: Math.max(0, requirement.requestedCount),
+      driverRequired: requirement.driverRequired,
+      primaryDriverId: vehicle.primaryDriverId,
+      primaryDriverDisplay: formatFleetSearchPrimaryDriverDisplay(
+        vehicle.primaryDriverName,
+        vehicle.primaryDriverLicense,
+      ),
+    })),
+  )
+}
+
+export async function commitLoanVehicles(
+  loanId: string,
+  body: CommitLoanVehiclesBody,
+): Promise<unknown> {
+  const trimmed = loanId.trim()
+  if (!trimmed) throw new Error('Missing loan id')
+  if (body.vehicles.length === 0) throw new Error('Select at least one vehicle to commit')
+
+  const vehicleIds = body.vehicles.map((vehicle) => vehicle.vehicle_id.trim())
+  if (vehicleIds.some((id) => !id)) throw new Error('Each committed vehicle must have a vehicle id')
+  if (new Set(vehicleIds).size !== vehicleIds.length) {
+    throw new Error('Duplicate vehicles cannot be committed in the same request')
+  }
+
+  return apiPost<unknown, CommitLoanVehiclesBody>(
+    `/loans/${encodeURIComponent(trimmed)}/commit-vehicles`,
+    {
+      vehicles: body.vehicles.map((vehicle) => ({
+        vehicle_id: vehicle.vehicle_id.trim(),
+        driver_id: vehicle.driver_id?.trim() ? vehicle.driver_id.trim() : null,
+        notes: vehicle.notes.trim(),
+      })),
+    },
+  )
 }
 
 export async function submitHighestAdminDecision(
@@ -739,6 +1164,188 @@ export async function submitHighestAdminDecision(
       action: 'reject',
       remarks: body.remarks.trim(),
     },
+  )
+}
+
+export async function submitBorrowingHeadDecision(
+  loanId: string,
+  body: BorrowingHeadDecisionBody,
+): Promise<unknown> {
+  const trimmed = loanId.trim()
+  if (!trimmed) throw new Error('Missing loan id')
+  if (!body.remarks.trim()) throw new Error('Remarks are required')
+
+  if (body.action === 'approve') {
+    if (!body.lending_agency_id.trim()) {
+      throw new Error('Select a lending agency to approve')
+    }
+    return apiPost<unknown, BorrowingHeadDecisionBody>(
+      `/loans/${encodeURIComponent(trimmed)}/borrowing-head-decision`,
+      {
+        action: 'approve',
+        lending_agency_id: body.lending_agency_id.trim(),
+        remarks: body.remarks.trim(),
+      },
+    )
+  }
+
+  return apiPost<unknown, BorrowingHeadDecisionBody>(
+    `/loans/${encodeURIComponent(trimmed)}/borrowing-head-decision`,
+    {
+      action: 'reject',
+      remarks: body.remarks.trim(),
+    },
+  )
+}
+
+export async function submitLendingHeadDecision(
+  loanId: string,
+  body: LendingHeadDecisionBody,
+): Promise<unknown> {
+  const trimmed = loanId.trim()
+  if (!trimmed) throw new Error('Missing loan id')
+  if (!body.remarks.trim()) throw new Error('Remarks are required')
+
+  return apiPost<unknown, LendingHeadDecisionBody>(
+    `/loans/${encodeURIComponent(trimmed)}/lending-head-decision`,
+    {
+      action: body.action,
+      remarks: body.remarks.trim(),
+    },
+  )
+}
+
+export async function fetchChecklistItemOptions(): Promise<ChecklistItemOption[]> {
+  const payload = await apiGet<unknown>('/master/item-names?page=1&page_size=200&code=&search=')
+  const records = extractMasterList(payload)
+  return records
+    .map((record) => {
+      const code = pickScalar(record, ['code', 'id', 'uuid'])
+      const name = pickScalar(record, ['name', 'label', 'title'])
+      if (!code && !name) return null
+      return {
+        code: code || name,
+        name: name || code,
+        description: pickScalar(record, ['description']),
+        active:
+          typeof record.active === 'boolean'
+            ? record.active
+            : record.active === 1 || record.active === '1' || record.active === undefined,
+      }
+    })
+    .filter((item): item is ChecklistItemOption => item !== null)
+    .filter((item) => item.active)
+}
+
+export async function dispatchLoanVehicles(
+  loanId: string,
+  body: DispatchLoanVehiclesBody,
+): Promise<unknown> {
+  const trimmed = loanId.trim()
+  if (!trimmed) throw new Error('Missing loan id')
+  if (body.vehicle_dispatches.length === 0) {
+    throw new Error('Select at least one vehicle to dispatch')
+  }
+
+  const vehicleIds = body.vehicle_dispatches.map((item) => item.vehicle_id.trim())
+  if (vehicleIds.some((id) => !id)) {
+    throw new Error('Each dispatch entry must include a vehicle id')
+  }
+  if (new Set(vehicleIds).size !== vehicleIds.length) {
+    throw new Error('Duplicate vehicles cannot be dispatched in the same request')
+  }
+
+  for (const dispatch of body.vehicle_dispatches) {
+    if (!Number.isFinite(dispatch.odometer_at_dispatch) || dispatch.odometer_at_dispatch < 0) {
+      throw new Error('Odometer reading must be a valid non-negative number')
+    }
+    if (!dispatch.fuel_level_at_dispatch.trim()) {
+      throw new Error('Fuel level is required for each vehicle')
+    }
+    if (dispatch.checklist_items.length === 0) {
+      throw new Error('Each vehicle must include at least one checklist item')
+    }
+    for (const item of dispatch.checklist_items) {
+      if (!item.item.trim()) throw new Error('Checklist item name is required')
+      if (!item.status.trim()) throw new Error('Checklist item status is required')
+    }
+  }
+
+  return apiPost<unknown, DispatchLoanVehiclesBody>(
+    `/loans/${encodeURIComponent(trimmed)}/dispatch`,
+    {
+      vehicle_dispatches: body.vehicle_dispatches.map((dispatch) => ({
+        vehicle_id: dispatch.vehicle_id.trim(),
+        fuel_level_at_dispatch: dispatch.fuel_level_at_dispatch.trim(),
+        odometer_at_dispatch: dispatch.odometer_at_dispatch,
+        checklist_items: dispatch.checklist_items.map((item) => ({
+          item: item.item.trim(),
+          status: item.status.trim(),
+          notes: item.notes?.trim() ? item.notes.trim() : null,
+        })),
+      })),
+    },
+  )
+}
+
+export async function returnLoanVehicles(
+  loanId: string,
+  body: ReturnLoanVehiclesBody,
+): Promise<unknown> {
+  const trimmed = loanId.trim()
+  if (!trimmed) throw new Error('Missing loan id')
+  if (body.vehicle_returns.length === 0) {
+    throw new Error('Select at least one vehicle to return')
+  }
+
+  const vehicleIds = body.vehicle_returns.map((item) => item.vehicle_id.trim())
+  if (vehicleIds.some((id) => !id)) {
+    throw new Error('Each return entry must include a vehicle id')
+  }
+  if (new Set(vehicleIds).size !== vehicleIds.length) {
+    throw new Error('Duplicate vehicles cannot be returned in the same request')
+  }
+
+  for (const vehicleReturn of body.vehicle_returns) {
+    if (!Number.isFinite(vehicleReturn.odometer_at_return) || vehicleReturn.odometer_at_return < 0) {
+      throw new Error('Odometer reading must be a valid non-negative number')
+    }
+    if (!vehicleReturn.fuel_level_at_return.trim()) {
+      throw new Error('Fuel level is required for each vehicle')
+    }
+    if (vehicleReturn.checklist_items.length === 0) {
+      throw new Error('Each vehicle must include at least one checklist item')
+    }
+    for (const item of vehicleReturn.checklist_items) {
+      if (!item.item.trim()) throw new Error('Checklist item name is required')
+      if (!item.status.trim()) throw new Error('Checklist item status is required')
+    }
+  }
+
+  return apiPost<unknown, ReturnLoanVehiclesBody>(
+    `/loans/${encodeURIComponent(trimmed)}/return`,
+    {
+      vehicle_returns: body.vehicle_returns.map((vehicleReturn) => ({
+        vehicle_id: vehicleReturn.vehicle_id.trim(),
+        fuel_level_at_return: vehicleReturn.fuel_level_at_return.trim(),
+        odometer_at_return: vehicleReturn.odometer_at_return,
+        notes: vehicleReturn.notes?.trim() ? vehicleReturn.notes.trim() : null,
+        checklist_items: vehicleReturn.checklist_items.map((item) => ({
+          item: item.item.trim(),
+          status: item.status.trim(),
+          notes: item.notes?.trim() ? item.notes.trim() : null,
+        })),
+      })),
+    },
+  )
+}
+
+export async function completeLoan(loanId: string): Promise<unknown> {
+  const trimmed = loanId.trim()
+  if (!trimmed) throw new Error('Missing loan id')
+  return apiPost<unknown, Record<string, never>>(
+    `/loans/${encodeURIComponent(trimmed)}/complete`,
+    {},
   )
 }
 
