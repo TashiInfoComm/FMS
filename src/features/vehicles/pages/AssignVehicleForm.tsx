@@ -16,11 +16,7 @@ import {
   updateDriverVehicleAssignment,
   type CreateDriverVehicleAssignmentBody,
 } from '@/features/vehicles/lib/driver-vehicle-assignments-api'
-import {
-  fetchUserById,
-  mapUserDetailFields,
-  searchUserDetailByCid,
-} from '@/features/user/lib/users-api'
+import { searchUserDetailByCid } from '@/features/user/lib/users-api'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { isUuidLike } from '@/shared/lib/organogram-master-lookup'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
@@ -55,20 +51,9 @@ type DriverLookup = {
   citizenId: string
 }
 
-function mapUserDetailToDriverLookup(
-  record: Record<string, unknown>,
-): DriverLookup | null {
-  const detail = mapUserDetailFields(record)
-  const userId = detail.id !== '-' ? detail.id : ''
-  const citizenId = detail.cid !== '-' ? detail.cid : ''
-  if (!userId) return null
-  return {
-    userId,
-    citizenId,
-    fullName: detail.name !== '-' ? detail.name : '',
-    employeeId: detail.employeeId !== '-' ? detail.employeeId : '',
-    contactNumber: detail.contact !== '-' ? detail.contact : '',
-  }
+function assignmentFieldValue(value: string | undefined): string {
+  const trimmed = value?.trim() ?? ''
+  return trimmed === '—' ? '' : trimmed
 }
 
 async function fetchDriverByCid(cid: string): Promise<DriverLookup | null> {
@@ -81,13 +66,6 @@ async function fetchDriverByCid(cid: string): Promise<DriverLookup | null> {
     employeeId: result.employeeId,
     contactNumber: result.contactNumber,
   }
-}
-
-async function fetchDriverById(driverId: string): Promise<DriverLookup | null> {
-  const trimmedId = driverId.trim()
-  if (!trimmedId || trimmedId === '—') return null
-  const record = await fetchUserById(trimmedId)
-  return mapUserDetailToDriverLookup(record)
 }
 
 type AssignVehicleFormProps = {
@@ -143,46 +121,28 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
     staleTime: 30_000,
   })
 
-  const editDriverQuery = useQuery({
-    queryKey: ['assign-driver', 'edit-driver', assignmentQuery.data?.driverId],
-    queryFn: () => fetchDriverById(assignmentQuery.data?.driverId ?? ''),
-    enabled: isEdit && Boolean(assignmentQuery.data?.driverId) && crud.canRead,
-    staleTime: 30_000,
-  })
-
   useEffect(() => {
     if (!isEdit || !assignmentQuery.data || formInitialized) return
     const assignment = assignmentQuery.data
-    const driver = editDriverQuery.data
-    setResolvedDriverId(assignment.driverId !== '—' ? assignment.driverId : driver?.userId ?? '')
+    setResolvedDriverId(assignmentFieldValue(assignment.driverId))
     setFormValues({
-      citizenId: driver?.citizenId || assignment.cid || '',
-      fullName: driver?.fullName || assignment.name || '',
-      employeeId: driver?.employeeId || '',
-      contactNumber: driver?.contactNumber || '',
-      licenseNumber: assignment.license !== '—' ? assignment.license : '',
-      licenseExpiryDate: assignment.expiry !== '—' ? assignment.expiry : '',
+      citizenId: assignmentFieldValue(assignment.cid),
+      fullName: assignmentFieldValue(assignment.name),
+      employeeId: assignmentFieldValue(assignment.employeeId),
+      contactNumber: assignmentFieldValue(assignment.contactNo),
+      licenseNumber: assignmentFieldValue(assignment.license),
+      licenseExpiryDate: assignmentFieldValue(assignment.expiry),
       priority:
         assignment.priority !== '—'
           ? priorityLabelFromValue(assignment.priority)
           : '',
     })
-    if (driver?.citizenId || assignment.cid) {
+    if (assignmentFieldValue(assignment.cid)) {
       setCidLocked(true)
       setCidSearchTriggered(true)
     }
-    const needsDriverFetch = Boolean(assignment.driverId && assignment.driverId !== '—')
-    const driverReady = !needsDriverFetch || editDriverQuery.isFetched
-    if (driverReady) {
-      setFormInitialized(true)
-    }
-  }, [
-    assignmentQuery.data,
-    editDriverQuery.data,
-    editDriverQuery.isFetched,
-    formInitialized,
-    isEdit,
-  ])
+    setFormInitialized(true)
+  }, [assignmentQuery.data, formInitialized, isEdit])
 
   const driverLookupMutation = useMutation({
     mutationFn: (cid: string) => fetchDriverByCid(cid),
@@ -237,7 +197,7 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
   const saveMutation = useMutation({
     mutationFn: async () => {
       const driverId = isEdit
-        ? resolvedDriverId || editDriverQuery.data?.userId || assignmentQuery.data?.driverId || ''
+        ? resolvedDriverId || assignmentQuery.data?.driverId || ''
         : driverLookup?.userId ?? resolvedDriverId
       const vehicleId = isEdit
         ? assignmentQuery.data?.vehicleId !== '—'

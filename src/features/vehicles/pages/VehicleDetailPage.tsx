@@ -2,7 +2,7 @@
 // Agency, status, movement status, and other nested relations use embedded objects from the vehicle response.
 import { ArrowLeft, Pencil } from 'lucide-react'
 import { useMemo } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 
 import { Button } from '@/components/ui/button'
@@ -165,8 +165,16 @@ function resolveFieldDisplayText(
   return formatDetailValue(raw)
 }
 
+type VehicleDetailLocationState = {
+  fromDesignatedList?: boolean
+}
+
 export function VehicleDetailPage() {
   const { vehicleId } = useParams<{ vehicleId: string }>()
+  const location = useLocation()
+  const fromDesignatedList = Boolean(
+    (location.state as VehicleDetailLocationState | null)?.fromDesignatedList,
+  )
   const crud = useRouteCrudPermissions('/vehicle/list')
 
   const vehicleQuery = useQuery({
@@ -221,7 +229,7 @@ export function VehicleDetailPage() {
           subtitle="Detail Vehicle Information "
         />
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:justify-end">
-          {crud.canUpdate && vehicleId ? (
+          {crud.canUpdate && vehicleId && !fromDesignatedList ? (
             <Button variant="default" asChild className="w-full sm:w-auto">
               <Link
                 to={`/vehicle/list/${encodeURIComponent(vehicleId)}/edit`}

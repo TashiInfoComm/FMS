@@ -23,53 +23,9 @@ function toText(value: unknown): string {
       : ''
 }
 
-function pickCid(record: ApiRecord): string {
-  return (
-    toText(record.cid) ||
-    toText(record.citizen_id) ||
-    toText(record.citizenId) ||
-    toText(record.cid_no) ||
-    toText(record.cidNumber) ||
-    toText(record.cid_number) ||
-    ''
-  )
-}
-
-type DriverDetail = {
-  name: string
-  cid: string
-  employeeId: string
-  contactNumber: string
-}
-
-async function fetchDriverDetailById(driverId: string): Promise<DriverDetail> {
-  const payload = await apiGet<unknown>(`/admin/users/${encodeURIComponent(driverId)}`)
-  const record =
-    payload && typeof payload === 'object' && !Array.isArray(payload)
-      ? ((payload as ApiRecord).data &&
-          typeof (payload as ApiRecord).data === 'object' &&
-          !Array.isArray((payload as ApiRecord).data)
-          ? ((payload as ApiRecord).data as ApiRecord)
-          : (payload as ApiRecord))
-      : {}
-  const firstName = toText(record.first_name) || toText(record.firstName)
-  const middleName = toText(record.middle_name) || toText(record.middleName)
-  const lastName = toText(record.last_name) || toText(record.lastName)
-  const fullName =
-    toText(record.name) || toText(record.full_name) || [firstName, middleName, lastName].filter(Boolean).join(' ').trim()
-  return {
-    name: fullName || '—',
-    cid: pickCid(record) || '—',
-    employeeId:
-      toText(record.employee_id) || toText(record.emp_id) || toText(record.employeeId) || toText(record.username) || '—',
-    contactNumber:
-      toText(record.contact_no) ||
-      toText(record.contact_number) ||
-      toText(record.contact) ||
-      toText(record.phone) ||
-      toText(record.mobile) ||
-      '—',
-  }
+function assignmentDisplayValue(value: string | undefined): string {
+  const trimmed = value?.trim() ?? ''
+  return trimmed === '—' ? '' : trimmed
 }
 
 async function fetchVehicleDetailById(vehicleId: string): Promise<string> {
@@ -138,7 +94,6 @@ export function AssignVehicleDetailPage() {
   })
 
   const assignment = assignmentQuery.data
-  const driverId = assignment?.driverId && assignment.driverId !== '—' ? assignment.driverId : ''
   const vehicleId =
     assignment?.vehicleId && assignment.vehicleId !== '—'
       ? assignment.vehicleId
@@ -147,13 +102,6 @@ export function AssignVehicleDetailPage() {
     ? `/vehicle/list/${encodeURIComponent(vehicleId)}/drivers`
     : '/assign-driver'
 
-  const driverQuery = useQuery({
-    queryKey: ['driver-vehicle-assignments', 'detail-driver', driverId],
-    queryFn: () => fetchDriverDetailById(driverId),
-    enabled: Boolean(driverId) && crud.canRead,
-    staleTime: 30_000,
-  })
-
   const vehicleQuery = useQuery({
     queryKey: ['driver-vehicle-assignments', 'detail-vehicle', vehicleId],
     queryFn: () => fetchVehicleDetailById(vehicleId),
@@ -161,8 +109,8 @@ export function AssignVehicleDetailPage() {
     staleTime: 30_000,
   })
 
-  const driverName = driverQuery.data?.name || assignment?.name || '—'
-  const driverCid = driverQuery.data?.cid || assignment?.cid || '—'
+  const driverName = assignmentDisplayValue(assignment?.name) || '—'
+  const driverCid = assignmentDisplayValue(assignment?.cid) || '—'
   const assignedVehicle =
     vehicleQuery.data || (assignment?.assignedVehicle !== '—' ? assignment?.assignedVehicle : '—') || '—'
 
@@ -244,17 +192,15 @@ export function AssignVehicleDetailPage() {
             title="Personal Details"
             subtitle="Basic information about the driver."
             fields={[
-              { label: 'Citizen ID', value: driverCid, loading: driverQuery.isLoading },
-              { label: 'Full Name', value: driverName, loading: driverQuery.isLoading },
+              { label: 'Citizen ID', value: driverCid },
+              { label: 'Full Name', value: driverName },
               {
                 label: 'Employee ID',
-                value: driverQuery.data?.employeeId ?? '—',
-                loading: driverQuery.isLoading,
+                value: assignmentDisplayValue(assignment.employeeId) || '—',
               },
               {
                 label: 'Contact Number',
-                value: driverQuery.data?.contactNumber ?? '—',
-                loading: driverQuery.isLoading,
+                value: assignmentDisplayValue(assignment.contactNo) || '—',
               },
             ]}
           />

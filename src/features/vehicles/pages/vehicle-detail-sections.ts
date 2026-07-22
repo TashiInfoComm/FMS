@@ -114,11 +114,6 @@ export const VEHICLE_DETAIL_SECTIONS: readonly VehicleDetailSection[] = [
     subtitle: "Categorization and current status.",
     fields: [
       {
-        keys: ["assigned_driver_id", "assignedDriverId"],
-        label: "Assigned Driver",
-      },
-
-      {
         keys: [
           "vehicle_category_name",
           "vehicle_category",

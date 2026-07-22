@@ -23,10 +23,16 @@ function toArray(payload: unknown): ApiRecord[] {
     root.results,
     root.rows,
     root.list,
+    root.assignments,
+    root.vehicle_assignments,
     Array.isArray(data) ? data : undefined,
     data && typeof data === 'object' && !Array.isArray(data) ? (data as ApiRecord).items : undefined,
     data && typeof data === 'object' && !Array.isArray(data) ? (data as ApiRecord).results : undefined,
     data && typeof data === 'object' && !Array.isArray(data) ? (data as ApiRecord).rows : undefined,
+    data && typeof data === 'object' && !Array.isArray(data) ? (data as ApiRecord).assignments : undefined,
+    data && typeof data === 'object' && !Array.isArray(data)
+      ? (data as ApiRecord).vehicle_assignments
+      : undefined,
   ]
   for (const candidate of candidates) {
     if (Array.isArray(candidate)) {
@@ -111,6 +117,8 @@ export type DriverVehicleAssignmentRow = {
   priority: string;
   name: string;
   cid: string;
+  contactNo: string;
+  employeeId: string;
   license: string;
   expiry: string;
   status: string;
@@ -118,6 +126,18 @@ export type DriverVehicleAssignmentRow = {
   rating: string;
   availability_status: string;
 };
+
+function pickContactNo(record: ApiRecord): string {
+  return (
+    toText(record.contact_no) ||
+    toText(record.contactNo) ||
+    toText(record.contact) ||
+    toText(record.contact_number) ||
+    toText(record.phone) ||
+    toText(record.phone_number) ||
+    ''
+  )
+}
 
 function pickPersonName(record: ApiRecord): string {
   const firstName = toText(record.first_name) || toText(record.firstName)
@@ -134,11 +154,12 @@ function pickPersonName(record: ApiRecord): string {
 
 function pickDriverName(
   record: ApiRecord,
+  nestedDriverInfo: ApiRecord | null,
   nestedDriver: ApiRecord | null,
   nestedDriverUser: ApiRecord | null,
   nestedUser: ApiRecord | null,
 ): string {
-  for (const candidate of [record, nestedDriver, nestedDriverUser, nestedUser]) {
+  for (const candidate of [nestedDriverInfo, record, nestedDriver, nestedDriverUser, nestedUser]) {
     if (!candidate) continue
     const name = pickPersonName(candidate)
     if (name) return name
@@ -146,13 +167,60 @@ function pickDriverName(
   return '—'
 }
 
+function pickEmployeeId(record: ApiRecord): string {
+  return (
+    toText(record.emp_id) ||
+    toText(record.employee_id) ||
+    toText(record.employeeId) ||
+    toText(record.username) ||
+    ''
+  )
+}
+
+function pickDriverEmployeeId(
+  record: ApiRecord,
+  nestedDriverInfo: ApiRecord | null,
+  nestedDriver: ApiRecord | null,
+  nestedDriverUser: ApiRecord | null,
+  nestedUser: ApiRecord | null,
+): string {
+  for (const candidate of [nestedDriverInfo, record, nestedDriver, nestedDriverUser, nestedUser]) {
+    if (!candidate) continue
+    const employeeId = pickEmployeeId(candidate)
+    if (employeeId) return employeeId
+  }
+  return '—'
+}
+
+function pickDriverContactNo(
+  record: ApiRecord,
+  nestedDriverInfo: ApiRecord | null,
+  nestedDriver: ApiRecord | null,
+  nestedDriverUser: ApiRecord | null,
+  nestedUser: ApiRecord | null,
+): string {
+  for (const candidate of [nestedDriverInfo, record, nestedDriver, nestedDriverUser, nestedUser]) {
+    if (!candidate) continue
+    const contact = pickContactNo(candidate)
+    if (contact) return contact
+  }
+  return '—'
+}
+
 function mapDriverVehicleAssignment(record: ApiRecord): DriverVehicleAssignmentRow | null {
+  const nestedDriverInfo = getNestedRecord(record, 'driver_info')
   const nestedDriver = getNestedRecord(record, 'driver')
   const nestedDriverUser = nestedDriver ? getNestedRecord(nestedDriver, 'user') : null
   const nestedUser = getNestedRecord(record, 'user')
   const nestedVehicle = getNestedRecord(record, 'vehicle')
   const nestedLicense = getNestedRecord(record, 'license')
-  const id = toText(record.id) || toText(record.assignment_id) || toText(record.uuid)
+  const id =
+    toText(record.id) ||
+    toText(record.assignment_id) ||
+    toText(record.uuid) ||
+    pickFirstText(record, ['driver_id', 'driverId']) ||
+    pickFirstText(nestedDriver ?? {}, ['id', 'user_id', 'uuid']) ||
+    ''
   if (!id) return null
   const driverId =
     pickFirstText(record, ['driver_id', 'driverId']) ||
@@ -169,8 +237,27 @@ function mapDriverVehicleAssignment(record: ApiRecord): DriverVehicleAssignmentR
     driverId,
     vehicleId,
     priority,
-    name: pickDriverName(record, nestedDriver, nestedDriverUser, nestedUser),
-    cid: pickCid(record) || pickCid(nestedDriver ?? {}) || pickCid(nestedDriverUser ?? {}) || '—',
+    name: pickDriverName(record, nestedDriverInfo, nestedDriver, nestedDriverUser, nestedUser),
+    cid:
+      pickCid(record) ||
+      pickCid(nestedDriverInfo ?? {}) ||
+      pickCid(nestedDriver ?? {}) ||
+      pickCid(nestedDriverUser ?? {}) ||
+      '—',
+    contactNo: pickDriverContactNo(
+      record,
+      nestedDriverInfo,
+      nestedDriver,
+      nestedDriverUser,
+      nestedUser,
+    ),
+    employeeId: pickDriverEmployeeId(
+      record,
+      nestedDriverInfo,
+      nestedDriver,
+      nestedDriverUser,
+      nestedUser,
+    ),
     license:
       toText(record.license_number) ||
       toText(record.license_no) ||
@@ -288,28 +375,40 @@ function pickPrimaryAssignment(rows: DriverVehicleAssignmentRow[]): DriverVehicl
   return primary ?? rows[0]
 }
 
-export async function fetchDriverVehicleAssignmentByVehicleId(
+function mapAssignmentsFromByVehiclePayload(payload: unknown): DriverVehicleAssignmentRow[] {
+  const records = toArray(payload)
+  if (records.length > 0) {
+    return records
+      .map(mapDriverVehicleAssignment)
+      .filter((row): row is DriverVehicleAssignmentRow => row !== null)
+  }
+  const record = unwrapSingleRecord(payload)
+  if (!record) return []
+  const mapped = mapDriverVehicleAssignment(record)
+  return mapped ? [mapped] : []
+}
+
+/** All driver assignments for a vehicle (`GET .../by-vehicle/:id`, no pagination). */
+export async function fetchAllDriverVehicleAssignmentsByVehicleId(
   vehicleId: string,
-): Promise<DriverVehicleAssignmentRow | null> {
+): Promise<DriverVehicleAssignmentRow[]> {
   const trimmedId = vehicleId.trim()
-  if (!trimmedId) return null
+  if (!trimmedId) return []
   try {
     const payload = await apiGet<unknown>(
       `/drivers/vehicle_assignments/by-vehicle/${encodeURIComponent(trimmedId)}`,
     )
-    const records = toArray(payload)
-    if (records.length > 0) {
-      const mapped = records
-        .map(mapDriverVehicleAssignment)
-        .filter((row): row is DriverVehicleAssignmentRow => row !== null)
-      return pickPrimaryAssignment(mapped)
-    }
-    const record = unwrapSingleRecord(payload)
-    if (!record) return null
-    return mapDriverVehicleAssignment(record)
+    return mapAssignmentsFromByVehiclePayload(payload)
   } catch {
-    return null
+    return []
   }
+}
+
+export async function fetchDriverVehicleAssignmentByVehicleId(
+  vehicleId: string,
+): Promise<DriverVehicleAssignmentRow | null> {
+  const rows = await fetchAllDriverVehicleAssignmentsByVehicleId(vehicleId)
+  return pickPrimaryAssignment(rows)
 }
 
 export async function updateDriverVehicleAssignment(

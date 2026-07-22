@@ -239,7 +239,7 @@ export function LoanRequisitionListView({
                   <th className="px-4 py-3 text-left font-semibold">No. of Vehicle Requested</th>
                   <th className="px-4 py-3 text-left font-semibold">Start Date</th>
                   <th className="px-4 py-3 text-left font-semibold">End Date</th>
-                  <th className="px-4 py-3 text-left font-semibold">Status</th>
+                  <th className="px-4 py-3 text-center font-semibold">Status</th>
                   <th className="px-4 py-3 text-center font-semibold">Action</th>
                 </tr>
               </thead>
@@ -309,7 +309,7 @@ export function LoanRequisitionListView({
                       <td className="px-4 py-3 text-[var(--fms-text-header)]">
                         {formatLoanDate(row.endDate)}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-3 text-center">
                         <LoanRequisitionStatusCell status={row.status} />
                       </td>
                       <td

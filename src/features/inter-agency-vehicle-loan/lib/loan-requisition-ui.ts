@@ -46,51 +46,50 @@ const STATUS_LABELS: Record<LoanRequisitionStatus, string> = {
 
 const STATUS_STYLES: Record<
   LoanRequisitionStatus,
-  { pill: string; dot: string }
+  { pill: string }
 > = {
   DRAFT: {
     pill: 'bg-[#f1f5f9] text-[#475569]',
-    dot: 'bg-[#94a3b8]',
+
   },
   PENDING_HIGHEST_ADMIN: {
     pill: 'bg-[#dbeafe] text-[#1d4ed8]',
-    dot: 'bg-[#1d4ed8]',
+
   },
   PENDING_BORROWING_HEAD: {
     pill: 'bg-[#e0f2fe] text-[#0369a1]',
-    dot: 'bg-[#0284c7]',
   },
   PENDING_LENDING_HEAD: {
     pill: 'bg-[#e0e7ff] text-[#4338ca]',
-    dot: 'bg-[#4f46e5]',
+
   },
   PENDING_MTO_COMMIT: {
     pill: 'bg-[#ede9fe] text-[#6d28d9]',
-    dot: 'bg-[#7c3aed]',
+
   },
   VEHICLE_COMMITTED: {
     pill: 'bg-[#ccfbf1] text-[#0f766e]',
-    dot: 'bg-[#0d9488]',
+
   },
   ACTIVE: {
-    pill: 'bg-[#d0fae5] text-[#007a55]',
-    dot: 'bg-[#007a55]',
+    pill: 'bg-[#cffafe] text-[#0891b2]',
+
   },
   RETURNED: {
     pill: 'bg-[#fef3c7] text-[#b45309]',
-    dot: 'bg-[#d97706]',
+
   },
   COMPLETED: {
-    pill: 'bg-[#dcfce7] text-[#15803d]',
-    dot: 'bg-[#16a34a]',
+    pill: 'bg-[#d0fae5] text-[#007a55]',
+
   },
   REJECTED: {
     pill: 'bg-[#fde8e8] text-[#c53030]',
-    dot: 'bg-[#e53e3e]',
+
   },
   CANCELLED: {
     pill: 'bg-[#f3f4f6] text-[#6b7280]',
-    dot: 'bg-[#9ca3af]',
+
   },
 }
 
@@ -121,6 +120,7 @@ export function formatLoanRequisitionStatusLabel(status: LoanRequisitionStatus):
 export function loanRequisitionStatusStyles(status: LoanRequisitionStatus) {
   return STATUS_STYLES[status]
 }
+
 
 export function formatLoanAuditStepLabel(step: LoanAuditStep): string {
   return AUDIT_STEP_LABELS[step]

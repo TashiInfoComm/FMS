@@ -72,6 +72,9 @@ import LoanRequisitionDetail from '@/features/inter-agency-vehicle-loan/pages/Lo
 import DispatchVehicle from '@/features/inter-agency-vehicle-loan/pages/DispatchVehicle'
 import ReturnVehicle from '@/features/inter-agency-vehicle-loan/pages/ReturnVehicle'
 import CheckListItem from '@/features/master/pages/CheckListItem'
+import { VehicleDesignatedTypePage } from '@/features/master/pages/VehicleDesignatedTypePage'
+import DesignatedVehicle from '@/features/designated-vehicle/pages/DesignatedVehicle'
+import DriverOffence from '@/features/driver-offence/pages/DriverOffence'
 
 export function AppRoutes() {
   return (
@@ -141,6 +144,10 @@ export function AppRoutes() {
           />
           <Route path="/master/trip-type" element={<TripTypePage />} />
           <Route path="/master/checklist-items" element={<CheckListItem />} />
+          <Route
+            path="/master/designated-type"
+            element={<VehicleDesignatedTypePage />}
+          />
           // Vehicle routes
           <Route path="/vehicle/list" element={<VehicleManagementPage />} />
           <Route path="/vehicle/list/:vehicleId/edit" element={<VehicleFormPage />} />
@@ -170,6 +177,8 @@ export function AppRoutes() {
             path="/assign-driver/:assignmentId"
             element={<AssignVehicleDetailPage />}
           />
+          // designated vehicle routes
+          <Route path="/vehicle/designated-officials" element={<DesignatedVehicle />} />
           // Admin Settings routes
           <Route path="/admin/modules" element={<ModuleListPage />} />
           <Route path="/admin/modules/add" element={<ModuleFormPage />} />
@@ -237,6 +246,9 @@ export function AppRoutes() {
           <Route path="/vehicle-loan/:loanId/dispatch" element={<DispatchVehicle />} />
           <Route path="/vehicle-loan/:loanId/return" element={<ReturnVehicle />} />
           <Route path="/vehicle-loan/:loanId" element={<LoanRequisitionDetail />} />
+          
+          // driver offence routes
+          <Route path="/offence/list" element={<DriverOffence />} />
         </Route>
       </Routes>
     </BrowserRouter>

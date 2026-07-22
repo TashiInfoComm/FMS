@@ -39,44 +39,6 @@ function toText(value: unknown): string {
       : ''
 }
 
-function pickCid(record: ApiRecord): string {
-  return (
-    toText(record.cid) ||
-    toText(record.citizen_id) ||
-    toText(record.citizenId) ||
-    toText(record.cid_no) ||
-    toText(record.cidNumber) ||
-    toText(record.cid_number) ||
-    ''
-  )
-}
-
-type DriverDetail = {
-  name: string
-  cid: string
-}
-
-async function fetchDriverDetailById(driverId: string): Promise<DriverDetail> {
-  const payload = await apiGet<unknown>(`/admin/users/${encodeURIComponent(driverId)}`)
-  const record =
-    payload && typeof payload === 'object' && !Array.isArray(payload)
-      ? ((payload as ApiRecord).data &&
-          typeof (payload as ApiRecord).data === 'object' &&
-          !Array.isArray((payload as ApiRecord).data)
-          ? ((payload as ApiRecord).data as ApiRecord)
-          : (payload as ApiRecord))
-      : {}
-  const firstName = toText(record.first_name) || toText(record.firstName)
-  const middleName = toText(record.middle_name) || toText(record.middleName)
-  const lastName = toText(record.last_name) || toText(record.lastName)
-  const fullName =
-    toText(record.name) || toText(record.full_name) || [firstName, middleName, lastName].filter(Boolean).join(' ').trim()
-  return {
-    name: fullName || '—',
-    cid: pickCid(record) || '—',
-  }
-}
-
 async function fetchVehicleDetailById(vehicleId: string): Promise<string> {
   const payload = await apiGet<unknown>(`/vehicles/${encodeURIComponent(vehicleId)}`)
   const record =
@@ -115,22 +77,10 @@ export function AssignVehiclePage() {
     staleTime: 30_000,
   })
   const rows = useMemo(() => assignmentsQuery.data?.rows ?? [], [assignmentsQuery.data?.rows])
-  const driverIds = useMemo(
-    () => Array.from(new Set(rows.map((row) => row.driverId).filter((id) => id && id !== '—'))),
-    [rows],
-  )
   const vehicleIds = useMemo(
     () => Array.from(new Set(rows.map((row) => row.vehicleId).filter((id) => id && id !== '—'))),
     [rows],
   )
-  const driverDetailQueries = useQueries({
-    queries: driverIds.map((driverId) => ({
-      queryKey: ['driver-vehicle-assignments', 'driver-detail', driverId],
-      queryFn: () => fetchDriverDetailById(driverId),
-      enabled: crud.canRead,
-      staleTime: 30_000,
-    })),
-  })
   const vehicleDetailQueries = useQueries({
     queries: vehicleIds.map((vehicleId) => ({
       queryKey: ['driver-vehicle-assignments', 'vehicle-detail', vehicleId],
@@ -139,14 +89,6 @@ export function AssignVehiclePage() {
       staleTime: 30_000,
     })),
   })
-  const driverDetailById = useMemo(() => {
-    const map = new Map<string, DriverDetail>()
-    driverIds.forEach((driverId, index) => {
-      const data = driverDetailQueries[index]?.data
-      if (data) map.set(driverId, data)
-    })
-    return map
-  }, [driverIds, driverDetailQueries])
   const vehicleLabelById = useMemo(() => {
     const map = new Map<string, string>()
     vehicleIds.forEach((vehicleId, index) => {
@@ -213,7 +155,7 @@ export function AssignVehiclePage() {
                   setQuery(event.target.value);
                   setPage(1);
                 }}
-                placeholder="Search by CID or name"
+                placeholder="Search by name or phone no."
                 className="pl-9"
               />
             </div>
@@ -225,7 +167,7 @@ export function AssignVehiclePage() {
                 <tr>
                   <th className="w-16 px-4 py-3 text-left font-semibold">Sl.No</th>
                   <th className="px-4 py-3 text-left font-semibold">
-                    Name & CID
+                    Name & Phone no.
                   </th>
                   <th className="px-4 py-3 text-left font-semibold">
                     License Number
@@ -290,11 +232,9 @@ export function AssignVehiclePage() {
                             {serialBase + index + 1}
                           </td>
                           <td className="px-4 py-3">
-                            <p>
-                              {driverDetailById.get(row.driverId)?.name || row.name}
-                            </p>
+                            <p>{row.name}</p>
                             <p className="text-xs text-[var(--fms-text-subheading)]">
-                              {driverDetailById.get(row.driverId)?.cid || row.cid || '—'}
+                              {row.contactNo || '—'}
                             </p>
                           </td>
                           <td className="px-4 py-3">
@@ -367,11 +307,9 @@ export function AssignVehiclePage() {
                   <MobileListField label="Sl.No">
                     {serialBase + index + 1}
                   </MobileListField>
-                  <MobileListField label="Name">
-                    {driverDetailById.get(row.driverId)?.name || row.name}
-                  </MobileListField>
-                  <MobileListField label="CID">
-                    {driverDetailById.get(row.driverId)?.cid || row.cid || '—'}
+                  <MobileListField label="Name">{row.name}</MobileListField>
+                  <MobileListField label="Phone no.">
+                    {row.contactNo || '—'}
                   </MobileListField>
                   <MobileListField label="License Number">
                     {row.license}

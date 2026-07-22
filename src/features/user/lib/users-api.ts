@@ -580,6 +580,14 @@ export type UserDetailCidSearchResult = {
   fullName: string
   employeeId: string
   contactNumber: string
+  designation: string
+  agencyMinistry: string
+}
+
+/** Most specific organogram id for an official: sub-division → division → department → agency. */
+export function pickOfficialAgencyMinistryId(record: ApiRecord): string {
+  const ids = pickUserDetailOrganogramIds(record)
+  return ids.subDivisionId || ids.divisionId || ids.departmentId || ids.agencyId || ''
 }
 
 function usersListRecordsFromPayload(payload: unknown): ApiRecord[] {
@@ -664,6 +672,8 @@ function mapUserRecordToDetailCidSearchResult(
     fullName: detail.name !== '-' ? detail.name : '',
     employeeId: detail.employeeId !== '-' ? detail.employeeId : '',
     contactNumber: detail.contact !== '-' ? detail.contact : '',
+    designation: pickDesignation(merged),
+    agencyMinistry: pickOfficialAgencyMinistryId(merged),
   }
 }
 

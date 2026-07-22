@@ -10,7 +10,7 @@ export function LoanRequisitionStatusCell({ status }: { status: LoanRequisitionS
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-full px-1.5 py-1 text-xs font-medium',
+        'inline-flex items-center rounded-full p-1 text-xs font-medium',
         styles.pill,
       )}
     >
