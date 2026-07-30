@@ -254,7 +254,7 @@ export function AppRoutes() {
           <Route path="/vehicle-loan/:loanId" element={<LoanRequisitionDetail />} />
           
           // driver offence routes
-          <Route path="/offence/list" element={<DriverOffence />} />
+          <Route path="/offences" element={<DriverOffence />} />
           // emergency dispatch routes
           <Route path="/emergency/broadcast" element={<EmergencyBroadcast />} />
           <Route
