@@ -400,9 +400,16 @@ function toTruthyFlag(value: unknown): boolean {
 function mapAssignmentListRecord(record: ApiRecord): VehicleAgencyAssignmentListItem | null {
   const id = toId(record.id ?? record.assignment_id).trim()
   const entityType = normalizeEntityType(record.entity_type ?? record.entityType)
+  const entity = toObject(record.entity)
   const entityId = toId(record.entity_id ?? record.entityId ?? readId(record.entity)).trim()
   if (!id || !entityType || !entityId) return null
-  const labelRaw = toText(record.entity_name ?? record.entityName ?? record.name ?? record.label).trim()
+  const labelRaw = toText(
+    entity?.name ??
+      record.entity_name ??
+      record.entityName ??
+      record.name ??
+      record.label,
+  ).trim()
   const active = toTruthyFlag(record.active ?? record.status ?? record.is_active)
   const is_original_agency = toTruthyFlag(record.is_original_agency ?? record.isOriginalAgency)
   return { id, entityType, entityId, active, is_original_agency, label: labelRaw || undefined }

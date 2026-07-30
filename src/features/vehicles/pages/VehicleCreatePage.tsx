@@ -253,7 +253,10 @@ export function VehicleFormPage() {
     setSubmitAttempted(false)
   }, [vehicleId])
 
-  const fieldErrors = useMemo(() => getVehicleFormFieldErrors(form), [form])
+  const fieldErrors = useMemo(
+    () => getVehicleFormFieldErrors(form, { isEdit }),
+    [form, isEdit],
+  )
 
   const visibleFieldErrors = useMemo(() => {
     if (submitAttempted) return fieldErrors
@@ -350,7 +353,7 @@ export function VehicleFormPage() {
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const body = vehicleFormStateToPayload(form)
+      const body = vehicleFormStateToPayload(form, { isEdit })
       if (isEdit) {
         if (!vehicleId?.trim()) throw new Error('Missing vehicle id')
         return updateVehicle(vehicleId, body)
@@ -384,7 +387,7 @@ export function VehicleFormPage() {
     if (!canSubmit) return
     setSubmitAttempted(true)
     touchAllFields()
-    if (!isVehicleFormValid(form)) return
+    if (!isVehicleFormValid(form, { isEdit })) return
     saveMutation.mutate()
   }
 
@@ -455,9 +458,7 @@ export function VehicleFormPage() {
                 </div>
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                   {group.fields
-                    .filter(
-                      (field) => isEdit || field.key !== 'fuel_quota_balance',
-                    )
+                    .filter((field) => !(isEdit && field.key === 'fuel_quota_balance'))
                     .map((field) =>
                     field.key === 'asset_name_id' && !isEdit ? (
                       <div key={field.key} className="space-y-2">
@@ -503,6 +504,22 @@ export function VehicleFormPage() {
                           registration number.
                         </p>
                       </div>
+                    ) : field.key === 'asset_name_id' && isEdit ? (
+                      <MasterDataSelect
+                        key={field.key}
+                        id={field.key}
+                        label={field.label}
+                        placeholder={field.placeholder}
+                        options={mastersQuery.data?.vehicleAssetNames ?? []}
+                        value={form.asset_name_id}
+                        loading={mastersQuery.isLoading}
+                        error={Boolean(fieldError('asset_name_id'))}
+                        errorMessage={fieldError('asset_name_id')}
+                        onValueChange={(next) => {
+                          setForm((prev) => ({ ...prev, asset_name_id: next }))
+                          touchField('asset_name_id')
+                        }}
+                      />
                     ) : field.key === 'vehicle_type_id' ? (
                       <MasterDataSelect
                         key={field.key}

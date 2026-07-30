@@ -1,5 +1,5 @@
 // Lists vehicles from GET `/vehicles` with search; detail opens `/vehicle/list/:vehicleId`.
-import { Plus, Search, Fuel } from "lucide-react";
+import { Plus, RefreshCw, Search, Fuel } from "lucide-react";
 import { type FormEvent, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -22,6 +22,7 @@ import { Label } from "@/components/ui/label";
 import {
   assignVehicleQuotaInitial,
   fetchVehiclesPage,
+  syncVehicles,
   type VehicleListRow,
 } from "@/features/vehicles/lib/vehicles-api";
 import { cn } from "@/lib/utils";
@@ -40,11 +41,14 @@ import {
   EditRowActionButton,
   rowActionsContainerClassName,
 } from "@/shared/components/TableRowActionButtons";
+import { useAccessControl } from "@/shared/hooks/useAccessControl";
 import { useRouteCrudPermissions } from "@/shared/hooks/useRouteCrudPermissions";
 import { showErrorToast, showSuccessToast } from "@/shared/lib/toast";
 
 export function VehicleManagementPage() {
   const crud = useRouteCrudPermissions("/vehicle/list");
+  const { role } = useAccessControl();
+  const isSuperAdmin = role === "fms-super-admin";
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
@@ -95,6 +99,17 @@ export function VehicleManagementPage() {
     },
     onError: (err) => {
       showErrorToast(err, "Delete failed");
+    },
+  });
+
+  const syncMutation = useMutation({
+    mutationFn: syncVehicles,
+    onSuccess: async () => {
+      showSuccessToast("Vehicles synced successfully");
+      await queryClient.invalidateQueries({ queryKey: ["vehicles", "list"] });
+    },
+    onError: (err) => {
+      showErrorToast(err, "Could not sync vehicles");
     },
   });
 
@@ -159,7 +174,22 @@ export function VehicleManagementPage() {
           title="Vehicle"
           subtitle="Manage vehicle records and configurations"
         />
-        {crud.canCreate ? (
+        {isSuperAdmin ? (
+          <Button
+            type="button"
+            className="w-full sm:w-auto"
+            disabled={syncMutation.isPending}
+            onClick={() => syncMutation.mutate()}
+          >
+            <RefreshCw
+              className={cn(
+                "mr-1 h-4 w-4",
+                syncMutation.isPending && "animate-spin",
+              )}
+            />
+            {syncMutation.isPending ? "Syncing…" : "Sync Vehicle"}
+          </Button>
+        ) : crud.canCreate ? (
           <Button asChild className="w-full sm:w-auto">
             <Link to="/vehicle/add">
               <Plus className="mr-1 h-4 w-4" />

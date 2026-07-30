@@ -1,5 +1,5 @@
 /** Outlined row actions using :root --fms-* tokens (index.css / globals.css). */
-import { Pencil, Trash2, BookmarkX, CheckCircle, Undo2, EyeIcon } from 'lucide-react'
+import { Pencil, Trash2, BookmarkX, CheckCircle, Undo2, EyeIcon, CalendarX2Icon, Send } from 'lucide-react'
 import type { ComponentProps, ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -19,6 +19,9 @@ export const deleteRowActionButtonClassName =
 
 export const cancelRowActionButtonClassName =
   'h-8 gap-1 cursor-pointer rounded-lg border border-[var(--fms-error-border)] bg-[var(--fms-error-fill)] text-[var(--fms-error-text)] shadow-none hover:brightness-[0.98] [&_svg]:size-3.5 dark:border-[var(--fms-error-border)]/45 dark:bg-[var(--fms-error-fill)]/30 dark:text-[var(--fms-error-border)] dark:hover:bg-[var(--fms-error-fill)]/45'
+
+export const closeRowActionButtonClassName =
+  'h-8 gap-1 cursor-pointer rounded-lg border border-[var(--fms-error-border)] bg-[var(--fms-error-fill)] text-[var(--fms-error-text)] shadow-none hover:brightness-[0.98] [&_svg]:size-3.5'
 
 type RowActionButtonProps = Omit<ComponentProps<typeof Button>, 'variant' | 'size' | 'children'> & {
   children?: ReactNode
@@ -100,6 +103,28 @@ export function CancelRowActionButton({
     )
   }
 
+export function CloseRowActionButton({
+  className,
+  tooltip = 'Close',
+  ...props
+}: RowActionButtonProps & RowActionTooltipProps) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className={cn(closeRowActionButtonClassName, className)}
+          {...props}
+        >
+          <CalendarX2Icon aria-hidden />
+        </Button>  
+      </TooltipTrigger>
+      <TooltipContent>{tooltip}</TooltipContent>
+    </Tooltip>
+  )
+}
 
   export function ApproveLineItemActionButton({ 
     className,
@@ -130,6 +155,30 @@ export function CancelRowActionButton({
             <Button type="button" variant="outline" size="sm" className={cn(cancelRowActionButtonClassName, className)} {...props}>
               <Undo2 aria-hidden size={24}/>
               </Button>
+            </TooltipTrigger>
+            <TooltipContent>{tooltip}</TooltipContent>
+          </Tooltip>
+        )
+      }
+
+
+      export function DeployVehicleRowActionButton({
+        className,
+        tooltip = 'Deploy Vehicle',
+        ...props
+      }: RowActionButtonProps & RowActionTooltipProps) {
+        return (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className={cn(editRowActionButtonClassName, className)}
+                {...props}
+              >
+                <Send aria-hidden />
+              </Button>  
             </TooltipTrigger>
             <TooltipContent>{tooltip}</TooltipContent>
           </Tooltip>

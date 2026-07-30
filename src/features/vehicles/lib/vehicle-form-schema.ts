@@ -51,16 +51,18 @@ export const vehicleFormSchema = z.object({
   fuel_quota_balance: optionalNumberText('Fuel quota balance'),
 })
 
+/** Edit mode: asset name is optional; fuel quota is not edited on this form. */
+export const vehicleEditFormSchema = vehicleFormSchema.extend({
+  asset_name_id: z.string(),
+})
+
 export type VehicleFormFieldKey = keyof z.infer<typeof vehicleFormSchema>
 
-export function getVehicleFormFieldErrors(
-  form: VehicleFormStringState,
+function collectFieldErrors(
+  issues: readonly { path: PropertyKey[]; message: string }[],
 ): Partial<Record<VehicleFormFieldKey, string>> {
-  const parsed = vehicleFormSchema.safeParse(form)
-  if (parsed.success) return {}
-
   const errors: Partial<Record<VehicleFormFieldKey, string>> = {}
-  for (const issue of parsed.error.issues) {
+  for (const issue of issues) {
     const key = issue.path[0]
     if (typeof key === 'string' && !(key in errors)) {
       errors[key as VehicleFormFieldKey] = issue.message
@@ -69,8 +71,22 @@ export function getVehicleFormFieldErrors(
   return errors
 }
 
-export function isVehicleFormValid(form: VehicleFormStringState): boolean {
-  return vehicleFormSchema.safeParse(form).success
+export function getVehicleFormFieldErrors(
+  form: VehicleFormStringState,
+  options?: { isEdit?: boolean },
+): Partial<Record<VehicleFormFieldKey, string>> {
+  const schema = options?.isEdit ? vehicleEditFormSchema : vehicleFormSchema
+  const parsed = schema.safeParse(form)
+  if (parsed.success) return {}
+  return collectFieldErrors(parsed.error.issues)
+}
+
+export function isVehicleFormValid(
+  form: VehicleFormStringState,
+  options?: { isEdit?: boolean },
+): boolean {
+  const schema = options?.isEdit ? vehicleEditFormSchema : vehicleFormSchema
+  return schema.safeParse(form).success
 }
 
 export const VEHICLE_FORM_FIELD_KEYS = Object.keys(

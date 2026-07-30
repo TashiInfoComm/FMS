@@ -75,6 +75,12 @@ import CheckListItem from '@/features/master/pages/CheckListItem'
 import { VehicleDesignatedTypePage } from '@/features/master/pages/VehicleDesignatedTypePage'
 import DesignatedVehicle from '@/features/designated-vehicle/pages/DesignatedVehicle'
 import DriverOffence from '@/features/driver-offence/pages/DriverOffence'
+import CreateEmergencyBroadcast from '@/features/emergency-vehicle/pages/CreateEmergencyBroadcast'
+import EmergencyBroadcast from '@/features/emergency-vehicle/pages/EmergencyBroadcast'
+import EmergencyBroadcastDetail from '@/features/emergency-vehicle/pages/EmergencyBroadcastDetail'
+import EmergencyDispatchedList from '@/features/emergency-vehicle/pages/EmergencyDispatchedList'
+import EmergencyRequest from '@/features/emergency-vehicle/pages/EmergencyRequest'
+import VehicleDeployment from '@/features/emergency-vehicle/pages/VehicleDeployment'
 
 export function AppRoutes() {
   return (
@@ -249,6 +255,22 @@ export function AppRoutes() {
           
           // driver offence routes
           <Route path="/offence/list" element={<DriverOffence />} />
+          // emergency dispatch routes
+          <Route path="/emergency/broadcast" element={<EmergencyBroadcast />} />
+          <Route
+            path="/emergency/broadcast/create"
+            element={<CreateEmergencyBroadcast />}
+          />
+          <Route
+            path="/emergency/broadcast/:incidentId"
+            element={<EmergencyBroadcastDetail />}
+          />
+          <Route path="/emergency/request" element={<EmergencyRequest />} />
+          <Route
+            path="/emergency/request/:incidentId/deploy"
+            element={<VehicleDeployment />}
+          />
+          <Route path="/emergency/dispatched" element={<EmergencyDispatchedList />} />
         </Route>
       </Routes>
     </BrowserRouter>

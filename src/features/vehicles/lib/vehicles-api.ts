@@ -4,7 +4,7 @@ import {
   type MasterOption,
   type VehicleCreateMasterLists,
 } from '@/features/vehicles/lib/vehicle-create-master-data'
-import { apiGet, apiPost, apiPut } from '@/services/apiClient'
+import { apiClient, apiGet, apiPost, apiPut } from '@/services/apiClient'
 import { isUuidLike } from '@/shared/lib/organogram-master-lookup'
 import { applyPagination } from '@/shared/utils/pagination'
 
@@ -544,7 +544,10 @@ function parseFloatField(raw: string, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback
 }
 
-export function vehicleFormStateToPayload(form: VehicleFormStringState): VehicleUpsertBody {
+export function vehicleFormStateToPayload(
+  form: VehicleFormStringState,
+  options?: { isEdit?: boolean },
+): VehicleUpsertBody {
   const body: VehicleUpsertBody = {
     registration_number: form.registration_number.trim(),
     vin: form.registration_number.trim(),
@@ -570,15 +573,22 @@ export function vehicleFormStateToPayload(form: VehicleFormStringState): Vehicle
     movement_status_id: form.movement_status_id.trim(),
     asset_name_id: form.asset_name_id.trim(),
   }
-  const fuelQuotaBalance = form.fuel_quota_balance.trim()
-  if (fuelQuotaBalance) {
-    body.fuel_quota_balance = parseFloatField(fuelQuotaBalance, 0)
+  if (!options?.isEdit) {
+    const fuelQuotaBalance = form.fuel_quota_balance.trim()
+    if (fuelQuotaBalance) {
+      body.fuel_quota_balance = parseFloatField(fuelQuotaBalance, 0)
+    }
   }
   return body
 }
 
 export async function createVehicle(body: VehicleUpsertBody): Promise<unknown> {
   return apiPost<unknown, VehicleUpsertBody>('/vehicles', body)
+}
+
+/** POST `/vehicles/sync` — pull/sync vehicles (super-admin). */
+export async function syncVehicles(): Promise<unknown> {
+  return apiClient<unknown>('/vehicles/sync', { method: 'POST' })
 }
 
 export async function updateVehicle(vehicleId: string, body: VehicleUpsertBody): Promise<unknown> {
