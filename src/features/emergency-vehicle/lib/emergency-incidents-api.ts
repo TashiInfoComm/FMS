@@ -304,7 +304,11 @@ export function mapEmergencyIncidentToBroadcastRow(
     pickText(record, ['incident_location', 'incidentLocation', 'location']) || '—'
   const latitude = toFiniteNumber(record.latitude)
   const longitude = toFiniteNumber(record.longitude)
-  const statusRaw = pickText(record, ['status'])
+  const statusRaw = pickText(record, [
+    'incident_status',
+    'incidentStatus',
+    'status',
+  ])
   const statusLabel = pickText(record, ['status_label', 'statusLabel'])
   const startDate = pickText(record, ['start_date', 'startDate'])
   const endDate = pickText(record, ['end_date', 'endDate'])

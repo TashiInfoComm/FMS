@@ -131,6 +131,7 @@ function EmergencyRequest() {
 
   const renderRowActions = (row: EmergencyBroadcastRow) => {
     const canAct = canCancelOrCloseEmergencyIncident(row.status)
+    const isActive = row.status === 'active'
     return (
       <div className={cn(rowActionsContainerClassName, 'justify-center gap-2')}>
         <DetailRowActionButton
@@ -146,13 +147,15 @@ function EmergencyRequest() {
           disabled={!canAct || declineMutation.isPending}
           onClick={() => openDeploy(row.id)}
         />
-        <CancelRowActionButton
-          type="button"
-          tooltip="Decline emergency"
-          aria-label={`Decline ${row.requestId}`}
-          disabled={!canAct || declineMutation.isPending}
-          onClick={() => openDeclineDialog(row)}
-        />
+        {!isActive ? (
+          <CancelRowActionButton
+            type="button"
+            tooltip="Decline emergency"
+            aria-label={`Decline ${row.requestId}`}
+            disabled={!canAct || declineMutation.isPending}
+            onClick={() => openDeclineDialog(row)}
+          />
+        ) : null}
       </div>
     )
   }
