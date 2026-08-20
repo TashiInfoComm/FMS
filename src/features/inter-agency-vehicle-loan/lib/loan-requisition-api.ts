@@ -1,4 +1,8 @@
 import { apiGet, apiPatch, apiPost } from '@/services/apiClient'
+import {
+  appendReportCommonFilterParams,
+  type ReportCommonFilterParams,
+} from '@/features/reports/lib/report-common-filters'
 import { fetchVehicleCategoryOptions } from '@/features/vehicles/lib/vehicle-create-master-data'
 import { extractMasterList } from '@/shared/lib/organogram-master-lookup'
 import { applyPagination } from '@/shared/utils/pagination'
@@ -825,6 +829,7 @@ export function loansListPath(
   pageSize: number,
   asLending?: boolean,
   status?: string,
+  common?: ReportCommonFilterParams,
 ): string {
   const params = new URLSearchParams()
   params.set('page', String(page))
@@ -836,6 +841,7 @@ export function loansListPath(
   if (statusFilter) params.set('status', statusFilter)
   const q = search.trim()
   if (q) params.set('search', q)
+  if (common) appendReportCommonFilterParams(params, common)
   return `/loans?${params.toString()}`
 }
 
@@ -845,8 +851,11 @@ export async function fetchLoansPage(
   pageSize: number,
   asLending?: boolean,
   status?: string,
+  common?: ReportCommonFilterParams,
 ): Promise<LoanRequisitionPageResult> {
-  const payload = await apiGet<unknown>(loansListPath(search, page, pageSize, asLending, status))
+  const payload = await apiGet<unknown>(
+    loansListPath(search, page, pageSize, asLending, status, common),
+  )
   const records = extractLoanList(payload)
   const rows = records
     .map((record) => mapLoanListRow(record))

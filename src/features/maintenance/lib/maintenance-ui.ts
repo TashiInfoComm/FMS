@@ -40,6 +40,11 @@ function normalizeWorkOrderStatus(status: WorkOrderStatus): string {
   return status.trim().toUpperCase().replace(/\s+/g, '_')
 }
 
+/** Badge text for an API status enum, e.g. `PENDING_MTO_APPROVAL` → `PENDING MTO APPROVAL`. */
+export function formatWorkOrderStatusLabel(status: WorkOrderStatus): string {
+  return status.trim().replace(/_+/g, ' ').replace(/\s+/g, ' ')
+}
+
 export function workOrderStatusBadgeClass(status: WorkOrderStatus): string {
   const normalized = normalizeWorkOrderStatus(status)
 

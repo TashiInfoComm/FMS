@@ -47,17 +47,6 @@ import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
 import { preOpenBrowserTab } from '@/shared/lib/open-in-new-tab'
 
-function AutoPopulateField({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="space-y-2">
-      <Label>{label}</Label>
-      <div className="rounded-full bg-[#f3f4f6] px-4 py-2.5 text-sm font-semibold text-[var(--fms-text-header)]">
-        {value}
-      </div>
-    </div>
-  )
-}
-
 function DetailValueField({ label, value }: { label: string; value: string }) {
   return (
     <div className="space-y-2">
@@ -299,7 +288,6 @@ function ReceiptUploadField({
 
 type FuelLogFormProps = {
   mode: 'create' | 'detail'
-  driverName: string
   vehicleNumber: string
   vehicleId?: string
   vehicleOptions?: DriverVehicleOption[]
@@ -320,7 +308,6 @@ type FuelLogFormProps = {
   showQuotaSummary?: boolean
   showBalanceAfterLog?: boolean
   quotaSummary?: FuelLogQuotaSummary
-  driverLoading?: boolean
   vehicleLoading?: boolean
   onLogDateChange?: (value: string) => void
   onFuelLitersChange?: (value: string) => void
@@ -334,7 +321,6 @@ type FuelLogFormProps = {
 
 function FuelLogForm({
   mode,
-  driverName,
   vehicleNumber,
   vehicleId = '',
   vehicleOptions = [],
@@ -355,7 +341,6 @@ function FuelLogForm({
   showQuotaSummary = false,
   showBalanceAfterLog = false,
   quotaSummary,
-  driverLoading = false,
   vehicleLoading = false,
   onLogDateChange,
   onFuelLitersChange,
@@ -402,21 +387,6 @@ function FuelLogForm({
           }}
         >
           <div className="grid gap-4 sm:grid-cols-2">
-            {isDetail ? (
-              <div className="space-y-2">
-                <Label>Driver Name</Label>
-                {driverLoading ? (
-                  <SkeletonFieldValue />
-                ) : (
-                  <div className="rounded-full border border-[var(--fms-strokes)] bg-white px-4 py-2.5 text-sm font-semibold text-[var(--fms-text-header)]">
-                    {driverName || '—'}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <AutoPopulateField label="Driver Name" value={driverName} />
-            )}
-
             {isDetail ? (
               <div className="space-y-2">
                 <Label>Vehicle Number</Label>
@@ -606,9 +576,6 @@ function CreateFuelLogPage() {
     return ''
   }, [profile?.id, profileRecord])
 
-  const driverName =
-    profile?.name && profile.name !== '-' ? profile.name : '—'
-
   const vehiclesQuery = useQuery({
     queryKey: ['fuel-logs', 'driver-vehicles', driverId],
     queryFn: () => fetchDriverVehicles(driverId),
@@ -706,7 +673,6 @@ function CreateFuelLogPage() {
 
       <FuelLogForm
         mode="create"
-        driverName={driverName}
         vehicleNumber={selectedVehicleLabel}
         vehicleId={vehicleId}
         vehicleOptions={vehicleOptions}
@@ -739,7 +705,6 @@ function FuelLogDetailPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const crud = useRouteCrudPermissions('/fuel/logs')
-  // const { apiRoleName } = useAccessControl()
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false)
   const [reviewAction, setReviewAction] = useState<FuelLogMtoReviewAction | null>(null)
   const [reviewRemarks, setReviewRemarks] = useState('')
@@ -759,10 +724,6 @@ function FuelLogDetailPage() {
   })
 
   const record = detailQuery.data
-  // const normalizedRole = apiRoleName?.trim().toLowerCase() ?? ''
-  // const isDriverRole = normalizedRole.includes('driver')
-
-  const displayDriverName = record?.driver || '—'
   const displayVehicleNumber = record ? formatFuelLogVehicleDisplay(record) : '—'
 
   const showBalanceAfterLog = record ? isFuelLogMtoReviewable(record.status) : false
@@ -965,7 +926,6 @@ function FuelLogDetailPage() {
 
       <FuelLogForm
         mode="detail"
-        driverName={displayDriverName}
         vehicleNumber={displayVehicleNumber}
         logDate={record.date}
         fuelLiters={String(record.liters)}

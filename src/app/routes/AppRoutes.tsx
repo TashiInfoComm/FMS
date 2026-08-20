@@ -61,6 +61,12 @@ import QuotaRequestDetailPage from '@/features/fuel/pages/QuotaRequestDetailPage
 import UpdateQuota from '@/features/fuel/pages/UpdateQuota'
 import FuelLog from '@/features/fuel/pages/FuelLog'
 import CreateFuelLog from '@/features/fuel/pages/CreateFuelLog'
+import FuelReports from '@/features/reports/pages/fuel/FuelReports'
+import EmergencyReports from '@/features/reports/pages/emergency/EmergencyReports'
+import VehicleLoanReports from '@/features/reports/pages/vehicleLoan/VehicleLoanReports'
+import VehicleReports from '@/features/reports/pages/vehicle/VehicleReports'
+import ParkingReports from '@/features/reports/pages/parking/ParkingReports'
+import MaintenanceReports from '@/features/reports/pages/maintenance/Maintenancereports'
 import ParkingLogs from '@/features/parking/pages/ParkingLogs'
 import ReimbursementClaims from '@/features/parking/pages/ReimbursementClaims'
 import ReimbursementClaimDetailPage from '@/features/parking/pages/ReimbursementClaimDetailPage'
@@ -110,11 +116,7 @@ export function AppRoutes() {
             path="/master/divisions/:divisionCode/sub-divisions"
             element={<SubDivisionListPage />}
           />
-          {/* <Route
-            path="/assign-driver"
-            element={<AssignVehiclePage />}
-          /> */}
-          // Master data routes
+          {/* Master data routes */}
           <Route path="/master/destination" element={<DestinationPage />} />
           <Route path="/master/dzongkhags" element={<DzongkhagListPage />} />
           <Route
@@ -138,7 +140,6 @@ export function AppRoutes() {
             path="/master/purpose-of-journey"
             element={<PurposeOfJourneyPage />}
           />
-         
           <Route path="/master/status" element={<VehicleStatusPage />} />
           <Route
             path="/master/vehicle-type-category"
@@ -154,7 +155,7 @@ export function AppRoutes() {
             path="/master/designated-type"
             element={<VehicleDesignatedTypePage />}
           />
-          // Vehicle routes
+          {/* Vehicle routes */}
           <Route path="/vehicle/list" element={<VehicleManagementPage />} />
           <Route path="/vehicle/list/:vehicleId/edit" element={<VehicleFormPage />} />
           <Route
@@ -183,9 +184,9 @@ export function AppRoutes() {
             path="/assign-driver/:assignmentId"
             element={<AssignVehicleDetailPage />}
           />
-          // designated vehicle routes
+          {/* Designated vehicle routes */}
           <Route path="/vehicle/designated-officials" element={<DesignatedVehicle />} />
-          // Admin Settings routes
+          {/* Admin settings routes */}
           <Route path="/admin/modules" element={<ModuleListPage />} />
           <Route path="/admin/modules/add" element={<ModuleFormPage />} />
           <Route path="/admin/modules/:id/edit" element={<ModuleFormPage />} />
@@ -197,12 +198,12 @@ export function AppRoutes() {
             path="/admin/role-permission"
             element={<RolePermissionManagement />}
           />
-          // User routes
+          {/* User routes */}
           <Route path="/users" element={<CreateUserListPage />} />
           <Route path="/users/add" element={<CreateUserFormPage />} />
           <Route path="/users/:userId/edit" element={<EditUserFormPage />} />
           <Route path="/users/:userId" element={<UserDetailPage />} />
-          // Trip routes
+          {/* Trip routes */}
           <Route path="/trip/requisition" element={<TripRequisition />} />
           <Route path="/trip/requisition/:tripId" element={<TripRequisitionDetailPage />} />
           <Route path="/trip/request" element={<TripRequest />} />
@@ -215,7 +216,7 @@ export function AppRoutes() {
             path="/trip/driver-feedback/:tripId/rate"
             element={<RateDriverPage />}
           />
-          // Fuel routes
+          {/* Fuel routes */}
           <Route path="/fuel/quota-configuration" element={<QuotaConfiguration />} />
           <Route path="/fuel/quota-request-list" element={<QuotaRequestList />} />
           <Route
@@ -229,21 +230,21 @@ export function AppRoutes() {
           <Route path="/fuel/update-quota" element={<UpdateQuota />} />
           <Route path="/fuel/logs" element={<FuelLog />} />
           <Route path="/fuel/logs/:logId" element={<CreateFuelLog />} />
-          <Route path="/fuel/create-fuel-log" element={<CreateFuelLog />} />  
-          // maintenance routes
+          <Route path="/fuel/create-fuel-log" element={<CreateFuelLog />} />
+          {/* Maintenance routes */}
           <Route path="/maintenance/work-orders" element={<WorkOrders />} />
           <Route path="/maintenance/work-orders/create" element={<CreateWorkOrder />} />
           <Route path="/maintenance/work-orders/:workOrderId" element={<WorkOrderDetail />} />
           <Route path="/maintenance/records" element={<ServiceRecord />} />
 
-          // Parking routes
+          {/* Parking routes */}
           <Route path="/parking/expense-log" element={<ParkingLogs />} />
           <Route path="/parking/reimbursement-claims" element={<ReimbursementClaims />} />
           <Route
             path="/parking/reimbursement-claims/:claimId"
             element={<ReimbursementClaimDetailPage />}
           />
-          // inter-agency vehicle loan routes
+          {/* Inter-agency vehicle loan routes */}
           <Route path="/vehicle-loan/requisition" element={<LoanRequisition />} />
           <Route path="/vehicle-loan/lending" element={<LoanLendingRequisition />} />
           <Route path="/vehicle-loan/approval" element={<LoanRequisitionApprovalList />} />
@@ -252,10 +253,9 @@ export function AppRoutes() {
           <Route path="/vehicle-loan/:loanId/dispatch" element={<DispatchVehicle />} />
           <Route path="/vehicle-loan/:loanId/return" element={<ReturnVehicle />} />
           <Route path="/vehicle-loan/:loanId" element={<LoanRequisitionDetail />} />
-          
-          // driver offence routes
+          {/* Driver offence routes */}
           <Route path="/offences" element={<DriverOffence />} />
-          // emergency dispatch routes
+          {/* Emergency dispatch routes */}
           <Route path="/emergency/broadcast" element={<EmergencyBroadcast />} />
           <Route
             path="/emergency/broadcast/create"
@@ -271,6 +271,13 @@ export function AppRoutes() {
             element={<VehicleDeployment />}
           />
           <Route path="/emergency/dispatched" element={<EmergencyDispatchedList />} />
+          {/* Reports routes */}
+          <Route path="/reports/fuel" element={<FuelReports />} />
+          <Route path="/reports/emergency" element={<EmergencyReports />} />
+          <Route path="/reports/vehicle-loan" element={<VehicleLoanReports />} />
+          <Route path="/reports/vehicle" element={<VehicleReports />} />
+          <Route path="/reports/parking" element={<ParkingReports />} />
+          <Route path="/reports/maintenance" element={<MaintenanceReports />} />
         </Route>
       </Routes>
     </BrowserRouter>

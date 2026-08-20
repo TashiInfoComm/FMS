@@ -6,11 +6,12 @@ import {
   CarFront,
   Info,
   MapPin,
+  Send,
   Truck,
   Users,
 } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
-import { Link, useLocation, useParams } from 'react-router-dom'
+import { useMemo, useState, type ReactNode } from 'react'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -23,14 +24,37 @@ import {
 } from '@/components/ui/dialog'
 import { EmergencyBroadcastStatusCell } from '@/features/emergency-vehicle/components/EmergencyBroadcastStatusCell'
 import { EmergencyLocationMapView } from '@/features/emergency-vehicle/components/EmergencyLocationMapView'
-import type { EmergencyIncidentDetail } from '@/features/emergency-vehicle/lib/emergency-broadcast-types'
+import type {
+  EmergencyIncidentAssignment,
+  EmergencyIncidentDetail,
+} from '@/features/emergency-vehicle/lib/emergency-broadcast-types'
 import {
+  canCancelOrCloseEmergencyIncident,
   fetchEmergencyIncidentById,
   formatEmergencyIncidentDateTime,
+  isEmergencyDeployFullyCovered,
 } from '@/features/emergency-vehicle/lib/emergency-incidents-api'
+import { mapUserDetailFields } from '@/features/user/lib/users-api'
 import { cn } from '@/lib/utils'
+import { useUserStore } from '@/services/user-store'
 import { ListPanelMessage } from '@/shared/components/MobileListCard'
 import { DetailFieldBoxSkeleton } from '@/shared/components/detail-loading'
+
+function resolveSessionAgency(user: Record<string, unknown> | null): {
+  id: string
+  name: string
+} {
+  if (!user) return { id: '', name: '' }
+  const id = String(
+    user.agency_id ?? user.agencyId ?? user.agencyID ?? '',
+  ).trim()
+  const detail = mapUserDetailFields(user)
+  const name =
+    detail.agency !== '-'
+      ? detail.agency.trim()
+      : String(user.agency_name ?? user.agencyName ?? '').trim()
+  return { id, name }
+}
 
 function MetricCard({
   icon,
@@ -125,6 +149,250 @@ function respondedPercent(detail: EmergencyIncidentDetail): string {
   return `${Math.round((detail.agenciesResponded / detail.agenciesNotified) * 100)}%`
 }
 
+function AssignmentDetailCard({
+  assignment,
+  index,
+  total,
+  status,
+  statusLabel,
+  fallbackDescription,
+}: {
+  assignment: EmergencyIncidentAssignment
+  index: number
+  total: number
+  status: EmergencyIncidentDetail['status']
+  statusLabel: string
+  fallbackDescription: string
+}) {
+  const [mapOpen, setMapOpen] = useState(false)
+  const hasCoordinates = assignment.latitude != null && assignment.longitude != null
+  const vehicleLabel =
+    assignment.vehicleTypes.map((type) => type.name).filter(Boolean).join(', ') || '—'
+  const notes = assignment.notes.trim() || fallbackDescription || '—'
+
+  return (
+    <>
+      <Card className="rounded-xl border border-[var(--fms-strokes)] bg-white shadow-sm">
+        <CardContent className="space-y-5 p-4 sm:p-5">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-sm font-semibold text-[var(--fms-text-header)]">
+              {total > 1
+                ? `Emergency Assistance Request ${index + 1}`
+                : 'Emergency Assistance Request Details'}
+            </h2>
+            {index === 0 ? (
+              <EmergencyBroadcastStatusCell status={status} statusLabel={statusLabel} />
+            ) : null}
+          </div>
+
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            <IncidentDetailItem
+              icon={<MapPin className="h-4 w-4" />}
+              iconClassName="bg-[#fee2e2] text-[#dc2626]"
+              label="Emergency Location"
+              value={assignment.location || '—'}
+              subvalue={
+                hasCoordinates
+                  ? `${assignment.latitude!.toFixed(5)}, ${assignment.longitude!.toFixed(5)}`
+                  : undefined
+              }
+              onIconClick={hasCoordinates ? () => setMapOpen(true) : undefined}
+              iconAriaLabel={`View ${assignment.location} on map`}
+            />
+            <IncidentDetailItem
+              icon={<CarFront className="h-4 w-4" />}
+              iconClassName="bg-[#dbeafe] text-[#2563eb]"
+              label="Vehicle Type Required"
+              value={vehicleLabel}
+            />
+            <IncidentDetailItem
+              icon={<CalendarDays className="h-4 w-4" />}
+              iconClassName="bg-[#dbeafe] text-[#2563eb]"
+              label="Start Date and Time"
+              value={formatEmergencyIncidentDateTime(assignment.startDate)}
+            />
+            <IncidentDetailItem
+              icon={<CalendarDays className="h-4 w-4" />}
+              iconClassName="bg-[#dbeafe] text-[#2563eb]"
+              label="End Date and Time"
+              value={formatEmergencyIncidentDateTime(assignment.endDate)}
+            />
+          </div>
+
+          <div className="rounded-lg border border-[var(--fms-strokes)] bg-[#fafafa] px-4 py-3">
+            <p className="text-xs font-medium text-[var(--fms-text-subheading)]">
+              Agencies
+            </p>
+            {assignment.agencies.length > 0 ? (
+              <ul className="mt-3 space-y-4">
+                {assignment.agencies.map((agency) => {
+                  const broadcasts = (
+                    Array.isArray(agency.broadcasts) ? agency.broadcasts : []
+                  ).filter((broadcast) => broadcast.declinedVehicleTypesCount > 0)
+                  const deployments = Array.isArray(agency.deployments)
+                    ? agency.deployments
+                    : []
+                  const showBroadcasts = broadcasts.length > 0
+                  const showDeployments = deployments.length > 0
+                  return (
+                    <li key={agency.id} className="space-y-3">
+                      <div className="flex items-start gap-2">
+                        <Building2
+                          className="mt-0.5 h-4 w-4 shrink-0 text-[var(--fms-text-subheading)]"
+                          aria-hidden
+                        />
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-[var(--fms-text-header)]">
+                            {agency.agencyName}
+                          </p>
+                          {agency.agencyCode ? (
+                            <p className="text-xs text-[var(--fms-text-subheading)]">
+                              {agency.agencyCode}
+                            </p>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      {showBroadcasts ? (
+                        <div className="ml-6 space-y-2">
+                          <p className="text-xs font-semibold tracking-wide text-[var(--fms-text-header)] uppercase">
+                            Broadcast
+                          </p>
+                          <div className="overflow-x-auto rounded-lg border border-[var(--fms-strokes)] bg-white">
+                            <table className="w-max min-w-full text-sm">
+                              <thead className="bg-[#f6f6f7] text-[var(--fms-text-subheading)]">
+                                <tr>
+                                  <th className="px-3 py-2 text-left text-xs font-semibold tracking-wide uppercase">
+                                    Declined Vehicle Types
+                                  </th>
+                                  <th className="px-3 py-2 text-left text-xs font-semibold tracking-wide uppercase">
+                                    Response
+                                  </th>
+                                  <th className="px-3 py-2 text-left text-xs font-semibold tracking-wide uppercase">
+                                    Vehicles Offered
+                                  </th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {broadcasts.map((broadcast) => (
+                                  <tr
+                                    key={broadcast.id}
+                                    className="border-t border-[var(--fms-strokes)]"
+                                  >
+                                    <td className="px-3 py-2 text-[var(--fms-text-header)]">
+                                      {broadcast.declinedVehicleTypesLabel}
+                                    </td>
+                                    <td className="px-3 py-2">
+                                      <span className="inline-flex rounded-full bg-[#dbeafe] px-2.5 py-1 text-xs font-medium text-[#1d4ed8]">
+                                        {broadcast.response}
+                                      </span>
+                                    </td>
+                                    <td className="px-3 py-2 text-[var(--fms-text-header)]">
+                                      {broadcast.vehiclesOfferedLabel}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {showDeployments ? (
+                        <div className="ml-6 space-y-2">
+                          <p className="text-xs font-semibold tracking-wide text-[var(--fms-text-header)] uppercase">
+                            Deployment
+                          </p>
+                          <div className="overflow-x-auto rounded-lg border border-[var(--fms-strokes)] bg-white">
+                            <table className="w-max min-w-full text-sm">
+                              <thead className="bg-[#f6f6f7] text-[var(--fms-text-subheading)]">
+                                <tr>
+                                  <th className="px-3 py-2 text-left text-xs font-semibold tracking-wide uppercase">
+                                    Vehicle
+                                  </th>
+                                  <th className="px-3 py-2 text-left text-xs font-semibold tracking-wide uppercase">
+                                    Vehicle Type
+                                  </th>
+                                  <th className="px-3 py-2 text-left text-xs font-semibold tracking-wide uppercase">
+                                    Deployed At
+                                  </th>
+                                  <th className="px-3 py-2 text-left text-xs font-semibold tracking-wide uppercase">
+                                    Deployed By
+                                  </th>
+                                  <th className="px-3 py-2 text-left text-xs font-semibold tracking-wide uppercase">
+                                    Status
+                                  </th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {deployments.map((deployment) => (
+                                  <tr
+                                    key={deployment.id}
+                                    className="border-t border-[var(--fms-strokes)]"
+                                  >
+                                    <td className="px-3 py-2 font-medium text-[var(--fms-text-header)]">
+                                      {deployment.vehiclesOfferedLabel}
+                                    </td>
+                                    <td className="px-3 py-2 text-[var(--fms-text-header)]">
+                                      {deployment.vehicleTypeName}
+                                    </td>
+                                    <td className="px-3 py-2 text-[var(--fms-text-header)]">
+                                      {deployment.deploymentDateTimeLabel}
+                                    </td>
+                                    <td className="px-3 py-2 text-[var(--fms-text-header)]">
+                                      {deployment.deployedByName || '—'}
+                                    </td>
+                                    <td className="px-3 py-2">
+                                      <span className="inline-flex rounded-full bg-[#d0fae5] px-2.5 py-1 text-xs font-medium text-[#007a55]">
+                                        {deployment.statusLabel}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      ) : null}
+                    </li>
+                  )
+                })}
+              </ul>
+            ) : (
+              <p className="mt-1 text-sm text-[var(--fms-text-header)]">—</p>
+            )}
+          </div>
+
+          <div className="rounded-lg border border-[var(--fms-strokes)] bg-[#fafafa] px-4 py-3">
+            <p className="text-xs font-medium text-[var(--fms-text-subheading)]">
+              Incident Description
+            </p>
+            <p className="mt-1 text-sm text-[var(--fms-text-header)]">{notes}</p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Dialog open={mapOpen} onOpenChange={setMapOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Emergency Location</DialogTitle>
+            <DialogDescription>
+              {assignment.location || 'Incident coordinates on the map'}
+            </DialogDescription>
+          </DialogHeader>
+          {hasCoordinates ? (
+            <EmergencyLocationMapView
+              latitude={assignment.latitude!}
+              longitude={assignment.longitude!}
+              label={assignment.location}
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
+
 function EmergencyBroadcastDetailContent({
   detail,
   showBroadcastSummary,
@@ -132,15 +400,22 @@ function EmergencyBroadcastDetailContent({
   detail: EmergencyIncidentDetail
   showBroadcastSummary: boolean
 }) {
-  const [mapOpen, setMapOpen] = useState(false)
-  const broadcastsWithDeclines = detail.broadcasts.filter(
-    (broadcast) => broadcast.declinedVehicleTypesCount > 0,
-  )
-  const showDeployments = detail.deployments.length > 0
-  const showBroadcasts = broadcastsWithDeclines.length > 0
-  const requestTime = formatEmergencyIncidentDateTime(detail.startDate || detail.initiatedAt)
-  const endTime = formatEmergencyIncidentDateTime(detail.endDate)
-  const hasCoordinates = detail.latitude != null && detail.longitude != null
+  const assignments =
+    detail.assignments.length > 0
+      ? detail.assignments
+      : [
+          {
+            id: detail.id,
+            location: detail.location,
+            latitude: detail.latitude,
+            longitude: detail.longitude,
+            startDate: detail.startDate,
+            endDate: detail.endDate,
+            notes: detail.description,
+            vehicleTypes: detail.vehicleTypes,
+            agencies: [],
+          } satisfies EmergencyIncidentAssignment,
+        ]
 
   return (
     <div className="space-y-5">
@@ -199,217 +474,52 @@ function EmergencyBroadcastDetailContent({
         </>
       ) : null}
 
-      <Card className="rounded-xl border border-[var(--fms-strokes)] bg-white shadow-sm">
-        <CardContent className="space-y-5 p-4 sm:p-5">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-sm font-semibold text-[var(--fms-text-header)]">
-              Emergency Assistance Request Details
-            </h2>
-            <EmergencyBroadcastStatusCell
-              status={detail.status}
-              statusLabel={detail.statusLabel}
-            />
-          </div>
-
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-            <IncidentDetailItem
-              icon={<MapPin className="h-4 w-4" />}
-              iconClassName="bg-[#fee2e2] text-[#dc2626]"
-              label="Emergency Location"
-              value={detail.location || '—'}
-              subvalue={
-                hasCoordinates
-                  ? `${detail.latitude!.toFixed(5)}, ${detail.longitude!.toFixed(5)}`
-                  : undefined
-              }
-              onIconClick={hasCoordinates ? () => setMapOpen(true) : undefined}
-              iconAriaLabel="View emergency location on map"
-            />
-            <IncidentDetailItem
-              icon={<CarFront className="h-4 w-4" />}
-              iconClassName="bg-[#dbeafe] text-[#2563eb]"
-              label="Vehicle Type Required"
-              value={detail.vehicleCategory || '—'}
-            />
-            <IncidentDetailItem
-              icon={<CalendarDays className="h-4 w-4" />}
-              iconClassName="bg-[#dbeafe] text-[#2563eb]"
-              label="Start Date and Time"
-              value={requestTime}
-              subvalue={
-                detail.timeoutMinutes != null
-                  ? `Response window: ${detail.timeLabel}`
-                  : detail.initiatedByName
-                    ? `Initiated by ${detail.initiatedByName}`
-                    : undefined
-              }
-            />
-            <IncidentDetailItem
-              icon={<CalendarDays className="h-4 w-4" />}
-              iconClassName="bg-[#dbeafe] text-[#2563eb]"
-              label="End Date and Time"
-              value={endTime}
-            />
-          </div>
-
-          <div className="rounded-lg border border-[var(--fms-strokes)] bg-[#fafafa] px-4 py-3">
+      {detail.description.trim() && detail.assignments.length > 1 ? (
+        <Card className="rounded-xl border border-[var(--fms-strokes)] bg-white shadow-sm">
+          <CardContent className="p-4 sm:p-5">
             <p className="text-xs font-medium text-[var(--fms-text-subheading)]">
-              Incident Description
+              Description
             </p>
             <p className="mt-1 text-sm text-[var(--fms-text-header)]">
-              {detail.description || '—'}
+              {detail.description}
             </p>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Dialog open={mapOpen} onOpenChange={setMapOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Emergency Location</DialogTitle>
-            <DialogDescription>
-              {detail.location || 'Incident coordinates on the map'}
-            </DialogDescription>
-          </DialogHeader>
-          {hasCoordinates ? (
-            <EmergencyLocationMapView
-              latitude={detail.latitude!}
-              longitude={detail.longitude!}
-              label={detail.location}
-            />
-          ) : null}
-        </DialogContent>
-      </Dialog>
-
-      {showBroadcasts ? (
-        <Card className="rounded-xl border border-[var(--fms-strokes)] bg-white shadow-sm">
-          <CardContent className="space-y-4 p-4 sm:p-5">
-            <h2 className="text-sm font-semibold text-[var(--fms-text-header)]">
-              Broadcasts
-            </h2>
-            <div className="overflow-x-auto rounded-lg border border-[var(--fms-strokes)]">
-              <table className="w-max min-w-full text-sm">
-                <thead className="bg-[#f6f6f7] text-[var(--fms-text-subheading)]">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-semibold tracking-wide uppercase">
-                      Agency
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold tracking-wide uppercase">
-                      Declined Vehicle Types
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold tracking-wide uppercase">
-                      Response
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {broadcastsWithDeclines.map((broadcast) => (
-                    <tr
-                      key={broadcast.id}
-                      className="border-t border-[var(--fms-strokes)] hover:bg-[#fafafa]"
-                    >
-                      <td className="px-4 py-3">
-                        <p className="font-semibold text-[var(--fms-text-header)]">
-                          {broadcast.agencyName}
-                        </p>
-                        {broadcast.agencyCode ? (
-                          <p className="text-xs text-[var(--fms-text-subheading)]">
-                            {broadcast.agencyCode}
-                          </p>
-                        ) : null}
-                      </td>
-                      <td className="px-4 py-3 text-[var(--fms-text-header)]">
-                        {broadcast.declinedVehicleTypesLabel}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="inline-flex rounded-full bg-[#dbeafe] px-2.5 py-1 text-xs font-medium text-[#1d4ed8]">
-                          {broadcast.response}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
           </CardContent>
         </Card>
       ) : null}
 
-      {showDeployments ? (
-        <Card className="rounded-xl border border-[var(--fms-strokes)] bg-white shadow-sm">
-          <CardContent className="space-y-4 p-4 sm:p-5">
-            <h2 className="text-sm font-semibold text-[var(--fms-text-header)]">
-              Deployments
-            </h2>
-            <div className="overflow-x-auto rounded-lg border border-[var(--fms-strokes)]">
-              <table className="w-max min-w-full text-sm">
-                <thead className="bg-[#f6f6f7] text-[var(--fms-text-subheading)]">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-semibold tracking-wide uppercase">
-                      Agency
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold tracking-wide uppercase">
-                      Vehicles Offered
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold tracking-wide uppercase">
-                      Vehicle Type
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold tracking-wide uppercase">
-                      Deployment Date and Time
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold tracking-wide uppercase">
-                      Status
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {detail.deployments.map((deployment) => (
-                    <tr
-                      key={deployment.id}
-                      className="border-t border-[var(--fms-strokes)] hover:bg-[#fafafa]"
-                    >
-                      <td className="px-4 py-3">
-                        <p className="font-semibold text-[var(--fms-text-header)]">
-                          {deployment.agencyName}
-                        </p>
-                        {deployment.agencyCode ? (
-                          <p className="text-xs text-[var(--fms-text-subheading)]">
-                            {deployment.agencyCode}
-                          </p>
-                        ) : null}
-                      </td>
-                      <td className="px-4 py-3 text-[var(--fms-text-header)]">
-                        {deployment.vehiclesOfferedLabel}
-                      </td>
-                      <td className="px-4 py-3 text-[var(--fms-text-header)]">
-                        {deployment.vehicleTypeName}
-                      </td>
-                      <td className="px-4 py-3 text-[var(--fms-text-header)]">
-                        {deployment.deploymentDateTimeLabel}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="inline-flex rounded-full bg-[#d0fae5] px-2.5 py-1 text-xs font-medium text-[#007a55]">
-                          {deployment.statusLabel}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
-      ) : null}
+      {assignments.map((assignment, index) => (
+        <AssignmentDetailCard
+          key={assignment.id}
+          assignment={assignment}
+          index={index}
+          total={assignments.length}
+          status={detail.status}
+          statusLabel={detail.statusLabel}
+          fallbackDescription={detail.description}
+        />
+      ))}
     </div>
   )
 }
 
 function EmergencyBroadcastDetail() {
+  const navigate = useNavigate()
   const { incidentId = '' } = useParams<{ incidentId: string }>()
   const location = useLocation()
+  const user = useUserStore((state) => state.user)
+  const sessionAgency = useMemo(
+    () =>
+      resolveSessionAgency(
+        user && typeof user === 'object' && !Array.isArray(user)
+          ? (user as Record<string, unknown>)
+          : null,
+      ),
+    [user],
+  )
   const backPath =
     (location.state as { backPath?: string } | null)?.backPath ?? '/emergency/broadcast'
   const showBroadcastSummary = backPath === '/emergency/broadcast'
+  const showDeployAction = backPath === '/emergency/request'
   const resolvedId = decodeURIComponent(incidentId).trim()
 
   const detailQuery = useQuery({
@@ -421,6 +531,16 @@ function EmergencyBroadcastDetail() {
   })
 
   const detail = detailQuery.data
+  const canDeploy =
+    detail != null && canCancelOrCloseEmergencyIncident(detail.status)
+  const deployFullyCovered =
+    detail != null &&
+    isEmergencyDeployFullyCovered(detail, {
+      id: sessionAgency.id,
+      name: sessionAgency.name,
+    })
+  const showDeployButton =
+    showDeployAction && detail != null && !deployFullyCovered
 
   return (
     <section className="space-y-5">
@@ -431,11 +551,26 @@ function EmergencyBroadcastDetail() {
             Back
           </Link>
         </Button>
-        <h1 className="text-xl font-semibold text-[var(--fms-text-header)] sm:text-2xl">
-          {detail
-            ? `Emergency Request ${detail.requestId}`
-            : 'Emergency Request Detail'}
-        </h1>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h1 className="text-xl font-semibold text-[var(--fms-text-header)] sm:text-2xl">
+            {detail
+              ? `Emergency Request ${detail.requestId}`
+              : 'Emergency Request Detail'}
+          </h1>
+          {showDeployButton ? (
+            <Button
+              type="button"
+              className="w-full bg-[var(--fms-button)] text-white hover:bg-[var(--fms-button-hover)] sm:w-auto"
+              disabled={!canDeploy}
+              onClick={() =>
+                navigate(`/emergency/request/${encodeURIComponent(detail.id)}/deploy`)
+              }
+            >
+              <Send className="mr-1 h-4 w-4" />
+              Deploy Vehicle
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       {detailQuery.isLoading ? (

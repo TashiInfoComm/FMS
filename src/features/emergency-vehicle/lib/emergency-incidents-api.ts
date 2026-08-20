@@ -3,10 +3,12 @@ import { extractMasterList } from '@/shared/lib/organogram-master-lookup'
 import { applyPagination } from '@/shared/utils/pagination'
 import type {
   CreateEmergencyIncidentPayload,
+  EmergencyAgencyAssignmentPayload,
   EmergencyAvailableVehicle,
   EmergencyBroadcastRow,
   EmergencyBroadcastStatus,
-  EmergencyIncidentAgencyPayload,
+  EmergencyIncidentAssignment,
+  EmergencyIncidentAssignmentAgency,
   EmergencyIncidentBroadcastItem,
   EmergencyIncidentDeploymentItem,
   EmergencyIncidentDetail,
@@ -92,9 +94,9 @@ export function localDatetimeToIso(value: string): string | null {
   return date.toISOString()
 }
 
-function buildAgencyEntryFromIncident(
+function buildAgencyAssignmentFromIncident(
   incident: EmergencyIncidentRow,
-): EmergencyIncidentAgencyPayload {
+): EmergencyAgencyAssignmentPayload {
   const startDate = localDatetimeToIso(incident.startDatetime)
   if (!startDate) {
     throw new Error('Start date and time is required for each incident.')
@@ -102,8 +104,9 @@ function buildAgencyEntryFromIncident(
   if (incident.latitude == null || incident.longitude == null) {
     throw new Error('Latitude and longitude are required for each incident.')
   }
-  if (!incident.agencyId.trim()) {
-    throw new Error('Select an agency for each incident.')
+  const agencyIds = incident.agencyIds.map((id) => id.trim()).filter(Boolean)
+  if (agencyIds.length === 0) {
+    throw new Error('Select at least one agency for each incident.')
   }
   if (incident.vehicleTypeIds.length === 0) {
     throw new Error('Select at least one vehicle type for each incident.')
@@ -116,14 +119,14 @@ function buildAgencyEntryFromIncident(
   }
 
   const endDate = localDatetimeToIso(incident.endDatetime)
-  const entry: EmergencyIncidentAgencyPayload = {
-    agency_id: incident.agencyId.trim(),
+  const entry: EmergencyAgencyAssignmentPayload = {
     incident_location: incident.location.trim(),
     latitude: incident.latitude,
     longitude: incident.longitude,
-    vehicle_type_required: [...incident.vehicleTypeIds],
-    incident_description: incident.description.trim(),
     start_date: startDate,
+    notes: incident.description.trim(),
+    vehicle_type_ids: [...incident.vehicleTypeIds],
+    agencies: agencyIds.map((agency_id) => ({ agency_id })),
   }
   if (endDate) {
     entry.end_date = endDate
@@ -138,9 +141,19 @@ export function buildCreateEmergencyIncidentPayload(
     throw new Error('Add at least one incident.')
   }
 
+  const agency_assignments = form.incidents.map((incident) =>
+    buildAgencyAssignmentFromIncident(incident),
+  )
+  const description =
+    form.incidents.map((incident) => incident.description.trim()).find(Boolean) ?? ''
+  if (!description) {
+    throw new Error('Incident description is required.')
+  }
+
   return {
-    agencies: form.incidents.map((incident) => buildAgencyEntryFromIncident(incident)),
+    description,
     broadcast_immediately: form.broadcastImmediately,
+    agency_assignments,
   }
 }
 
@@ -271,6 +284,9 @@ function collectVehicleTypeLabels(record: ApiRecord): string {
 }
 
 function mapAgencyLabel(record: ApiRecord): string {
+  const agencyCount = toFiniteNumber(record.agency_count ?? record.agencyCount)
+  if (agencyCount != null) return String(agencyCount)
+
   const name = pickText(record, ['agency_name', 'agencyName', 'agency'])
   if (name) return name
 
@@ -439,22 +455,57 @@ function formatIsoDisplay(value: string): string {
 
 function countRespondedBroadcasts(broadcasts: EmergencyIncidentBroadcastItem[]): number {
   return broadcasts.filter((item) => {
+    if (item.declinedVehicleTypesCount > 0) return true
     const status = `${item.response} ${item.statusLabel}`.toUpperCase()
     return (
-      Boolean(item.respondedAt) ||
-      status.includes('RESPOND') ||
-      status.includes('OFFER') ||
+      status.includes('DECLIN') ||
       status.includes('DEPLOY') ||
-      status.includes('ACK') ||
-      status.includes('ESCALAT') ||
-      status.includes('DECLIN')
+      status.includes('OFFER')
     )
   }).length
 }
 
-function mapBroadcastItems(record: ApiRecord): EmergencyIncidentBroadcastItem[] {
-  const list = record.broadcasts
-  if (!Array.isArray(list)) return []
+/** Agencies that deployed vehicles or declined at least one vehicle type. */
+function countRespondedAgencies(
+  assignments: EmergencyIncidentAssignment[],
+  deployments: EmergencyIncidentDeploymentItem[],
+  broadcasts: EmergencyIncidentBroadcastItem[],
+): number {
+  const responded = new Set<string>()
+
+  for (const assignment of assignments) {
+    for (const agency of assignment.agencies) {
+      const hasDeployments = agency.deployments.length > 0
+      const hasDeclines = agency.broadcasts.some(
+        (broadcast) => broadcast.declinedVehicleTypesCount > 0,
+      )
+      if (hasDeployments || hasDeclines) {
+        responded.add(agency.agencyId || agency.id)
+      }
+    }
+  }
+
+  if (responded.size > 0) return responded.size
+
+  for (const deployment of deployments) {
+    const key = deployment.agencyName.trim().toLowerCase()
+    if (key && key !== '—') responded.add(`deployment:${key}`)
+  }
+  for (const broadcast of broadcasts) {
+    if (broadcast.declinedVehicleTypesCount <= 0) continue
+    const key = broadcast.agencyName.trim().toLowerCase()
+    if (key && key !== '—') responded.add(`broadcast:${key}`)
+  }
+
+  return responded.size > 0 ? responded.size : countRespondedBroadcasts(broadcasts)
+}
+
+function mapBroadcastList(
+  list: unknown,
+  fallbackAgencyName = '',
+  fallbackAgencyCode = '',
+): EmergencyIncidentBroadcastItem[] {
+  if (!Array.isArray(list) || list.length === 0) return []
   return list
     .map((item, index): EmergencyIncidentBroadcastItem | null => {
       const nested = nestedRecord(item)
@@ -494,8 +545,13 @@ function mapBroadcastItems(record: ApiRecord): EmergencyIncidentBroadcastItem[] 
         '—'
       return {
         id,
-        agencyName: pickText(nested, ['agency_name', 'agencyName', 'name']) || '—',
-        agencyCode: pickText(nested, ['agency_code', 'agencyCode', 'code']),
+        agencyName:
+          pickText(nested, ['agency_name', 'agencyName', 'name']) ||
+          fallbackAgencyName ||
+          '—',
+        agencyCode:
+          pickText(nested, ['agency_code', 'agencyCode', 'code']) ||
+          fallbackAgencyCode,
         response,
         declinedVehicleTypesLabel: declinedTypes || '—',
         declinedVehicleTypesCount: declinedTypeNames.length,
@@ -516,15 +572,78 @@ function mapBroadcastItems(record: ApiRecord): EmergencyIncidentBroadcastItem[] 
     .filter((item): item is EmergencyIncidentBroadcastItem => item !== null)
 }
 
-function mapDeploymentItems(record: ApiRecord): EmergencyIncidentDeploymentItem[] {
-  const list = record.deployments
+function collectIncidentBroadcasts(record: ApiRecord): EmergencyIncidentBroadcastItem[] {
+  const fromTopLevel = mapBroadcastList(record.broadcasts)
+  const assignmentList = record.agency_assignments ?? record.agencyAssignments
+  const fromAssignments = Array.isArray(assignmentList)
+    ? assignmentList.flatMap((item) => {
+        const nested = nestedRecord(item)
+        if (!nested) return []
+        const agencyName =
+          pickText(nested, ['agency_name', 'agencyName', 'name']) || ''
+        const agencyCode = pickText(nested, ['agency_code', 'agencyCode', 'code'])
+        const fromAssignment = mapBroadcastList(
+          nested.broadcasts,
+          agencyName,
+          agencyCode,
+        )
+        const nestedAgencies = nested.agencies
+        const fromAgencies = Array.isArray(nestedAgencies)
+          ? nestedAgencies.flatMap((agencyItem) => {
+              const agency = nestedRecord(agencyItem)
+              if (!agency) return []
+              return mapBroadcastList(
+                agency.broadcasts,
+                pickText(agency, ['agency_name', 'agencyName', 'name']) || agencyName,
+                pickText(agency, ['agency_code', 'agencyCode', 'code']) || agencyCode,
+              )
+            })
+          : []
+        return [...fromAssignment, ...fromAgencies]
+      })
+    : []
+
+  const byId = new Map<string, EmergencyIncidentBroadcastItem>()
+  for (const broadcast of [...fromTopLevel, ...fromAssignments]) {
+    if (!byId.has(broadcast.id)) byId.set(broadcast.id, broadcast)
+  }
+  return [...byId.values()]
+}
+
+function mapVehicleTypesFromList(list: unknown): EmergencyIncidentVehicleType[] {
   if (!Array.isArray(list)) return []
+  return list
+    .map((item): EmergencyIncidentVehicleType | null => {
+      if (typeof item === 'string' && item.trim()) {
+        return { id: item.trim(), code: '', name: item.trim() }
+      }
+      const nested = nestedRecord(item)
+      if (!nested) return null
+      const id = pickText(nested, ['id', 'vehicle_type_id', 'vehicleTypeId'])
+      if (!id) return null
+      return {
+        id,
+        code: pickText(nested, ['code']),
+        name: pickText(nested, ['name', 'label']) || pickText(nested, ['code']) || id,
+      }
+    })
+    .filter((item): item is EmergencyIncidentVehicleType => item !== null)
+}
+
+function mapDeploymentList(
+  list: unknown,
+  fallbackAgencyName = '',
+  fallbackAgencyCode = '',
+  fallbackAgencyId = '',
+): EmergencyIncidentDeploymentItem[] {
+  if (!Array.isArray(list) || list.length === 0) return []
   return list
     .map((item, index): EmergencyIncidentDeploymentItem | null => {
       const nested = nestedRecord(item)
       if (!nested) return null
       const id =
-        pickText(nested, ['id', 'deployment_id', 'deploymentId']) || `deployment-${index + 1}`
+        pickText(nested, ['id', 'deployment_id', 'deploymentId']) ||
+        `deployment-${index + 1}`
       const vehicle =
         pickText(nested, [
           'vehicle_registration',
@@ -543,6 +662,10 @@ function mapDeploymentItems(record: ApiRecord): EmergencyIncidentDeploymentItem[
           'vehicle_category',
           'vehicleCategory',
         ]) || ''
+      const vehicleTypeId = pickText(nested, [
+        'vehicle_type_id',
+        'vehicleTypeId',
+      ])
       const vehiclesOffered =
         toFiniteNumber(
           nested.vehicles_offered ??
@@ -561,23 +684,172 @@ function mapDeploymentItems(record: ApiRecord): EmergencyIncidentDeploymentItem[
         ]) || undefined
       return {
         id,
+        agencyId:
+          pickText(nested, ['agency_id', 'agencyId']) || fallbackAgencyId || undefined,
         agencyName:
-          pickText(nested, ['agency_name', 'agencyName', 'name']) || '—',
-        agencyCode: pickText(nested, ['agency_code', 'agencyCode', 'code']),
+          pickText(nested, ['agency_name', 'agencyName', 'name']) ||
+          fallbackAgencyName ||
+          '—',
+        agencyCode:
+          pickText(nested, ['agency_code', 'agencyCode', 'code']) ||
+          fallbackAgencyCode,
         vehiclesOfferedLabel:
           vehiclesOffered != null
             ? `${vehiclesOffered}${vehicleType ? ` ${vehicleType}` : ''}`
             : vehicle !== '—'
               ? vehicle
               : vehicleType || '—',
+        vehicleTypeId: vehicleTypeId || undefined,
         vehicleTypeName: vehicleType || '—',
         deploymentDateTimeLabel: deployedAt ? formatIsoDisplay(deployedAt) : '—',
         statusLabel:
           pickText(nested, ['status_label', 'statusLabel', 'status']) || '—',
         deployedAt,
+        deployedByName:
+          pickText(nested, [
+            'deployed_by_name',
+            'deployedByName',
+            'deployed_by',
+            'deployedBy',
+          ]) || undefined,
       }
     })
     .filter((item): item is EmergencyIncidentDeploymentItem => item !== null)
+}
+
+function mapAssignmentAgencies(list: unknown): EmergencyIncidentAssignmentAgency[] {
+  if (!Array.isArray(list)) return []
+  return list
+    .map((item, index): EmergencyIncidentAssignmentAgency | null => {
+      const nested = nestedRecord(item)
+      if (!nested) return null
+      const agencyId = pickText(nested, ['agency_id', 'agencyId', 'id'])
+      if (!agencyId) return null
+      const agencyName =
+        pickText(nested, ['agency_name', 'agencyName', 'name']) || '—'
+      const agencyCode = pickText(nested, ['agency_code', 'agencyCode', 'code'])
+      return {
+        id: pickText(nested, ['id']) || `agency-${agencyId}-${index + 1}`,
+        agencyId,
+        agencyName,
+        agencyCode,
+        broadcasts: mapBroadcastList(
+          nested.broadcasts,
+          agencyName,
+          agencyCode,
+        ),
+        deployments: mapDeploymentList(
+          nested.deployments,
+          agencyName,
+          agencyCode,
+          agencyId,
+        ),
+      }
+    })
+    .filter((item): item is EmergencyIncidentAssignmentAgency => item !== null)
+}
+
+function mapAgencyAssignments(record: ApiRecord): EmergencyIncidentAssignment[] {
+  const list = record.agency_assignments ?? record.agencyAssignments
+  if (!Array.isArray(list)) return []
+  return list
+    .map((item, index): EmergencyIncidentAssignment | null => {
+      const nested = nestedRecord(item)
+      if (!nested) return null
+      const id =
+        pickText(nested, ['id', 'assignment_id', 'assignmentId']) ||
+        `assignment-${index + 1}`
+      const vehicleTypes = mapVehicleTypesFromList(
+        nested.vehicle_types ?? nested.vehicleTypes,
+      )
+      const vehicleTypeIds = Array.isArray(nested.vehicle_type_ids)
+        ? nested.vehicle_type_ids
+        : Array.isArray(nested.vehicleTypeIds)
+          ? nested.vehicleTypeIds
+          : []
+      const resolvedVehicleTypes =
+        vehicleTypes.length > 0
+          ? vehicleTypes
+          : vehicleTypeIds
+              .map((value) => {
+                const idValue =
+                  typeof value === 'string' ? value.trim() : String(value ?? '').trim()
+                if (!idValue) return null
+                return { id: idValue, code: '', name: idValue }
+              })
+              .filter((entry): entry is EmergencyIncidentVehicleType => entry !== null)
+
+      const nestedAgencies = mapAssignmentAgencies(nested.agencies)
+      const selfAgencyId = pickText(nested, ['agency_id', 'agencyId'])
+      const selfAgencyName =
+        pickText(nested, ['agency_name', 'agencyName']) || '—'
+      const selfAgencyCode = pickText(nested, [
+        'agency_code',
+        'agencyCode',
+        'code',
+      ])
+      const selfBroadcasts = mapBroadcastList(
+        nested.broadcasts,
+        selfAgencyName,
+        selfAgencyCode,
+      )
+      const selfDeployments = mapDeploymentList(
+        nested.deployments,
+        selfAgencyName,
+        selfAgencyCode,
+        selfAgencyId,
+      )
+      const agencies =
+        nestedAgencies.length > 0
+          ? nestedAgencies
+          : selfAgencyId
+            ? [
+                {
+                  id: pickText(nested, ['id']) || selfAgencyId,
+                  agencyId: selfAgencyId,
+                  agencyName: selfAgencyName,
+                  agencyCode: selfAgencyCode,
+                  broadcasts: selfBroadcasts,
+                  deployments: selfDeployments,
+                },
+              ]
+            : []
+
+      const location = pickText(nested, [
+        'incident_location',
+        'incidentLocation',
+        'location',
+      ])
+      if (!location && agencies.length === 0) return null
+
+      return {
+        id,
+        location: location || '—',
+        latitude: toFiniteNumber(nested.latitude) ?? null,
+        longitude: toFiniteNumber(nested.longitude) ?? null,
+        startDate: pickText(nested, ['start_date', 'startDate']),
+        endDate: pickText(nested, ['end_date', 'endDate']),
+        notes: pickText(nested, ['notes', 'description', 'incident_description']),
+        vehicleTypes: resolvedVehicleTypes,
+        agencies,
+      }
+    })
+    .filter((item): item is EmergencyIncidentAssignment => item !== null)
+}
+
+function collectIncidentDeployments(
+  record: ApiRecord,
+  assignments: EmergencyIncidentAssignment[],
+): EmergencyIncidentDeploymentItem[] {
+  const fromTopLevel = mapDeploymentList(record.deployments)
+  const fromAssignments = assignments.flatMap((assignment) =>
+    assignment.agencies.flatMap((agency) => agency.deployments),
+  )
+  const byId = new Map<string, EmergencyIncidentDeploymentItem>()
+  for (const deployment of [...fromTopLevel, ...fromAssignments]) {
+    if (!byId.has(deployment.id)) byId.set(deployment.id, deployment)
+  }
+  return [...byId.values()]
 }
 
 export function mapEmergencyIncidentDetail(
@@ -589,18 +861,29 @@ export function mapEmergencyIncidentDetail(
   const timeoutMinutes = toFiniteNumber(
     record.timeout_minutes ?? record.timeoutMinutes,
   )
-  const broadcasts = mapBroadcastItems(record)
-  const deployments = mapDeploymentItems(record)
+  const broadcasts = collectIncidentBroadcasts(record)
+  const assignments = mapAgencyAssignments(record)
+  const deployments = collectIncidentDeployments(record, assignments)
+  const assignmentAgencyCount = new Set(
+    assignments.flatMap((assignment) =>
+      assignment.agencies.map((agency) => agency.agencyId),
+    ),
+  ).size
   const agenciesNotified =
     toFiniteNumber(
-      record.agencies_notified ??
+      record.agency_count ??
+        record.agencyCount ??
+        record.agencies_notified ??
         record.agenciesNotified ??
         record.total_agencies_notified,
-    ) ?? broadcasts.length
-  const agenciesResponded =
-    toFiniteNumber(
-      record.agencies_responded ?? record.agenciesResponded,
-    ) ?? countRespondedBroadcasts(broadcasts)
+    ) ?? (assignmentAgencyCount > 0 ? assignmentAgencyCount : broadcasts.length)
+  // Derive from assignment data: only count agencies that deployed or declined.
+  // Do not trust API `agencies_responded` — it can count notified/acked agencies.
+  const agenciesResponded = countRespondedAgencies(
+    assignments,
+    deployments,
+    broadcasts,
+  )
 
   const vehiclesOfferedFromApi = toFiniteNumber(
     record.vehicles_offered ?? record.vehiclesOffered,
@@ -613,6 +896,9 @@ export function mapEmergencyIncidentDetail(
     vehiclesOfferedFromApi ??
     (deployments.length > 0 ? deployments.length : vehiclesOfferedFromBroadcasts)
 
+  const vehicleTypes = mapVehicleTypesFromList(
+    record.vehicle_types ?? record.vehicleTypes,
+  )
   const vehicleTypeIdsRaw = Array.isArray(record.vehicle_type_ids)
     ? record.vehicle_type_ids
     : Array.isArray(record.vehicleTypeIds)
@@ -622,27 +908,16 @@ export function mapEmergencyIncidentDetail(
     .map((value) => (typeof value === 'string' ? value.trim() : String(value ?? '').trim()))
     .filter(Boolean)
 
-  const vehicleTypesList = Array.isArray(record.vehicle_types)
-    ? record.vehicle_types
-    : Array.isArray(record.vehicleTypes)
-      ? record.vehicleTypes
-      : []
-  const vehicleTypes: EmergencyIncidentVehicleType[] = vehicleTypesList
-    .map((item): EmergencyIncidentVehicleType | null => {
-      const nested = nestedRecord(item)
-      if (!nested) return null
-      const id = pickText(nested, ['id', 'vehicle_type_id', 'vehicleTypeId'])
-      if (!id) return null
-      return {
-        id,
-        code: pickText(nested, ['code']),
-        name: pickText(nested, ['name', 'label']) || pickText(nested, ['code']) || id,
-      }
-    })
-    .filter((item): item is EmergencyIncidentVehicleType => item !== null)
-
-  const resolvedVehicleTypeIds =
-    vehicleTypes.length > 0 ? vehicleTypes.map((type) => type.id) : vehicleTypeIds
+  const assignmentVehicleTypes = assignments.flatMap(
+    (assignment) => assignment.vehicleTypes,
+  )
+  const resolvedVehicleTypes =
+    vehicleTypes.length > 0
+      ? vehicleTypes
+      : assignmentVehicleTypes.length > 0
+        ? [...new Map(assignmentVehicleTypes.map((type) => [type.id, type])).values()]
+        : vehicleTypeIds.map((id) => ({ id, code: '', name: id }))
+  const resolvedVehicleTypeIds = resolvedVehicleTypes.map((type) => type.id)
 
   const vehiclesRequired =
     toFiniteNumber(
@@ -651,20 +926,42 @@ export function mapEmergencyIncidentDetail(
         record.no_of_vehicles_required,
     ) ?? (resolvedVehicleTypeIds.length > 0 ? resolvedVehicleTypeIds.length : null)
 
+  const primaryAssignment = assignments[0]
+  const startDate =
+    pickText(record, ['start_date', 'startDate']) ||
+    primaryAssignment?.startDate ||
+    ''
+  const endDate =
+    pickText(record, ['end_date', 'endDate']) || primaryAssignment?.endDate || ''
+  const location =
+    row.location !== '—'
+      ? row.location
+      : primaryAssignment?.location || '—'
+  const latitude = row.latitude ?? primaryAssignment?.latitude ?? null
+  const longitude = row.longitude ?? primaryAssignment?.longitude ?? null
+  const vehicleCategory =
+    row.vehicleCategory !== '—'
+      ? row.vehicleCategory
+      : resolvedVehicleTypes.map((type) => type.name).filter(Boolean).join(', ') ||
+        '—'
+
   return {
     id: row.id,
     requestId: row.requestId,
-    vehicleCategory: row.vehicleCategory,
+    vehicleCategory,
     timeLabel: formatTimeoutLabel(timeoutMinutes),
-    location: row.location,
+    location,
     agencyLabel: row.agencyLabel,
     status: row.status,
     statusLabel: row.statusLabel || '—',
-    description: row.description ?? '',
-    latitude: row.latitude ?? null,
-    longitude: row.longitude ?? null,
-    startDate: pickText(record, ['start_date', 'startDate']),
-    endDate: pickText(record, ['end_date', 'endDate']),
+    description:
+      pickText(record, ['description', 'incident_description', 'incidentDescription']) ||
+      row.description ||
+      '',
+    latitude,
+    longitude,
+    startDate,
+    endDate,
     initiatedByName: pickText(record, [
       'initiated_by_name',
       'initiatedByName',
@@ -685,10 +982,8 @@ export function mapEmergencyIncidentDetail(
     agenciesResponded,
     vehiclesOffered,
     vehicleTypeIds: resolvedVehicleTypeIds,
-    vehicleTypes:
-      vehicleTypes.length > 0
-        ? vehicleTypes
-        : resolvedVehicleTypeIds.map((id) => ({ id, code: '', name: id })),
+    vehicleTypes: resolvedVehicleTypes,
+    assignments,
     broadcasts,
     deployments,
   }
@@ -795,6 +1090,86 @@ export async function closeEmergencyIncident(
 /** Whether cancel/close actions are still available for this incident. */
 export function canCancelOrCloseEmergencyIncident(status: EmergencyBroadcastStatus): boolean {
   return status !== 'cancelled' && status !== 'closed'
+}
+
+/**
+ * Hide Deploy Vehicle when requested vehicle types are fully covered by deployments
+ * (or deployments + declined types) for the given agency.
+ */
+export function isEmergencyDeployFullyCovered(
+  detail: EmergencyIncidentDetail,
+  agency?: { id?: string; name?: string },
+): boolean {
+  const requestedCount =
+    detail.vehicleTypes.length > 0
+      ? detail.vehicleTypes.length
+      : detail.vehicleTypeIds.length
+  if (requestedCount <= 0) return false
+
+  const agencyId = agency?.id?.trim() ?? ''
+  const agencyName = agency?.name?.trim().toLowerCase() ?? ''
+  const hasAgencyFilter = Boolean(agencyId || agencyName)
+
+  const assignmentAgencies = detail.assignments.flatMap(
+    (assignment) => assignment.agencies,
+  )
+  const matchedAgencies = hasAgencyFilter
+    ? assignmentAgencies.filter(
+        (entry) =>
+          (agencyId && entry.agencyId === agencyId) ||
+          (agencyName &&
+            entry.agencyName.trim().toLowerCase() === agencyName),
+      )
+    : assignmentAgencies
+
+  let deploymentCount = 0
+  let declinedCount = 0
+
+  if (matchedAgencies.length > 0) {
+    deploymentCount = matchedAgencies.reduce(
+      (sum, entry) => sum + entry.deployments.length,
+      0,
+    )
+    declinedCount = matchedAgencies.reduce(
+      (sum, entry) =>
+        sum +
+        entry.broadcasts.reduce(
+          (broadcastSum, broadcast) =>
+            broadcastSum + broadcast.declinedVehicleTypesCount,
+          0,
+        ),
+      0,
+    )
+  } else if (hasAgencyFilter) {
+    const deployments = detail.deployments.filter(
+      (deployment) =>
+        (agencyId && deployment.agencyId === agencyId) ||
+        (agencyName &&
+          deployment.agencyName.trim().toLowerCase() === agencyName),
+    )
+    const broadcasts = detail.broadcasts.filter(
+      (broadcast) =>
+        agencyName &&
+        broadcast.agencyName.trim().toLowerCase() === agencyName,
+    )
+    deploymentCount = deployments.length
+    declinedCount = broadcasts.reduce(
+      (sum, broadcast) => sum + broadcast.declinedVehicleTypesCount,
+      0,
+    )
+  } else {
+    // Without agency context, only hide when the whole incident is fully covered.
+    deploymentCount = detail.deployments.length
+    declinedCount = detail.broadcasts.reduce(
+      (sum, broadcast) => sum + broadcast.declinedVehicleTypesCount,
+      0,
+    )
+  }
+
+  return (
+    requestedCount === deploymentCount ||
+    requestedCount === deploymentCount + declinedCount
+  )
 }
 
 export type UpdateEmergencyIncidentEndDatePayload = {

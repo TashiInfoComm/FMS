@@ -20,10 +20,6 @@ export function getFuelLogAutoDateIso(): string {
   return `${year}-${month}-${day}`
 }
 
-export function getFuelLogAutoDateLabel(): string {
-  return formatFuelLogDate(getFuelLogAutoDateIso())
-}
-
 export function formatFuelLogQuota(used: number, total: number): string {
   return formatCurrentQuota(used, total)
 }

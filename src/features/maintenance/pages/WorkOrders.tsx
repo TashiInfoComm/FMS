@@ -16,7 +16,10 @@ import {
 } from '@/components/ui/select'
 import type { WorkOrderListItem } from '@/features/maintenance/lib/maintenance-mock-data'
 import { WORK_ORDER_STATUS_OPTIONS } from '@/features/maintenance/lib/maintenance-mock-data'
-import { workOrderStatusBadgeClass } from '@/features/maintenance/lib/maintenance-ui'
+import {
+  formatWorkOrderStatusLabel,
+  workOrderStatusBadgeClass,
+} from '@/features/maintenance/lib/maintenance-ui'
 import { fetchWorkOrdersPage } from '@/features/maintenance/lib/work-orders-api'
 import { PageHeader } from '@/shared/components/PageHeader'
 import {
@@ -203,7 +206,7 @@ export default function WorkOrders() {
                       </td>
                       <td className="px-4 py-4">
                         <Badge className={workOrderStatusBadgeClass(row.status)}>
-                          {row.status}
+                          {formatWorkOrderStatusLabel(row.status)}
                         </Badge>
                       </td>
                       <td className="px-4 py-4">

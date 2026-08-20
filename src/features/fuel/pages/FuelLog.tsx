@@ -32,7 +32,6 @@ import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 
 const TABLE_COLUMNS = [
   'Sl.No',
-  'Driver',
   'Vehicle',
   'Date',
   'Liters',
@@ -167,13 +166,11 @@ export default function FuelLog() {
                       <td className="px-4 py-3 tabular-nums text-[var(--fms-text-subheading)]">
                         {serialBase + index + 1}
                       </td>
-                      <td className="px-4 py-3 text-[var(--fms-text-header)]">
-                        {row.driver}
-                      </td>
+
                       <td className="px-4 py-3  text-[var(--fms-text-header)]">
                         {formatFuelLogVehicleDisplay(row)}
                       </td>
-                     
+
                       <td className="px-4 py-3 text-[var(--fms-text-subheading)]">
                         {formatFuelLogDate(row.date)}
                       </td>

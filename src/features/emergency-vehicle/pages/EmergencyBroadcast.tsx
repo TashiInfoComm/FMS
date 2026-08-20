@@ -42,7 +42,7 @@ import { TablePagination } from '@/shared/components/TablePagination'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
 
-const TABLE_COLUMN_COUNT = 8
+const TABLE_COLUMN_COUNT = 6
 
 type ActionTarget = {
   id: string
@@ -336,16 +336,10 @@ function EmergencyBroadcast() {
                     Request ID
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-semibold tracking-wide uppercase">
-                    Vehicle Category
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold tracking-wide uppercase">
                     Start Date and Time
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-semibold tracking-wide uppercase">
                     End Date and Time
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold tracking-wide uppercase">
-                    Location
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-semibold tracking-wide uppercase">
                     Agency
@@ -386,19 +380,11 @@ function EmergencyBroadcast() {
                       <td className="px-4 py-3 font-semibold text-[var(--fms-text-header)]">
                         {row.requestId}
                       </td>
-                      <td className="px-4 py-3">
-                        <span className="inline-flex rounded-full bg-[#f0f0f2] px-2.5 py-1 text-xs font-medium text-[var(--fms-text-header)]">
-                          {row.vehicleCategory}
-                        </span>
-                      </td>
                       <td className="px-4 py-3 text-[var(--fms-text-header)]">
                         {row.startDateLabel}
                       </td>
                       <td className="px-4 py-3 text-[var(--fms-text-header)]">
                         {row.endDateLabel}
-                      </td>
-                      <td className="px-4 py-3 text-[var(--fms-text-header)]">
-                        {row.location}
                       </td>
                       <td className="px-4 py-3 text-[var(--fms-text-header)]">
                         {row.agencyLabel}
@@ -430,18 +416,12 @@ function EmergencyBroadcast() {
                       {row.requestId}
                     </span>
                   </MobileListField>
-                  <MobileListField label="Vehicle Category">
-                    <span className="inline-flex rounded-full bg-[#f0f0f2] px-2.5 py-1 text-xs font-medium text-[var(--fms-text-header)]">
-                      {row.vehicleCategory}
-                    </span>
-                  </MobileListField>
                   <MobileListField label="Start Date and Time">
                     {row.startDateLabel}
                   </MobileListField>
                   <MobileListField label="End Date and Time">
                     {row.endDateLabel}
                   </MobileListField>
-                  <MobileListField label="Location">{row.location}</MobileListField>
                   <MobileListField label="Agency">{row.agencyLabel}</MobileListField>
                   <MobileListField label="Status">
                     <EmergencyBroadcastStatusCell

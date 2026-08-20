@@ -32,6 +32,7 @@ import {
 } from '@/features/maintenance/lib/maintenance-mock-data'
 import { fetchMaintenanceTypes } from '@/features/maintenance/lib/maintenance-masters-api'
 import {
+  formatWorkOrderStatusLabel,
   resolveMaintenanceTypeKind,
   shouldEscalateWorkOrderMtoApproval,
   workOrderStatusBadgeClass,
@@ -704,7 +705,7 @@ export default function WorkOrderDetail() {
           ) : workOrder ? (
             <div className="flex flex-wrap items-center gap-2">
               <Badge className={workOrderStatusBadgeClass(workOrder.status)}>
-                {workOrder.status}
+                {formatWorkOrderStatusLabel(workOrder.status)}
               </Badge>
               <span className="text-sm text-[var(--fms-text-subheading)]">
                 {workOrder.workOrderId}

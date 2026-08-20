@@ -8,8 +8,8 @@ import { Link, useNavigate } from "react-router-dom";
 import { z } from "zod";
 
 import logoImage from "@/assets/logo.png";
-import ndiImage from "@/assets/ndi_login.png";
 import { Button } from "@/components/ui/button";
+import { NdiAuthButton } from "@/features/auth/components/NdiAuthButton";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
@@ -216,13 +216,9 @@ export function LoginPage() {
               Click to login as citizen to avail the service
             </p>
 
-            <Button
-              className="h-11 w-full cursor-pointer rounded-full bg-[var(--fms-ndi-button)]"
-              onClick={() => navigate("/login/ndi")}
-            >
-              <img src={ndiImage} alt="" className="mr-2 h-5 w-5" />
+            <NdiAuthButton onClick={() => navigate("/login/ndi")}>
               Login with Bhutan NDI
-            </Button>
+            </NdiAuthButton>
 
             <div className="flex items-center gap-4 text-sm text-[var(--fms-text-subheading)]">
               <div className="h-px flex-1 bg-[var(--fms-strokes)]" />

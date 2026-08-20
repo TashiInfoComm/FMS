@@ -14,6 +14,7 @@ import {
 /** Realm roles returned by Keycloak / admin APIs for this app (see backend role list). */
 export const FMS_REALM_ROLES = [
   "fms-super-admin",
+  "fms-highest-admin",
   "fms-agency-admin",
   "fms-finance-officer",
   "fms-mto",
@@ -47,6 +48,7 @@ export type MenuItem = {
 /** Priority for choosing a default role when the user has several `fms-*` roles (higher = preferred). */
 export const REALM_ROLE_PRIORITY: Record<string, number> = {
   "fms-super-admin": 100,
+  "fms-highest-admin": 95,
   "fms-agency-admin": 90,
   "fms-finance-officer": 80,
   "fms-mto": 70,

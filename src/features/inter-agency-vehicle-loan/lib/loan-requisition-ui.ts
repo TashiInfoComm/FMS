@@ -218,14 +218,6 @@ export function formatLoanDurationDisplay(
   return formatLoanPeriodDays(parsed)
 }
 
-export const VEHICLE_CATEGORY_OPTIONS = [
-  { value: 'light-vehicle', label: 'Light Vehicle' },
-  { value: '4x4-utility', label: '4x4 Utility' },
-  { value: 'bus', label: 'Bus' },
-  { value: 'heavy-vehicle', label: 'Heavy Vehicle' },
-  { value: 'motorcycle', label: 'Motorcycle' },
-] as const
-
 export const FUELING_RESPONSIBILITY_OPTIONS = [
   { value: 'BORROWING_AGENCY' as const, label: 'Borrowing Agency' },
   { value: 'LENDING_AGENCY' as const, label: 'Lending Agency' },

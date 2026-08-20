@@ -411,10 +411,10 @@ function VehicleDeployment() {
                   type="button"
                   variant="outline"
                   className="border-[var(--fms-delete)] text-[var(--fms-delete)] hover:bg-[var(--fms-error-fill)]"
-                  disabled={isMutating || !selectedVehicleTypeId}
+                  disabled={isMutating || !selectedVehicleTypeId || selectedIds.size !== 0}
                   onClick={openDeclineDialog}
                 >
-                  Decline {selectedVehicleTypeName} request
+                  Decline {selectedVehicleTypeName} vehicle type request
                 </Button>
                 <Button
                   type="button"

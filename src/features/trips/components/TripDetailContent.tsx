@@ -327,7 +327,7 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
   const showCallForPickupButton =
     mode === 'requisition' &&
     trip.pickupRequired === true &&
-     trip.status === 'DROPPED_OFF'
+    trip.status === 'DROPPED_OFF'
 
   const noteSheetMutation = useMutation({
     mutationFn: (targetWindow: Window | null) =>
@@ -504,7 +504,7 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
   })
 
   const hasSuggestedAssignment = Boolean(
-    trip.systemSuggestedDriverId || trip.systemSuggestedVehicleId,
+    trip.systemSuggestedDriverId || trip.systemSuggestedVehicleId || trip.assignedVehicleId || trip.assignedDriverId,
   )
 
   const hasSuggestedVehicleData = !(
@@ -522,31 +522,29 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
 
   const showRequisitionVehicleDriver =
     mode === 'requisition' &&
-    (isPlanned
-      ? hasSuggestedVehicleData ||
-        hasSuggestedDriverData ||
-        Boolean(trip.systemSuggestedVehicleId || trip.systemSuggestedDriverId)
-      : hasAssignedVehicleData ||
-        hasAssignedDriverData ||
-        Boolean(trip.assignedVehicleId || trip.assignedDriverId))
+    ( hasSuggestedVehicleData ||
+      hasSuggestedDriverData ||
+      Boolean(trip.systemSuggestedVehicleId || trip.systemSuggestedDriverId)
+      || hasAssignedVehicleData ||
+      hasAssignedDriverData ||
+      Boolean(trip.assignedVehicleId || trip.assignedDriverId))
 
-  const displayVehicle = mode === 'requisition' && !isPlanned ? trip.assignedVehicle : trip.suggestedVehicle
-  const displayDriver = mode === 'requisition' && !isPlanned ? trip.assignedDriver : trip.suggestedDriver
-  const vehicleCardTitle =
-    mode === 'requisition' && !isPlanned ? 'Assigned vehicle' : 'Suggested Vehicle'
-  const driverCardTitle =
-    mode === 'requisition' && !isPlanned ? 'Assigned Driver' : 'Suggested Driver'
+  // The assignment wins once it carries data; otherwise the system suggestion is shown.
+  const displayVehicle = hasAssignedVehicleData ? trip.assignedVehicle : trip.suggestedVehicle
+  const displayDriver = hasAssignedDriverData ? trip.assignedDriver : trip.suggestedDriver
+  const vehicleCardTitle = hasAssignedVehicleData ? 'Assigned vehicle' : 'Suggested Vehicle'
+  const driverCardTitle = hasAssignedDriverData ? 'Assigned Driver' : 'Suggested Driver'
   const showVehicleCard =
-    mode === 'requisition' && !isPlanned
-      ? hasAssignedVehicleData || Boolean(trip.assignedVehicleId)
-      : hasSuggestedVehicleData || Boolean(trip.systemSuggestedVehicleId)
+    mode === 'requisition' && (
+       hasAssignedVehicleData || Boolean(trip.assignedVehicleId)
+      || hasSuggestedVehicleData || Boolean(trip.systemSuggestedVehicleId))
   const showDriverCard =
-    mode === 'requisition' && !isPlanned
-      ? hasAssignedDriverData || Boolean(trip.assignedDriverId)
-      : hasSuggestedDriverData || Boolean(trip.systemSuggestedDriverId)
+    mode === 'requisition' && 
+      (hasAssignedDriverData || Boolean(trip.assignedDriverId)
+      || hasSuggestedDriverData || Boolean(trip.systemSuggestedDriverId))
 
   const showVehicleDriverSection =
-    mode === 'requisition' ? showRequisitionVehicleDriver : hasSuggestedAssignment || showReviewActions
+    mode === 'requisition' && (showRequisitionVehicleDriver  || hasSuggestedAssignment || showReviewActions)
 
   const handleApprove = () => {
     if (!canApproveTrip || approveMutation.isPending) return
@@ -652,25 +650,25 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
         ) : null}
       </div>
       <Card className="border border-[var(--fms-strokes)] bg-white">
-          <CardContent className="space-y-4 pt-5">
-            <SectionHeader
-              icon={User}
-              title="Applicant Information"
-              subtitle="Basic personal and organizational details of the applicant."
-            />
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              <FieldReadOnly label="Employee Number" value={trip.employeeId} />
-              <FieldReadOnly label="Applicant Name" value={trip.applicantName} />
-              <FieldReadOnly label="Designation" value={trip.designation} />
-              <FieldReadOnly label="Agency" value={trip.agency} />
-              <FieldReadOnly label="Department" value={trip.department} />
-              <FieldReadOnly label="Division" value={trip.division} />
-              <FieldReadOnly label="Sub Division" value={trip.subDivision} />
-              <FieldReadOnly label="Contact Number" value={trip.contactNumber} />
-              <FieldReadOnly label="Email" value={trip.email} />
-            </div>
-          </CardContent>
-        </Card>
+        <CardContent className="space-y-4 pt-5">
+          <SectionHeader
+            icon={User}
+            title="Applicant Information"
+            subtitle="Basic personal and organizational details of the applicant."
+          />
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <FieldReadOnly label="Employee Number" value={trip.employeeId} />
+            <FieldReadOnly label="Applicant Name" value={trip.applicantName} />
+            <FieldReadOnly label="Designation" value={trip.designation} />
+            <FieldReadOnly label="Agency" value={trip.agency} />
+            <FieldReadOnly label="Department" value={trip.department} />
+            <FieldReadOnly label="Division" value={trip.division} />
+            <FieldReadOnly label="Sub Division" value={trip.subDivision} />
+            <FieldReadOnly label="Contact Number" value={trip.contactNumber} />
+            <FieldReadOnly label="Email" value={trip.email} />
+          </div>
+        </CardContent>
+      </Card>
       <Card className="border border-[var(--fms-strokes)] bg-white">
         <CardContent className="space-y-4 pt-5">
           <SectionHeader

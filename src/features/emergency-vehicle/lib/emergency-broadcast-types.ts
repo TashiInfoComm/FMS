@@ -42,13 +42,39 @@ export type EmergencyIncidentBroadcastItem = {
 
 export type EmergencyIncidentDeploymentItem = {
   id: string
+  agencyId?: string
   agencyName: string
   agencyCode: string
   vehiclesOfferedLabel: string
+  vehicleTypeId?: string
   vehicleTypeName: string
   deploymentDateTimeLabel: string
   statusLabel: string
   deployedAt?: string
+  deployedByName?: string
+}
+
+/** One agency under an `agency_assignments` entry. */
+export type EmergencyIncidentAssignmentAgency = {
+  id: string
+  agencyId: string
+  agencyName: string
+  agencyCode: string
+  broadcasts: EmergencyIncidentBroadcastItem[]
+  deployments: EmergencyIncidentDeploymentItem[]
+}
+
+/** One location/incident block from `agency_assignments`. */
+export type EmergencyIncidentAssignment = {
+  id: string
+  location: string
+  latitude: number | null
+  longitude: number | null
+  startDate: string
+  endDate: string
+  notes: string
+  vehicleTypes: EmergencyIncidentVehicleType[]
+  agencies: EmergencyIncidentAssignmentAgency[]
 }
 
 /** Full incident detail from `GET /emergency/incidents/:id`. */
@@ -82,6 +108,8 @@ export type EmergencyIncidentDetail = {
   vehicleTypeIds: string[]
   /** Required vehicle types with labels from `vehicle_types`. */
   vehicleTypes: EmergencyIncidentVehicleType[]
+  /** Per-location assignments with nested agencies. */
+  assignments: EmergencyIncidentAssignment[]
   broadcasts: EmergencyIncidentBroadcastItem[]
   deployments: EmergencyIncidentDeploymentItem[]
 }
@@ -103,26 +131,32 @@ export type EmergencyAvailableVehicle = {
   vehicleTypeId: string
 }
 
-export type EmergencyIncidentAgencyPayload = {
+export type EmergencyAgencyAssignmentAgency = {
   agency_id: string
+}
+
+/** One location/assignment block in `POST /emergency/incidents`. */
+export type EmergencyAgencyAssignmentPayload = {
   incident_location: string
   latitude: number
   longitude: number
-  vehicle_type_required: string[]
-  incident_description: string
   start_date: string
   end_date?: string
+  notes: string
+  vehicle_type_ids: string[]
+  agencies: EmergencyAgencyAssignmentAgency[]
 }
 
 export type CreateEmergencyIncidentPayload = {
-  agencies: EmergencyIncidentAgencyPayload[]
+  description: string
   broadcast_immediately: boolean
+  agency_assignments: EmergencyAgencyAssignmentPayload[]
 }
 
 /** One incident block in the create form field array. */
 export type EmergencyIncidentRow = {
   key: string
-  agencyId: string
+  agencyIds: string[]
   vehicleTypeIds: string[]
   location: string
   latitude: number | null
@@ -140,7 +174,7 @@ export type EmergencyIncidentFormValues = {
 export function createEmptyEmergencyIncidentRow(): EmergencyIncidentRow {
   return {
     key: crypto.randomUUID(),
-    agencyId: '',
+    agencyIds: [],
     vehicleTypeIds: [],
     location: '',
     latitude: null,

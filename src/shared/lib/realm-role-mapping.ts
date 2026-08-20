@@ -62,6 +62,7 @@ export function mapSlugOrLabel(textRaw: string): Role | null {
 
   const legacy: Record<string, FmsRealmRole> = {
     'super-admin': 'fms-super-admin',
+    'highest-admin': 'fms-highest-admin',
     'agency-admin': 'fms-agency-admin',
     'finance-officer': 'fms-finance-officer',
     mto: 'fms-mto',
@@ -69,6 +70,7 @@ export function mapSlugOrLabel(textRaw: string): Role | null {
     applicant: 'fms-applicant',
     viewer: 'fms-viewer',
     'fms-super-admin': 'fms-super-admin',
+    'fms-highest-admin': 'fms-highest-admin',
     'fms-agency-admin': 'fms-agency-admin',
     'fms-finance-officer': 'fms-finance-officer',
     'fms-mto': 'fms-mto',
@@ -80,9 +82,11 @@ export function mapSlugOrLabel(textRaw: string): Role | null {
   if (mapped) return mapped
 
   if (raw === 'Super Admin') return 'fms-super-admin'
+  if (raw === 'Highest Admin' || raw === 'Highest admin') return 'fms-highest-admin'
   if (raw === 'Agency Admin') return 'fms-agency-admin'
 
   if (t === 'frms-super-admin' || t.includes('super-admin')) return 'fms-super-admin'
+  if (t.includes('highest-admin')) return 'fms-highest-admin'
 
   if (t.includes('agency-admin')) return 'fms-agency-admin'
 

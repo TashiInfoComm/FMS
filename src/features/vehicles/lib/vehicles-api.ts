@@ -4,6 +4,7 @@ import {
   type MasterOption,
   type VehicleCreateMasterLists,
 } from '@/features/vehicles/lib/vehicle-create-master-data'
+import { pickVehicleAssignmentNames } from '@/features/vehicles/lib/vehicle-organogram-display'
 import { apiClient, apiGet, apiPost, apiPut } from '@/services/apiClient'
 import { isUuidLike } from '@/shared/lib/organogram-master-lookup'
 import { applyPagination } from '@/shared/utils/pagination'
@@ -36,6 +37,18 @@ export type VehicleListRow = {
   odometer: string
   color: string
   quota_initialized: boolean
+}
+
+export type VehicleReportRow = {
+  id: string
+  vehicleNumber: string
+  makeModel: string
+  year: string
+  fuelType: string
+  currentAgency: string
+  vehicleCategory: string
+  status: string
+  movementStatus: string
 }
 
 function pickNestedRelationName(record: ApiRecord, objectKeys: string[]): string {
@@ -81,7 +94,7 @@ function flattenVehicleRecord(record: ApiRecord): ApiRecord {
   return vehicleBlock ? { ...record, ...vehicleBlock } : record
 }
 
-function extractVehicleList(payload: unknown): ApiRecord[] {
+export function extractVehicleList(payload: unknown): ApiRecord[] {
   const fromMaster = extractMasterList(payload)
   if (fromMaster.length > 0) return fromMaster
 
@@ -172,6 +185,62 @@ export function mapVehicleRecordToListRow(record: ApiRecord): VehicleListRow {
     movement: movement || '—',
     odometer: odometer || '—',
     quota_initialized: quotaInitialized ?? true,
+  }
+}
+
+/** Report row mapper — same source fields as list view, with extra columns for reports. */
+export function mapVehicleRecordToReportRow(record: ApiRecord): VehicleReportRow {
+  const flat = flattenVehicleRecord(record)
+  const listRow = mapVehicleRecordToListRow(record)
+
+  const make = pickScalar(flat, ['make', 'vehicle_make'])
+  const model = pickScalar(flat, ['model', 'vehicle_model'])
+  const year = pickScalar(flat, ['manufacturing_year', 'year', 'manufacturingYear', 'model_year'])
+
+  let makeModel = pickScalar(flat, ['make_model', 'makeModel', 'vehicle_name', 'name', 'title'])
+  if (!makeModel && (make || model)) {
+    makeModel = [make, model].filter(Boolean).join(' ')
+  }
+
+  const fuelType =
+    pickNestedRelationName(flat, ['fuel_type', 'fuelType']) ||
+    pickScalar(flat, ['fuel_type_name', 'fuelTypeName', 'fuel_type', 'fuelType'])
+
+  const vehicleCategory =
+    pickNestedRelationName(flat, ['vehicle_category', 'vehicleCategory']) ||
+    pickScalar(flat, [
+      'vehicle_category_name',
+      'vehicleCategoryName',
+      'vehicle_category',
+      'vehicleCategory',
+      'category_name',
+      'categoryName',
+    ])
+
+  const assignmentNames = pickVehicleAssignmentNames(record)
+
+  const currentAgency =
+    assignmentNames.current ||
+    pickNestedRelationName(flat, ['current_agency', 'currentAgency']) ||
+    pickScalar(flat, [
+      'current_agency_name',
+      'currentAgencyName',
+      'current_agency',
+      'currentAgency',
+      'agency_name',
+      'agencyName',
+    ])
+
+  return {
+    id: listRow.id,
+    vehicleNumber: listRow.registration_number,
+    makeModel: makeModel || listRow.makeModel.replace(/\s*\(\d{4}\)$/, '') || '—',
+    year: year || '—',
+    fuelType: fuelType || '—',
+    currentAgency: currentAgency || '—',
+    vehicleCategory: vehicleCategory || '—',
+    status: listRow.status,
+    movementStatus: listRow.movement,
   }
 }
 

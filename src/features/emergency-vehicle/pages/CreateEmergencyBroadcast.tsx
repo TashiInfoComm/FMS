@@ -25,7 +25,6 @@ import {
 } from '@/features/emergency-vehicle/lib/emergency-broadcast-types'
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/shared/components/PageHeader'
-import { SearchableAutocomplete } from '@/shared/components/SearchableAutocomplete'
 import { SearchableMultiAutocomplete } from '@/shared/components/SearchableMultiAutocomplete'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
 
@@ -211,8 +210,8 @@ function CreateEmergencyBroadcast() {
     for (let index = 0; index < form.incidents.length; index += 1) {
       const incident = form.incidents[index]
       const label = `Incident ${index + 1}`
-      if (!incident.agencyId.trim()) {
-        return `${label}: select an agency.`
+      if (incident.agencyIds.length === 0) {
+        return `${label}: select at least one agency.`
       }
       if (incident.vehicleTypeIds.length === 0) {
         return `${label}: select at least one vehicle type.`
@@ -310,17 +309,26 @@ function CreateEmergencyBroadcast() {
                       Agency
                       <RequiredMark />
                     </Label>
-                    <SearchableAutocomplete
+                    <SearchableMultiAutocomplete
                       id={`emergency-agency-${incident.key}`}
-                      value={incident.agencyId}
-                      onChange={(agencyId) => updateIncident(incident.key, { agencyId })}
+                      value={incident.agencyIds}
+                      onChange={(agencyIds) => updateIncident(incident.key, { agencyIds })}
                       options={agencyOptions}
                       loading={agenciesQuery.isLoading}
                       disabled={agenciesQuery.isError}
-                      placeholder="Select agency"
+                      placeholder="Select agencies"
                       searchPlaceholder="Type to search agencies…"
                       emptyMessage="No agencies found."
                       loadingMessage="Loading agencies…"
+                    />
+                    <SelectedChips
+                      values={incident.agencyIds}
+                      options={agencyOptions}
+                      onRemove={(agencyId) =>
+                        updateIncident(incident.key, {
+                          agencyIds: incident.agencyIds.filter((id) => id !== agencyId),
+                        })
+                      }
                     />
                   </div>
 

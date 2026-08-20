@@ -11,3 +11,24 @@ export function formatRealmRoleDisplayName(raw: string): string {
   if (!s) return t
   return s.charAt(0).toUpperCase() + s.slice(1)
 }
+
+/** Domain acronyms that stay uppercase in headings. */
+const ROLE_ACRONYMS = new Set(['mto', 'ndi', 'vip', 'gps', 'hr', 'it'])
+
+/**
+ * Heading-style realm role label, title-cased word by word
+ * (e.g. `fms-highest-admin` → "Highest Admin", `fms-mto` → "MTO").
+ */
+export function formatRealmRoleTitle(raw: string): string {
+  const display = formatRealmRoleDisplayName(raw)
+  if (!display || display === '-') return display
+
+  return display
+    .split(/\s+/)
+    .map((word) =>
+      ROLE_ACRONYMS.has(word.toLowerCase())
+        ? word.toUpperCase()
+        : word.charAt(0).toUpperCase() + word.slice(1),
+    )
+    .join(' ')
+}
