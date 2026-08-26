@@ -363,7 +363,6 @@ function ModuleFormFields({ menuId, isEdit, initialRecord }: ModuleFormFieldsPro
 export function ModuleFormPage() {
   const { id } = useParams<{ id: string }>()
   const isEdit = Boolean(id)
-  const navigate = useNavigate()
 
   const detailQuery = useQuery({
     queryKey: ['admin-menu', id],
