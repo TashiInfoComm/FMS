@@ -1,18 +1,19 @@
 import { useQuery } from '@tanstack/react-query'
-import { FileSpreadsheet } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
-import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { ReportExportActions } from '@/features/reports/components/ReportExportActions'
 import { ReportPillTabs } from '@/features/reports/components/ReportPillTabs'
 import { ReportTableToolbar } from '@/features/reports/components/ReportTableToolbar'
 import { useReportCommonFilters } from '@/features/reports/hooks/useReportCommonFilters'
 import {
+  exportFuelReport,
   fetchFuelConsumptionReportPage,
   fetchFuelQuotaReportPage,
   formatAvgKmPerL,
   formatFuelLiters,
   formatFuelNu,
+  type FuelReportExportFormat,
 } from '@/features/reports/pages/fuel/lib/fuel-reports-api'
 import {
   ListPanelMessage,
@@ -21,6 +22,7 @@ import {
 } from '@/shared/components/MobileListCard'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { TablePagination } from '@/shared/components/TablePagination'
+import { showErrorToast } from '@/shared/lib/toast'
 
 const REPORT_TABS = [
   { value: 'consumption', label: 'Consumption' },
@@ -50,6 +52,7 @@ export default function FuelReports() {
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
+  const [exportingFormat, setExportingFormat] = useState<FuelReportExportFormat | null>(null)
 
   const listQueryKey = [
     'fuel-reports',
@@ -109,8 +112,21 @@ export default function FuelReports() {
     if (page > totalPages) setPage(totalPages)
   }, [page, totalPages])
 
-  const handleExport = () => {
-    window.alert('Excel export will be available once the export API is connected.')
+  const handleExport = async (format: FuelReportExportFormat) => {
+    if (exportingFormat) return
+    setExportingFormat(format)
+    try {
+      await exportFuelReport({
+        tab: activeTab,
+        format,
+        search,
+        common: commonFilters.params,
+      })
+    } catch (error) {
+      showErrorToast(error, 'Could not export fuel report.')
+    } finally {
+      setExportingFormat(null)
+    }
   }
 
   const hasActiveFilters = Boolean(
@@ -130,18 +146,11 @@ export default function FuelReports() {
   return (
     <section className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <PageHeader
-          title="Fuel Reports"
-        //subtitle={`${fuelledVehicleCount} fuelled vehicles · Nu ${pricePerLiter}/L`}
+        <PageHeader title="Fuel Reports" />
+        <ReportExportActions
+          onExport={(format) => void handleExport(format)}
+          exportingFormat={exportingFormat}
         />
-        <Button
-          type="button"
-          onClick={handleExport}
-          className="w-full bg-[var(--fms-button)] hover:bg-[var(--fms-button-hover)] sm:w-auto"
-        >
-          <FileSpreadsheet className="mr-1 h-4 w-4" />
-          Export Excel
-        </Button>
       </div>
 
       <ReportPillTabs

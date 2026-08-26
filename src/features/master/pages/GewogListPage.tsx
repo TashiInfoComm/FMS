@@ -4,11 +4,12 @@
  */
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
 
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { apiGet } from '@/services/apiClient'
+import { BackToListButton } from '@/shared/components/BackToListButton'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { TablePagination } from '@/shared/components/TablePagination'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
@@ -102,6 +103,7 @@ export function GewogListPage() {
 
   return (
     <section className="space-y-5">
+      <BackToListButton to="/master/dzongkhags" />
       <PageHeader
         title="Gewog List"
         subtitle={dzongkhagName ? `View gewogs for ${dzongkhagName}` : 'View gewogs for selected dzongkhag'}
@@ -109,10 +111,7 @@ export function GewogListPage() {
 
       <Card className="rounded-xl border border-[var(--fms-strokes)] bg-white p-2 sm:p-4">
         <CardContent className="space-y-4 p-0">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <Link to="/master/dzongkhags" className="text-sm text-[var(--fms-text-subheading)] hover:text-[var(--fms-text-header)]">
-              Back to Dzongkhag List
-            </Link>
+          <div className="flex justify-end">
             <div className="w-full max-w-sm">
               <Input
                 value={gewogSearch}

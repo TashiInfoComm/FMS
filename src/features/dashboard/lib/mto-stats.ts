@@ -5,6 +5,7 @@ import {
   CircleCheckBig,
   Clock,
   Compass,
+  Fuel,
   Siren,
   SquareParking,
   Wrench,
@@ -94,6 +95,16 @@ export function buildMtoStatItems(summary: DashboardSummary | undefined): MtoSta
     summary.emergencyDeployments,
     { icon: Siren, accent: '#ef4444' },
   )
+
+  if (summary.fuelTotalAmount !== null) {
+    items.push({
+      id: 'fuel-total-amount',
+      label: 'Fuel total amount',
+      value: formatNuExact(summary.fuelTotalAmount),
+      icon: Fuel,
+      accent: '#fb923c',
+    })
+  }
 
   if (summary.parkingTotalAmount !== null) {
     items.push({

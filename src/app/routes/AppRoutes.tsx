@@ -67,6 +67,7 @@ import VehicleLoanReports from '@/features/reports/pages/vehicleLoan/VehicleLoan
 import VehicleReports from '@/features/reports/pages/vehicle/VehicleReports'
 import ParkingReports from '@/features/reports/pages/parking/ParkingReports'
 import MaintenanceReports from '@/features/reports/pages/maintenance/Maintenancereports'
+import TripReports from '@/features/reports/pages/trips/TripReports'
 import ParkingLogs from '@/features/parking/pages/ParkingLogs'
 import ReimbursementClaims from '@/features/parking/pages/ReimbursementClaims'
 import ReimbursementClaimDetailPage from '@/features/parking/pages/ReimbursementClaimDetailPage'
@@ -278,6 +279,7 @@ export function AppRoutes() {
           <Route path="/reports/vehicle" element={<VehicleReports />} />
           <Route path="/reports/parking" element={<ParkingReports />} />
           <Route path="/reports/maintenance" element={<MaintenanceReports />} />
+          <Route path="/reports/trips" element={<TripReports />} />
         </Route>
       </Routes>
     </BrowserRouter>

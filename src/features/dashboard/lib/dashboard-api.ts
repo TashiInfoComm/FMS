@@ -28,7 +28,9 @@ export type DashboardSlice = {
 
 export type DashboardFuelQuota = {
   remainingPercent: number | null
+  remainingLitres: number | null
   usedLitres: number | null
+  allocatedLitres: number | null
   avgEfficiency: number | null
   usedAmount: number | null
   totalAmount: number | null
@@ -73,6 +75,8 @@ export type DashboardSummary = {
   maintenanceStats: DashboardSlice[]
   /** `parking.total_claims`. */
   parkingClaims: number | null
+  /** `fuel.total_amount`. */
+  fuelTotalAmount: number | null
   /** `parking.total_amount`. */
   parkingTotalAmount: number | null
   /** `parking.pending_approval`. */
@@ -420,6 +424,16 @@ function extractFuelQuota(payload: unknown): DashboardFuelQuota | null {
     // A ratio (0–1) and a percentage are both plausible here.
     remainingPercent:
       remaining !== null && remaining > 0 && remaining <= 1 ? Math.round(remaining * 100) : remaining,
+    remainingLitres: pickNumber(block, [
+      'remaining_litres',
+      'remaining_liters',
+      'remaining_l',
+    ]),
+    allocatedLitres: pickNumber(block, [
+      'allocated_litres',
+      'allocated_liters',
+      'allocated_l',
+    ]),
     usedLitres: pickNumber(block, [
       'used_litres',
       'used_liters',
@@ -609,6 +623,12 @@ function extractPendingMtoApproval(payload: unknown): number | null {
   return pickNumber(maintenance, ['pending_mto_approval', 'pendingMtoApproval'])
 }
 
+function extractFuelTotalAmount(payload: unknown): number | null {
+  const fuel = extractNamedRecord(payload, ['fuel'])
+  if (!fuel) return null
+  return pickNumber(fuel, ['total_amount', 'totalAmount'])
+}
+
 function extractParkingTotalAmount(payload: unknown): number | null {
   const parking = extractNamedRecord(payload, ['parking'])
   if (!parking) return null
@@ -738,6 +758,7 @@ function mapSummary(payload: unknown): DashboardSummary {
     pendingMtoApproval: extractPendingMtoApproval(payload),
     maintenanceStats: extractMaintenanceStats(payload),
     parkingClaims: extractParkingClaims(payload),
+    fuelTotalAmount: extractFuelTotalAmount(payload),
     parkingTotalAmount: extractParkingTotalAmount(payload),
     parkingPendingApproval: extractParkingPendingApproval(payload),
     fleetByCategory: extractFleetByCategory(payload),
@@ -959,6 +980,58 @@ export async function fetchDashboardCostTrend(
 ): Promise<DashboardCostTrendPoint[]> {
   const query = new URLSearchParams({ months: String(months) }).toString()
   return mapCostTrend(await apiGet<unknown>(`/dashboard/cost-trend?${query}`))
+}
+
+function pickAgencyLabel(record: ApiRecord): string {
+  const name = pickText(record, [
+    'agency_name',
+    'agency',
+    'organisation',
+    'organization',
+    'name',
+    'label',
+  ])
+  if (name) return name
+  const short = pickText(record, ['short_name', 'abbreviation', 'agency_short_name'])
+  if (short) return short
+  return pickText(record, ['agency_code', 'code']).replace(/_/g, ' ')
+}
+
+function mapCostByAgencySlices(payload: unknown): { slices: DashboardSlice[]; total: number } {
+  const records = extractRecordList(payload, [
+    'by_agency',
+    'byAgency',
+    'agencies',
+    'agency_costs',
+    'cost_by_agency',
+  ])
+  const slices = records
+    .map((record) => ({
+      label: pickAgencyLabel(record),
+      value: pickNumber(record, ['total', 'total_cost', 'grand_total']) ?? 0,
+    }))
+    .filter((slice) => Boolean(slice.label) && slice.value > 0)
+    .sort((a, b) => b.value - a.value)
+
+  const totals = findContainer(payload, ['totals', 'summary'], 'record')
+  const reportedTotal =
+    isRecord(totals) ? pickNumber(totals, ['total', 'total_cost', 'grand_total', 'amount']) : null
+
+  return {
+    slices,
+    total: reportedTotal ?? slices.reduce((sum, slice) => sum + slice.value, 0),
+  }
+}
+
+/** `GET /dashboard/cost-trend?by_agency=true&months=n` — spend split by agency. */
+export async function fetchDashboardCostTrendByAgency(
+  months: number,
+): Promise<{ slices: DashboardSlice[]; total: number }> {
+  const query = new URLSearchParams({
+    months: String(months),
+    by_agency: 'true',
+  }).toString()
+  return mapCostByAgencySlices(await apiGet<unknown>(`/dashboard/cost-trend?${query}`))
 }
 
 /** Totals the trend series by category, for the composition donut. */

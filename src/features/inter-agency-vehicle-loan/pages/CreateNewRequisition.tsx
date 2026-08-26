@@ -21,6 +21,7 @@ import {
   formatLoanDurationDisplay,
   FUELING_RESPONSIBILITY_OPTIONS,
 } from '@/features/inter-agency-vehicle-loan/lib/loan-requisition-ui'
+import { BackToListButton } from '@/shared/components/BackToListButton'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
@@ -234,6 +235,7 @@ function CreateNewRequisition() {
   if (crud.isResolved && (isEditMode ? !crud.canUpdate : !crud.canCreate)) {
     return (
       <section className="space-y-5">
+        <BackToListButton to="/vehicle-loan/requisition" />
         <PageHeader
           title={isEditMode ? 'Edit Vehicle Requisition' : 'New Vehicle Requisition'}
           subtitle="Submit to the Highest Admin for system-wide fleet analysis"
@@ -241,9 +243,6 @@ function CreateNewRequisition() {
         <p className="text-sm text-[var(--fms-text-subheading)]">
           You do not have permission to {isEditMode ? 'edit' : 'create'} vehicle loan requisitions.
         </p>
-        <Button variant="outline" asChild>
-          <Link to="/vehicle-loan/requisition">Back to list</Link>
-        </Button>
       </section>
     )
   }
@@ -263,6 +262,7 @@ function CreateNewRequisition() {
   if (isEditMode && editQuery.isError) {
     return (
       <section className="space-y-5">
+        <BackToListButton to="/vehicle-loan/requisition" />
         <PageHeader
           title="Edit Vehicle Requisition"
           subtitle="Could not load requisition"
@@ -272,15 +272,13 @@ function CreateNewRequisition() {
             ? editQuery.error.message
             : 'Could not load this requisition for editing.'}
         </p>
-        <Button variant="outline" asChild>
-          <Link to="/vehicle-loan/requisition">Back to list</Link>
-        </Button>
       </section>
     )
   }
 
   return (
     <section className="space-y-5">
+      <BackToListButton to="/vehicle-loan/requisition" />
       <PageHeader
         title={isEditMode ? 'Edit Vehicle Requisition' : 'New Vehicle Requisition'}
         subtitle={

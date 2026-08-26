@@ -16,6 +16,7 @@ import {
   type ApiRecord,
   type MenuRecord,
 } from '@/features/modules/lib/menus-api'
+import { BackToListButton } from '@/shared/components/BackToListButton'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
@@ -388,17 +389,16 @@ export function ModuleFormPage() {
   if (isEdit && detailError) {
     return (
       <section className="space-y-5">
+        <BackToListButton to="/admin/modules" />
         <PageHeader title="Update Module" />
         <p className="text-sm text-[var(--fms-delete)]">{detailError}</p>
-        <Button variant="outline" onClick={() => navigate('/modules')}>
-          Back to list
-        </Button>
       </section>
     )
   }
 
   return (
     <section className="space-y-5">
+      <BackToListButton to="/admin/modules" />
       <PageHeader
         title={isEdit ? 'Update Module' : 'Add Module'}
         subtitle={

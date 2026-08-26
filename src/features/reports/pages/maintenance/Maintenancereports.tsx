@@ -3,14 +3,12 @@ import {
   CircleCheckBig,
   ClipboardList,
   Clock,
-  FileSpreadsheet,
   Zap,
   type LucideIcon,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DashboardStatCard } from '@/features/dashboard/components/DashboardStatCard'
@@ -20,6 +18,7 @@ import {
   formatWorkOrderStatusLabel,
   workOrderStatusBadgeClass,
 } from '@/features/maintenance/lib/maintenance-ui'
+import { ReportExportActions } from '@/features/reports/components/ReportExportActions'
 import { ReportTableToolbar } from '@/features/reports/components/ReportTableToolbar'
 import { useReportCommonFilters } from '@/features/reports/hooks/useReportCommonFilters'
 import {
@@ -215,8 +214,10 @@ export default function MaintenanceReports() {
     if (page > totalPages) setPage(totalPages)
   }, [page, totalPages])
 
-  const handleExport = () => {
-    window.alert('Excel export will be available once the export API is connected.')
+  const handleExport = (format: 'xlsx' | 'pdf') => {
+    window.alert(
+      `${format === 'pdf' ? 'PDF' : 'Excel'} export will be available once the export API is connected.`,
+    )
   }
 
   const hasActiveFilters = Boolean(
@@ -240,15 +241,7 @@ export default function MaintenanceReports() {
     <section className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <PageHeader title="Maintenance Reports" subtitle={recordCountLabel} />
-        <Button
-          type="button"
-          variant="outline"
-          onClick={handleExport}
-          className="w-full border-[var(--fms-strokes)] bg-white text-[var(--fms-text-header)] hover:bg-[#fafafa] sm:w-auto"
-        >
-          <FileSpreadsheet className="mr-1 h-4 w-4" />
-          Export Excel
-        </Button>
+        <ReportExportActions onExport={handleExport} />
       </div>
 
       {summaryQuery.isLoading ? (

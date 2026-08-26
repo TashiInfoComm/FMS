@@ -4,7 +4,7 @@
  */
 import type { ComponentType, ReactNode } from 'react'
 import { useMemo, useState } from 'react'
-import { ArrowLeft, Building2, Fingerprint, IdCard, KeyRound, Pencil, Plus, UserRound } from 'lucide-react'
+import { Building2, Fingerprint, IdCard, KeyRound, Pencil, Plus, UserRound } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
@@ -37,6 +37,7 @@ import {
   type UserOrgScopeListItem,
 } from '@/features/user/lib/user-org-scopes-api'
 import { fetchVehicleAgencyAssignmentMasterData } from '@/features/vehicles/lib/vehicle-agency-assignment-api'
+import { BackToListButton } from '@/shared/components/BackToListButton'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { DetailFieldRowSkeleton } from '@/shared/components/detail-loading'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
@@ -245,11 +246,9 @@ export function UserDetailPage() {
   if (crud.isResolved && !crud.canRead) {
     return (
       <section className="space-y-5">
+        <BackToListButton to="/users" />
         <PageHeader title="User detail" subtitle="View account information" />
         <p className="text-sm text-[var(--fms-text-subheading)]">You do not have permission to view user details.</p>
-        <Button variant="outline" asChild>
-          <Link to="/users">Back to list</Link>
-        </Button>
       </section>
     )
   }
@@ -265,6 +264,7 @@ export function UserDetailPage() {
 
   return (
     <section className="space-y-5">
+      <BackToListButton to="/users" />
       {showApprovalActions ? (
         <div
           className={cn(
@@ -313,25 +313,17 @@ export function UserDetailPage() {
           title="User detail"
           subtitle="Account information from the server."
         />
-        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-          {crud.canRead && userId?.trim() ? (
-            <Link
-              to={editHref}
-              className={cn(
-                "inline-flex h-9 w-full shrink-0 items-center justify-center gap-1 rounded-lg bg-[var(--fms-button)] px-4 text-sm font-medium text-white no-underline hover:bg-[var(--fms-button-hover)] sm:w-auto",
-              )}
-            >
-              <Pencil className="h-4 w-4 shrink-0" aria-hidden />
-              Edit user
-            </Link>
-          ) : null}
-          <Button variant="outline" asChild className="w-full sm:w-auto">
-            <Link to="/users">
-              <ArrowLeft className="mr-1 h-4 w-4" />
-              Back to list
-            </Link>
-          </Button>
-        </div>
+        {crud.canRead && userId?.trim() ? (
+          <Link
+            to={editHref}
+            className={cn(
+              "inline-flex h-9 w-full shrink-0 items-center justify-center gap-1 rounded-lg bg-[var(--fms-button)] px-4 text-sm font-medium text-white no-underline hover:bg-[var(--fms-button-hover)] sm:w-auto",
+            )}
+          >
+            <Pencil className="h-4 w-4 shrink-0" aria-hidden />
+            Edit user
+          </Link>
+        ) : null}
       </div>
 
       {userQuery.isLoading ? (

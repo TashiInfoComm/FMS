@@ -1,7 +1,7 @@
 // Agency assignments: GET `/vehicles/agency-assignments/{vehicle_id}`, create/edit via POST/PUT `/vehicles/agency-assignment`.
-import { ArrowLeft, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { Button } from "@/components/ui/button";
@@ -42,6 +42,7 @@ import {
 import { useUserStore } from "@/services/user-store";
 import { SearchableAutocomplete } from "@/shared/components/SearchableAutocomplete";
 import { showErrorToast, showSuccessToast } from "@/shared/lib/toast";
+import { BackToListButton } from "@/shared/components/BackToListButton";
 import { PageHeader } from "@/shared/components/PageHeader";
 import {
   EditRowActionButton,
@@ -392,25 +393,12 @@ export function VehicleAgencyMapping() {
 
   return (
     <section className="space-y-5">
+      <BackToListButton to={`/vehicle/list/${encodeURIComponent(vehicleId)}`} />
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="-ml-2 w-fit gap-1"
-            asChild
-          >
-            <Link to={`/vehicle/list/${encodeURIComponent(vehicleId)}`}>
-              <ArrowLeft className="h-4 w-4" />
-              Back to vehicle
-            </Link>
-          </Button>
-          <PageHeader
-            title="Agency assignments"
-            subtitle="View agency assignments for this vehicle, add a new one, or edit an existing row."
-          />
-        </div>
+        <PageHeader
+          title="Agency assignments"
+          subtitle="View agency assignments for this vehicle, add a new one, or edit an existing row."
+        />
         {crud.canCreate ? (
           <Button
             type="button"

@@ -5,11 +5,12 @@
 import { Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { apiGet } from "@/services/apiClient";
+import { BackToListButton } from "@/shared/components/BackToListButton";
 import { PageHeader } from "@/shared/components/PageHeader";
 import { TablePagination } from "@/shared/components/TablePagination";
 import { useRouteCrudPermissions } from "@/shared/hooks/useRouteCrudPermissions";
@@ -132,6 +133,7 @@ export function VehicleCategoryDetailPage() {
 
   return (
     <section className="space-y-5">
+      <BackToListButton to="/master/vehicle-type-category?tab=category" />
       <PageHeader
         title="Vehicle Category Detail"
         subtitle={`Vehicle types for ${displayName}`}
@@ -139,13 +141,6 @@ export function VehicleCategoryDetailPage() {
 
       <Card className="rounded-xl border border-[var(--fms-strokes)] bg-white p-2 sm:p-4">
         <CardContent className="space-y-4 p-0">
-          <Link
-            to="/master/vehicle-type-category?tab=category"
-            className="text-sm text-[var(--fms-text-subheading)] hover:text-[var(--fms-text-header)]"
-          >
-            Back to Vehicle Category List
-          </Link>
-
           <div className="flex justify-end">
             <div className="relative w-full max-w-sm">
               <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-[var(--fms-text-subheading)]" />

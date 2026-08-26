@@ -1,7 +1,7 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, ArrowLeft, Car, CarFront, CloudUpload, Pencil, User, Users } from 'lucide-react'
+import { AlertTriangle, Car, CarFront, CloudUpload, Pencil, User, Users } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -47,6 +47,7 @@ import { fetchDriverVehicleAssignments } from '@/features/vehicles/lib/driver-ve
 import { fetchVehicles } from '@/features/vehicles/lib/vehicles-api'
 import { useUserStore } from '@/services/user-store'
 import { SearchableAutocomplete } from '@/shared/components/SearchableAutocomplete'
+import { BackToListButton } from '@/shared/components/BackToListButton'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { useAccessControl } from '@/shared/hooks/useAccessControl'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
@@ -614,35 +615,25 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
     overrideMutation.isPending ||
     pickupMutation.isPending
 
-  const backLabel =
-    mode === 'requisition' ? 'Back to my trips' : 'Back to trip requests'
-
   return (
     <section className="space-y-5">
+      <BackToListButton to={backPath} />
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex items-start gap-3">
-          <Button variant="outline" size="icon" className="shrink-0" asChild>
-            <Link to={backPath} aria-label={backLabel}>
-              <ArrowLeft className="h-4 w-4" />
-            </Link>
-          </Button>
-          <PageHeader
-            title={trip.requestId}
-            subtitle={
-              <span className="inline-flex flex-wrap items-center gap-2">
-                <span>{trip.applicantName}</span>
-                <Badge className={tripStatusBadgeClass(trip.statusCode || trip.status)}>
-                  {trip.status}
-                </Badge>
-              </span>
-            }
-          />
-        </div>
+        <PageHeader
+          title={trip.requestId}
+          subtitle={
+            <span className="inline-flex flex-wrap items-center gap-2">
+              <span>{trip.applicantName}</span>
+              <Badge className={tripStatusBadgeClass(trip.statusCode || trip.status)}>
+                {trip.status}
+              </Badge>
+            </span>
+          }
+        />
         {showDriverRatingButton ? (
           <Button
             type="button"
-            variant="outline"
-            className="w-full sm:w-auto"
+            className="w-full bg-[var(--fms-success-border)] text-white hover:bg-[var(--fms-success-text)] sm:w-auto"
             onClick={() => setFeedbackDialogOpen(true)}
           >
             View the driver rating
@@ -846,27 +837,19 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
               Reject
             </Button>
           ) : null}
-          {/* <Button type="button" variant="outline" asChild>
-            <Link to={backPath}>{backLabel}</Link>
-          </Button> */}
         </div>
-      ) : (
+      ) : showCallForPickupButton ? (
         <div className="flex flex-wrap gap-3 pt-2">
-          {showCallForPickupButton ? (
-            <Button
-              type="button"
-              className="bg-[var(--fms-button)] text-white hover:bg-[var(--fms-button-hover)]"
-              disabled={pickupMutation.isPending}
-              onClick={handleCallForPickup}
-            >
-              {pickupMutation.isPending ? 'Calling…' : 'Call for Pickup'}
-            </Button>
-          ) : null}
-          <Button type="button" variant="outline" asChild>
-            <Link to={backPath}>{backLabel}</Link>
+          <Button
+            type="button"
+            className="bg-[var(--fms-button)] text-white hover:bg-[var(--fms-button-hover)]"
+            disabled={pickupMutation.isPending}
+            onClick={handleCallForPickup}
+          >
+            {pickupMutation.isPending ? 'Calling…' : 'Call for Pickup'}
           </Button>
         </div>
-      )}
+      ) : null}
 
       <Dialog open={rejectDialogOpen} onOpenChange={(open) => !open && closeRejectDialog()}>
         <DialogContent className="max-w-md">

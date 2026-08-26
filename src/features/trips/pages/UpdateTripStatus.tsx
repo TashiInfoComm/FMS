@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Flag, MapPin, Play, Users } from 'lucide-react'
+import { Flag, MapPin, Play, Users } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -38,6 +38,7 @@ import {
 } from '@/features/trips/lib/trips-api'
 import { apiClient } from '@/services/apiClient'
 import { useUserStore } from '@/services/user-store'
+import { BackToListButton } from '@/shared/components/BackToListButton'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { useAccessControl } from '@/shared/hooks/useAccessControl'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
@@ -248,6 +249,7 @@ export default function UpdateTripStatus() {
   if (detailQuery.isLoading) {
     return (
       <section className="space-y-5">
+        <BackToListButton to="/trip/my-assignments" />
         <PageHeader
           title="Update Trip Status"
           subtitle="Update the current trip status for the selected assignment."
@@ -260,6 +262,7 @@ export default function UpdateTripStatus() {
   if (detailQuery.isError || !detailQuery.data) {
     return (
       <section className="space-y-5">
+        <BackToListButton to="/trip/my-assignments" />
         <PageHeader
           title="Update Trip Status"
           subtitle="Update the current trip status for the selected assignment."
@@ -269,14 +272,6 @@ export default function UpdateTripStatus() {
             {detailQuery.error instanceof Error
               ? detailQuery.error.message
               : 'Assignment not found.'}
-            <div className="mt-4">
-              <Button variant="outline" asChild>
-                <Link to="/trip/my-assignments">
-                  <ArrowLeft className="mr-1 h-4 w-4" />
-                  Back to My Assignments
-                </Link>
-              </Button>
-            </div>
           </CardContent>
         </Card>
       </section>
@@ -336,29 +331,21 @@ export default function UpdateTripStatus() {
 
   return (
     <section className="space-y-5">
+      <BackToListButton to="/trip/my-assignments" />
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <PageHeader
           title="Update Trip Status"
           subtitle="Update the current trip status for the selected assignment."
         />
-        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-          {showDriverRatingButton ? (
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full sm:w-auto"
-              onClick={() => setFeedbackDialogOpen(true)}
-            >
-              View the driver rating
-            </Button>
-          ) : null}
-          <Button variant="outline" className="w-full sm:w-auto" asChild>
-            <Link to="/trip/my-assignments">
-              <ArrowLeft className="mr-1 h-4 w-4" />
-              Back
-            </Link>
+        {showDriverRatingButton ? (
+          <Button
+            type="button"
+            className="w-full bg-[var(--fms-success-border)] text-white hover:bg-[var(--fms-success-text)] sm:w-auto"
+            onClick={() => setFeedbackDialogOpen(true)}
+          >
+            View the driver rating
           </Button>
-        </div>
+        ) : null}
       </div>
 
 

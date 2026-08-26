@@ -49,6 +49,7 @@ import {
 import { mapUserDetailFields, searchUserByCid } from '@/features/user/lib/users-api'
 import type { ApiRecord } from '@/features/user/lib/roles-api'
 import { useUserStore } from '@/services/user-store'
+import { BackToListButton } from '@/shared/components/BackToListButton'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
@@ -484,6 +485,7 @@ function CreateTripRequisition() {
   if (crud.isResolved && !crud.canCreate) {
     return (
       <section className="space-y-5">
+        <BackToListButton to="/trip/request" />
         <PageHeader
           title="Travel Request Form"
           subtitle="Submit your travel authorization request for approval."
@@ -497,6 +499,7 @@ function CreateTripRequisition() {
 
   return (
     <section className="space-y-5">
+      <BackToListButton to="/trip/request" />
       <PageHeader
         title="Travel Request Form"
         subtitle="Submit your travel authorization request for approval."

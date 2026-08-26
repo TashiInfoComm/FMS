@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, ArrowLeft, CheckSquare, Clock3 } from 'lucide-react'
+import { AlertTriangle, CheckSquare, Clock3 } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -29,6 +29,7 @@ import {
   formatEmergencyResponseDeadline,
 } from '@/features/emergency-vehicle/lib/emergency-incidents-api'
 import { cn } from '@/lib/utils'
+import { BackToListButton } from '@/shared/components/BackToListButton'
 import { ListPanelMessage } from '@/shared/components/MobileListCard'
 import { DetailFieldBoxSkeleton } from '@/shared/components/detail-loading'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
@@ -195,14 +196,7 @@ function VehicleDeployment() {
 
   return (
     <section className="space-y-5">
-      <div className="space-y-3">
-        <Button type="button" variant="ghost" className="-ml-2 w-fit px-2" asChild>
-          <Link to="/emergency/request">
-            <ArrowLeft className="mr-1 h-4 w-4" />
-            Back
-          </Link>
-        </Button>
-      </div>
+      <BackToListButton to="/emergency/request" />
 
       <Card className="min-w-0 overflow-visible rounded-xl border border-[var(--fms-strokes)] bg-white p-3 sm:p-5">
         <CardContent className="min-w-0 space-y-5 p-0">

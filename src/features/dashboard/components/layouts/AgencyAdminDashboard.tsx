@@ -81,47 +81,45 @@ export function AgencyAdminDashboard() {
         </div>
       )}
 
-      <PendingActionsPanel
-        title="Pending Approvals"
-        badge="count"
-        actions={pendingActions}
-        isLoading={pendingActionsQuery.isLoading}
-        isError={pendingActionsQuery.isError && pendingActions.length === 0}
-        errorMessage={errorMessageOf(pendingActionsQuery.error, 'Could not load pending approvals.')}
-      />
+      <div className="grid min-w-0 items-stretch gap-4 lg:grid-cols-2">
+        <DashboardChartCard
+          className="h-full"
+          title="Cost Composition"
+          isLoading={costTrendQuery.isLoading}
+          isError={costTrendQuery.isError}
+          errorMessage={trendError}
+          isEmpty={composition.slices.length === 0}
+          emptyMessage="No cost data available."
+        >
+          <CostCompositionChart
+            slices={composition.slices}
+            total={composition.total}
+            periodLabel={trendWindow.toLowerCase()}
+          />
+        </DashboardChartCard>
 
-      <div className="grid min-w-0 gap-4 lg:grid-cols-3">
-        <div className="min-w-0 lg:col-span-1">
-          <DashboardChartCard
-            title="Cost Composition"
-            isLoading={costTrendQuery.isLoading}
-            isError={costTrendQuery.isError}
-            errorMessage={trendError}
-            isEmpty={composition.slices.length === 0}
-            emptyMessage="No cost data available."
-          >
-            <CostCompositionChart
-              slices={composition.slices}
-              total={composition.total}
-              periodLabel={trendWindow.toLowerCase()}
-            />
-          </DashboardChartCard>
-        </div>
-
-        <div className="min-w-0 lg:col-span-2">
-          <DashboardChartCard
-            title="Monthly Cost Summary"
-            meta={trendMeta}
-            isLoading={costTrendQuery.isLoading}
-            isError={costTrendQuery.isError}
-            errorMessage={trendError}
-            isEmpty={costTrend.length === 0}
-            emptyMessage="No cost data available."
-          >
-            <MonthlyCostChart points={costTrend} />
-          </DashboardChartCard>
-        </div>
+        <PendingActionsPanel
+          className="h-full"
+          title="Pending Approvals"
+          badge="count"
+          actions={pendingActions}
+          isLoading={pendingActionsQuery.isLoading}
+          isError={pendingActionsQuery.isError && pendingActions.length === 0}
+          errorMessage={errorMessageOf(pendingActionsQuery.error, 'Could not load pending approvals.')}
+        />
       </div>
+
+      <DashboardChartCard
+        title="Monthly Cost Summary"
+        meta={trendMeta}
+        isLoading={costTrendQuery.isLoading}
+        isError={costTrendQuery.isError}
+        errorMessage={trendError}
+        isEmpty={costTrend.length === 0}
+        emptyMessage="No cost data available."
+      >
+        <MonthlyCostChart points={costTrend} />
+      </DashboardChartCard>
 
       <DashboardChartCard
         title="Cost Trend — Fuel, Maintenance & Parking"

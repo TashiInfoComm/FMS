@@ -10,11 +10,7 @@ import {
 } from '@/components/ui/chart'
 import { ChartTooltipRow } from '@/features/dashboard/components/charts/ChartTooltipRow'
 import { costCategoryColor, toSeriesKey } from '@/features/dashboard/components/charts/chart-palette'
-import {
-  formatNuCompact,
-  formatNuExact,
-  type DashboardSlice,
-} from '@/features/dashboard/lib/dashboard-api'
+import { formatNuExact, type DashboardSlice } from '@/features/dashboard/lib/dashboard-api'
 
 type CostCompositionChartProps = {
   slices: DashboardSlice[]
@@ -77,8 +73,8 @@ export function CostCompositionChart({ slices, total, periodLabel }: CostComposi
         </ChartContainer>
 
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-xl font-semibold text-[var(--fms-text-header)]">
-            {formatNuCompact(total)}
+          <span className="text-lg font-semibold tabular-nums text-[var(--fms-text-header)]">
+            {formatNuExact(total)}
           </span>
           <span className="text-[11px] text-[var(--fms-text-subheading)]">{periodLabel}</span>
         </div>
@@ -93,7 +89,9 @@ export function CostCompositionChart({ slices, total, periodLabel }: CostComposi
               style={{ backgroundColor: row.color }}
             />
             <span className="font-medium text-[var(--fms-text-header)]">{row.label}</span>
-            <span className="text-[var(--fms-text-subheading)]">{formatNuCompact(row.value)}</span>
+            <span className="tabular-nums text-[var(--fms-text-subheading)]">
+              {formatNuExact(row.value)}
+            </span>
           </li>
         ))}
       </ul>

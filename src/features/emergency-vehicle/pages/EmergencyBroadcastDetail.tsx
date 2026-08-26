@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
 import {
-  ArrowLeft,
   Building2,
   CalendarDays,
   CarFront,
@@ -11,7 +10,7 @@ import {
   Users,
 } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -37,6 +36,7 @@ import {
 import { mapUserDetailFields } from '@/features/user/lib/users-api'
 import { cn } from '@/lib/utils'
 import { useUserStore } from '@/services/user-store'
+import { BackToListButton } from '@/shared/components/BackToListButton'
 import { ListPanelMessage } from '@/shared/components/MobileListCard'
 import { DetailFieldBoxSkeleton } from '@/shared/components/detail-loading'
 
@@ -544,14 +544,8 @@ function EmergencyBroadcastDetail() {
 
   return (
     <section className="space-y-5">
-      <div className="space-y-3">
-        <Button type="button" variant="ghost" className="-ml-2 w-fit px-2" asChild>
-          <Link to={backPath}>
-            <ArrowLeft className="mr-1 h-4 w-4" />
-            Back
-          </Link>
-        </Button>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <BackToListButton to={backPath} />
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h1 className="text-xl font-semibold text-[var(--fms-text-header)] sm:text-2xl">
             {detail
               ? `Emergency Request ${detail.requestId}`
@@ -570,7 +564,6 @@ function EmergencyBroadcastDetail() {
               Deploy Vehicle
             </Button>
           ) : null}
-        </div>
       </div>
 
       {detailQuery.isLoading ? (

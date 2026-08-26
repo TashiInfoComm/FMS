@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
+import { cn } from '@/lib/utils'
 
 type DashboardChartCardProps = {
   title: string
@@ -12,6 +13,7 @@ type DashboardChartCardProps = {
   errorMessage: string
   isEmpty: boolean
   emptyMessage: string
+  className?: string
   children: ReactNode
 }
 
@@ -24,10 +26,11 @@ export function DashboardChartCard({
   errorMessage,
   isEmpty,
   emptyMessage,
+  className,
   children,
 }: DashboardChartCardProps) {
   return (
-    <Card className="min-w-0 rounded-xl border border-[var(--fms-strokes)] ring-0">
+    <Card className={cn('min-w-0 rounded-xl border border-[var(--fms-strokes)] ring-0', className)}>
       <CardHeader className="flex flex-row flex-wrap items-baseline gap-x-2 gap-y-1">
         <CardTitle className="text-base font-semibold text-[var(--fms-text-header)]">
           {title}

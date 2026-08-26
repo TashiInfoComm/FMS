@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Plus, Search } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -30,6 +30,7 @@ import {
 } from '@/features/master/lib/agency-hierarchy-api'
 import { apiDelete, apiGet, apiPost, apiPut } from '@/services/apiClient'
 import { DeleteDialog } from '@/shared/components/DeleteDialog'
+import { BackToListButton } from '@/shared/components/BackToListButton'
 import { PageHeader } from '@/shared/components/PageHeader'
 import {
   DeleteRowActionButton,
@@ -293,6 +294,7 @@ export function AgencyHierarchyCrudSection({
 
   return (
     <section className="min-w-0 space-y-5">
+      {backLink ? <BackToListButton to={backLink.to} state={backLink.state} /> : null}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <PageHeader title={title} subtitle={subtitle} />
         {canCreate ? (
@@ -309,18 +311,7 @@ export function AgencyHierarchyCrudSection({
 
       <Card className="min-w-0 rounded-xl border border-[var(--fms-strokes)] bg-white p-2 sm:p-4">
         <CardContent className="min-w-0 space-y-4 p-0">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            {backLink ? (
-              <Link
-                to={backLink.to}
-                state={backLink.state}
-                className="text-sm text-[var(--fms-text-subheading)] hover:text-[var(--fms-text-header)]"
-              >
-                {backLink.label}
-              </Link>
-            ) : (
-              <span />
-            )}
+          <div className="flex justify-end">
             <div className="relative w-full max-w-sm">
               <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-[var(--fms-text-subheading)]" />
               <Input

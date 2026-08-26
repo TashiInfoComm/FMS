@@ -1,4 +1,4 @@
-import { apiGet } from '@/services/apiClient'
+import { apiGet, apiGetBlob } from '@/services/apiClient'
 import {
   appendReportCommonFilterParams,
   type ReportCommonFilterParams,
@@ -18,9 +18,6 @@ export type FuelConsumptionReportRow = {
   fuelCostNu: number
   avgKmPerL: number
   costPerKmNu: number
-  fuelType: string
-  fuelTypeId: string
-  agencyId: string
   registrationNumber: string
 }
 
@@ -34,7 +31,6 @@ export type FuelQuotaReportRow = {
   usedL: number
   remainingL: number
   utilizationPct: number
-  agencyId: string
   registrationNumber: string
 }
 
@@ -44,13 +40,22 @@ export type FuelReportsPageResult<T> = {
   totalPages: number
   effectivePageSize: number
   serialBase: number
-  fuelledVehicleCount?: number
-  pricePerLiter?: number
 }
 
 export type FuelReportListQuery = {
   page: number
   pageSize: number
+  search?: string
+  common: ReportCommonFilterParams
+}
+
+export type FuelReportExportFormat = 'xlsx' | 'pdf'
+
+export type FuelReportExportTab = 'consumption' | 'quota'
+
+export type FuelReportExportQuery = {
+  tab: FuelReportExportTab
+  format: FuelReportExportFormat
   search?: string
   common: ReportCommonFilterParams
 }
@@ -163,30 +168,9 @@ function pickId(record: ApiRecord): string {
   )
 }
 
-function pickAgencyId(record: ApiRecord): string {
-  const agency = nestedRecord(record.agency)
-  return (
-    pickScalar(record, ['agency_id', 'agencyId']) ||
-    (agency ? pickScalar(agency, ['id', 'agency_id', 'agencyId']) : '')
-  )
-}
-
-function pickFuelType(record: ApiRecord): { id: string; label: string } {
-  const nested = nestedRecord(record.fuel_type ?? record.fuelType)
-  const id =
-    pickScalar(record, ['fuel_type_id', 'fuelTypeId']) ||
-    (nested ? pickScalar(nested, ['id', 'fuel_type_id', 'fuelTypeId']) : '')
-  const label =
-    pickScalar(record, ['fuel_type', 'fuelType', 'fuel_type_name', 'fuelTypeName']) ||
-    (nested ? pickScalar(nested, ['name', 'label', 'code']) : '') ||
-    id
-  return { id, label: label.toLowerCase() }
-}
-
 function mapConsumptionRow(record: ApiRecord): FuelConsumptionReportRow | null {
   const id = pickId(record)
   if (!id) return null
-  const fuelType = pickFuelType(record)
   const fuelUsedL = pickNumber(record, [
     'total_fuel_used_liters',
     'totalFuelUsedLiters',
@@ -246,9 +230,6 @@ function mapConsumptionRow(record: ApiRecord): FuelConsumptionReportRow | null {
     fuelCostNu,
     avgKmPerL,
     costPerKmNu,
-    fuelType: fuelType.label,
-    fuelTypeId: fuelType.id,
-    agencyId: pickAgencyId(record),
   }
 }
 
@@ -268,15 +249,19 @@ function mapQuotaRow(record: ApiRecord): FuelQuotaReportRow | null {
     'quota_total',
     'quotaTotal',
   ])
-  const usedL = pickNumber(record, [
-    'used',
-    'used_liters',
-    'usedLiters',
-    'quota_used',
-    'quotaUsed',
-    'fuel_used',
-    'fuelUsed',
-  ])
+  const usedFromApi = pickNumber(
+    record,
+    [
+      'used',
+      'used_liters',
+      'usedLiters',
+      'quota_used',
+      'quotaUsed',
+      'fuel_used',
+      'fuelUsed',
+    ],
+    Number.NaN,
+  )
   const remainingFromApi = pickNumber(
     record,
     ['remaining', 'remaining_liters', 'remainingLiters', 'quota_remaining', 'quotaRemaining'],
@@ -284,7 +269,12 @@ function mapQuotaRow(record: ApiRecord): FuelQuotaReportRow | null {
   )
   const remainingL = Number.isFinite(remainingFromApi)
     ? remainingFromApi
-    : Math.max(0, allocatedL - usedL)
+    : Number.isFinite(usedFromApi)
+      ? Math.max(0, allocatedL - usedFromApi)
+      : allocatedL
+  const usedL = Number.isFinite(usedFromApi)
+    ? usedFromApi
+    : Math.max(0, allocatedL - remainingL)
   const utilizationFromApi = pickNumber(
     record,
     ['utilization', 'utilization_pct', 'utilizationPct', 'usage_percent', 'usagePercent'],
@@ -310,23 +300,7 @@ function mapQuotaRow(record: ApiRecord): FuelQuotaReportRow | null {
     usedL,
     remainingL,
     utilizationPct,
-    agencyId: pickAgencyId(record),
   }
-}
-
-function pickSummaryNumber(payload: unknown, keys: string[]): number | undefined {
-  if (!payload || typeof payload !== 'object') return undefined
-  const root = payload as ApiRecord
-  const data = nestedRecord(root.data)
-  const summary = nestedRecord(root.summary) ?? nestedRecord(data?.summary) ?? data ?? root
-  for (const key of keys) {
-    if (!summary || summary[key] === null || summary[key] === undefined || summary[key] === '') {
-      continue
-    }
-    const parsed = toNumber(summary[key], Number.NaN)
-    if (Number.isFinite(parsed)) return parsed
-  }
-  return undefined
 }
 
 function buildFuelReportPath(basePath: string, query: FuelReportListQuery): string {
@@ -358,22 +332,6 @@ export async function fetchFuelConsumptionReportPage(
     totalPages: paged.totalPages,
     effectivePageSize: paged.effectivePageSize,
     serialBase: paged.serialBase,
-    fuelledVehicleCount: pickSummaryNumber(payload, [
-      'fuelled_vehicles',
-      'fuelledVehicles',
-      'vehicle_count',
-      'vehicleCount',
-      'total_vehicles',
-      'totalVehicles',
-    ]),
-    pricePerLiter: pickSummaryNumber(payload, [
-      'price_per_liter',
-      'pricePerLiter',
-      'fuel_price',
-      'fuelPrice',
-      'rate_per_liter',
-      'ratePerLiter',
-    ]),
   }
 }
 
@@ -396,23 +354,94 @@ export async function fetchFuelQuotaReportPage(
     totalPages: paged.totalPages,
     effectivePageSize: paged.effectivePageSize,
     serialBase: paged.serialBase,
-    fuelledVehicleCount: pickSummaryNumber(payload, [
-      'fuelled_vehicles',
-      'fuelledVehicles',
-      'vehicle_count',
-      'vehicleCount',
-      'total_vehicles',
-      'totalVehicles',
-    ]),
-    pricePerLiter: pickSummaryNumber(payload, [
-      'price_per_liter',
-      'pricePerLiter',
-      'fuel_price',
-      'fuelPrice',
-      'rate_per_liter',
-      'ratePerLiter',
-    ]),
   }
+}
+
+function buildFuelExportPath(query: FuelReportExportQuery): string {
+  const basePath =
+    query.tab === 'quota' ? '/fuel/reports/vehicles/quota' : '/fuel/reports/vehicles'
+  const params = new URLSearchParams()
+  params.set('format', query.format)
+  appendReportCommonFilterParams(params, query.common)
+  const search = query.search?.trim()
+  if (search) params.set('search', search)
+  return `${basePath}?${params.toString()}`
+}
+
+function fileNameFromContentDisposition(header: string, fallback: string): string {
+  if (!header) return fallback
+
+  const utf8 = header.match(/filename\*=UTF-8''([^;]+)/i)
+  if (utf8?.[1]) {
+    try {
+      return decodeURIComponent(utf8[1].trim().replace(/^["']|["']$/g, ''))
+    } catch {
+      // Keep looking at the plain filename= form.
+    }
+  }
+
+  const quoted = header.match(/filename="([^"]+)"/i)
+  if (quoted?.[1]) return quoted[1]
+
+  const plain = header.match(/filename=([^;]+)/i)
+  if (plain?.[1]) return plain[1].trim().replace(/^["']|["']$/g, '')
+
+  return fallback
+}
+
+function pickExportFileUrl(payload: unknown): string {
+  if (!payload || typeof payload !== 'object') return ''
+  const root = payload as ApiRecord
+  const data = nestedRecord(root.data)
+  const source = data ?? root
+  return pickScalar(source, [
+    'url',
+    'download_url',
+    'downloadUrl',
+    'file_url',
+    'fileUrl',
+    'signed_url',
+    'signedUrl',
+  ])
+}
+
+function triggerBrowserDownload(href: string, fileName: string) {
+  const link = document.createElement('a')
+  link.href = href
+  link.download = fileName
+  link.rel = 'noopener'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+}
+
+/**
+ * Same list endpoints as the active Fuel Reports tab:
+ * `GET /fuel/reports/vehicles?format=xlsx|pdf`
+ * `GET /fuel/reports/vehicles/quota?format=xlsx|pdf`
+ */
+export async function exportFuelReport(query: FuelReportExportQuery): Promise<void> {
+  const { blob, contentType, contentDisposition } = await apiGetBlob(buildFuelExportPath(query))
+  const extension = query.format === 'pdf' ? 'pdf' : 'xlsx'
+  const fallbackName = `fuel-${query.tab}-report.${extension}`
+
+  if (contentType.includes('application/json')) {
+    let payload: unknown
+    try {
+      payload = JSON.parse(await blob.text()) as unknown
+    } catch {
+      throw new Error('Could not export fuel report.')
+    }
+    const fileUrl = pickExportFileUrl(payload)
+    if (!fileUrl) throw new Error('Export file URL was not returned.')
+    triggerBrowserDownload(fileUrl, fallbackName)
+    return
+  }
+
+  const fileName = fileNameFromContentDisposition(contentDisposition, fallbackName)
+  const objectUrl = URL.createObjectURL(blob)
+  triggerBrowserDownload(objectUrl, fileName)
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000)
 }
 
 export function formatFuelLiters(value: number): string {

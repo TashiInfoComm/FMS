@@ -1,19 +1,20 @@
 import { useQuery } from '@tanstack/react-query'
-import { FileSpreadsheet } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
-import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import {
   formatParkingClaimStatusLabel,
   ParkingClaimStatusCell,
 } from '@/features/parking/components/ParkingClaimStatusCell'
 import type { ParkingClaimStatus } from '@/features/parking/lib/parking-logs-api'
+import { ReportExportActions } from '@/features/reports/components/ReportExportActions'
 import { ReportTableToolbar } from '@/features/reports/components/ReportTableToolbar'
 import { useReportCommonFilters } from '@/features/reports/hooks/useReportCommonFilters'
 import {
+  exportParkingReport,
   fetchParkingReportPage,
   formatParkingReportAmount,
+  type ParkingReportExportFormat,
 } from '@/features/reports/pages/parking/lib/parking-reports-api'
 import { SearchableAutocomplete } from '@/shared/components/SearchableAutocomplete'
 import {
@@ -23,6 +24,8 @@ import {
 } from '@/shared/components/MobileListCard'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { TablePagination } from '@/shared/components/TablePagination'
+import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
+import { showErrorToast } from '@/shared/lib/toast'
 
 const REPORT_COLUMNS = [
   'Driver',
@@ -46,10 +49,13 @@ const STATUS_FILTER_OPTIONS: { value: ParkingClaimStatus | ''; label: string }[]
 
 export default function ParkingReports() {
   const commonFilters = useReportCommonFilters()
+  const crud = useRouteCrudPermissions('/reports/parking')
+  const canExport = crud.hasAction('export')
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<ParkingClaimStatus | ''>('')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
+  const [exportingFormat, setExportingFormat] = useState<ParkingReportExportFormat | null>(null)
 
   const listQueryKey = [
     'parking-reports',
@@ -96,8 +102,22 @@ export default function ParkingReports() {
     if (page > totalPages) setPage(totalPages)
   }, [page, totalPages])
 
-  const handleExport = () => {
-    window.alert('Excel export will be available once the export API is connected.')
+  const handleExport = async (format: ParkingReportExportFormat) => {
+    if (exportingFormat) return
+    setExportingFormat(format)
+    try {
+      await exportParkingReport({
+        format,
+        search,
+        status: statusFilter,
+        common: commonFilters.params,
+        year: new Date().getFullYear(),
+      })
+    } catch (error) {
+      showErrorToast(error, 'Could not export parking report.')
+    } finally {
+      setExportingFormat(null)
+    }
   }
 
   const hasActiveFilters = Boolean(
@@ -120,15 +140,12 @@ export default function ParkingReports() {
     <section className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <PageHeader title="Parking Reports" subtitle={claimCountLabel} />
-        <Button
-          type="button"
-          variant="outline"
-          onClick={handleExport}
-          className="w-full border-[var(--fms-strokes)] bg-white text-[var(--fms-text-header)] hover:bg-[#fafafa] sm:w-auto"
-        >
-          <FileSpreadsheet className="mr-1 h-4 w-4" />
-          Export Excel
-        </Button>
+        {canExport ? (
+          <ReportExportActions
+            onExport={(format) => void handleExport(format)}
+            exportingFormat={exportingFormat}
+          />
+        ) : null}
       </div>
 
       <Card className="min-w-0 rounded-xl border border-[var(--fms-strokes)] bg-white p-2 sm:p-4">

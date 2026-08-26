@@ -2,7 +2,7 @@ import { useCallback, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 
 import { fetchUserSidebarMenus, findSubMenuRowById } from '@/features/modules/lib/menus-api'
-import { fetchRoleDetail, normalizeActionCode } from '@/features/user/lib/roles-api'
+import { fetchRoleDetail, grantedActionCodesFromActionsObject, normalizeActionCode } from '@/features/user/lib/roles-api'
 import { useUserStore } from '@/services/user-store'
 import { useAccessControl } from '@/shared/hooks/useAccessControl'
 
@@ -50,12 +50,11 @@ export function useRoleSubMenuPermissions(subMenuId: string | null | undefined) 
     if (fromDetail?.length) {
       return new Set(fromDetail.map(normalizeActionCode))
     }
-    const set = new Set<string>()
-    if (actions?.read === 1) set.add('read')
-    if (actions?.create === 1) set.add('create')
-    if (actions?.update === 1) set.add('update')
-    if (actions?.delete === 1) set.add('delete')
-    return set
+    if (actions) {
+      const fromFlags = grantedActionCodesFromActionsObject(actions)
+      if (fromFlags.length > 0) return new Set(fromFlags)
+    }
+    return new Set<string>()
   }, [subMenuId, permissionsQuery.data, actions])
 
   const resolved = Boolean(
@@ -87,6 +86,7 @@ export function useRoleSubMenuPermissions(subMenuId: string | null | undefined) 
     canApprove: hasAction('approve'),
     canReject: hasAction('reject'),
     canAssign: hasAction('assign'),
+    canExport: hasAction('export'),
     hasAction,
     allowed,
   }

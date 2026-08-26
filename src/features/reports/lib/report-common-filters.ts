@@ -110,3 +110,8 @@ export function appendReportCommonFilterParams(
   if (params.date_to) searchParams.set('date_to', params.date_to)
   if (params.agency_id) searchParams.set('agency_id', params.agency_id)
 }
+
+/** Stable query-key fragment so every chart refetch uses the same filter identity. */
+export function reportFilterQueryKey(params: ReportCommonFilterParams) {
+  return [params.date_from ?? '', params.date_to ?? '', params.agency_id ?? ''] as const
+}

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
@@ -25,6 +25,7 @@ import {
   LOAN_DISPATCH_FUEL_LEVEL_OPTIONS,
 } from '@/features/inter-agency-vehicle-loan/lib/loan-requisition-ui'
 import { SearchableAutocomplete } from '@/shared/components/SearchableAutocomplete'
+import { BackToListButton } from '@/shared/components/BackToListButton'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
@@ -332,15 +333,10 @@ function DispatchVehicle() {
   if (detailQuery.isError || !detail) {
     return (
       <section className="space-y-5">
-        <Button variant="outline" size="icon" asChild>
-          <Link
-            to={`/vehicle-loan/${loanId}`}
-            state={{ backPath: '/vehicle-loan/lending' }}
-            aria-label="Back to loan detail"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-        </Button>
+        <BackToListButton
+          to={`/vehicle-loan/${loanId}`}
+          state={{ backPath: '/vehicle-loan/lending' }}
+        />
         <PageHeader title="Dispatch Vehicles" subtitle="Loan not found" />
         <p className="text-sm text-[var(--fms-text-subheading)]">
           {detailQuery.error instanceof Error
@@ -354,16 +350,10 @@ function DispatchVehicle() {
   if (detail.status !== 'VEHICLE_COMMITTED') {
     return (
       <section className="space-y-5">
-        <Button variant="outline" asChild>
-          <Link
-            to={`/vehicle-loan/${loanId}`}
-            state={{ backPath: '/vehicle-loan/lending' }}
-            className="inline-flex items-center gap-2"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back to detail
-          </Link>
-        </Button>
+        <BackToListButton
+          to={`/vehicle-loan/${loanId}`}
+          state={{ backPath: '/vehicle-loan/lending' }}
+        />
         <PageHeader
           title="Dispatch Vehicles"
           subtitle={`${detail.requestId} is not ready for dispatch`}
@@ -378,16 +368,10 @@ function DispatchVehicle() {
   return (
     <section className="space-y-5">
       <div className="space-y-3">
-        <Button variant="outline" asChild>
-          <Link
-            to={`/vehicle-loan/${loanId}`}
-            state={{ backPath: '/vehicle-loan/lending' }}
-            className="inline-flex items-center gap-2"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back to detail
-          </Link>
-        </Button>
+        <BackToListButton
+          to={`/vehicle-loan/${loanId}`}
+          state={{ backPath: '/vehicle-loan/lending' }}
+        />
         <PageHeader
           title="Dispatch Vehicles"
           subtitle={`Record handover checklist and dispatch for ${detail.requestId}`}

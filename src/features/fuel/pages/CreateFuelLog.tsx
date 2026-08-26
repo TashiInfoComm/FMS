@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, ArrowLeft, CloudUpload } from 'lucide-react'
+import { AlertTriangle, CloudUpload } from 'lucide-react'
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -42,6 +42,7 @@ import { cn } from '@/lib/utils'
 import { DetailInlineValueSkeleton } from '@/shared/components/detail-loading'
 import { useUserStore } from '@/services/user-store'
 import { SearchableAutocomplete } from '@/shared/components/SearchableAutocomplete'
+import { BackToListButton } from '@/shared/components/BackToListButton'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
@@ -658,14 +659,8 @@ function CreateFuelLogPage() {
 
   return (
     <section className="space-y-5">
-      <div className="flex items-center gap-3">
-        <Button variant="outline" size="icon" asChild>
-          <Link to="/fuel/logs" aria-label="Back to fuel logs">
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-        </Button>
-        <PageHeader title="Add Fuel Log" />
-      </div>
+      <BackToListButton to="/fuel/logs" />
+      <PageHeader title="Add Fuel Log" />
 
       {vehiclesQuery.isLoading ? (
         <p className="text-sm text-[var(--fms-text-subheading)]">Loading assigned vehicles…</p>
@@ -868,14 +863,8 @@ function FuelLogDetailPage() {
   if (isMainLoading) {
     return (
       <section className="space-y-5">
-        <div className="flex items-center gap-3">
-          <Button variant="outline" size="icon" asChild>
-            <Link to="/fuel/logs" aria-label="Back to fuel logs">
-              <ArrowLeft className="h-4 w-4" />
-            </Link>
-          </Button>
-          <PageHeader title="Fuel Log Details" />
-        </div>
+        <BackToListButton to="/fuel/logs" />
+        <PageHeader title="Fuel Log Details" />
         <Card className="rounded-xl border border-[var(--fms-strokes)] bg-white">
           <CardContent className="space-y-4 p-4 sm:p-6">
             <SkeletonFieldValue />
@@ -889,22 +878,13 @@ function FuelLogDetailPage() {
   if (!isMainLoading && (detailQuery.isError || !record)) {
     return (
       <section className="space-y-5">
-        <div className="flex items-center gap-3">
-          <Button variant="outline" size="icon" asChild>
-            <Link to="/fuel/logs" aria-label="Back to fuel logs">
-              <ArrowLeft className="h-4 w-4" />
-            </Link>
-          </Button>
-          <PageHeader title="Fuel Log Details" subtitle="Record not found" />
-        </div>
+        <BackToListButton to="/fuel/logs" />
+        <PageHeader title="Fuel Log Details" subtitle="Record not found" />
         <p className="text-sm text-[var(--fms-text-subheading)]">
           {detailQuery.error instanceof Error
             ? detailQuery.error.message
             : `No fuel log matches "${logId}".`}
         </p>
-        <Button variant="outline" asChild>
-          <Link to="/fuel/logs">Back to Fuel Log</Link>
-        </Button>
       </section>
     )
   }
@@ -915,14 +895,8 @@ function FuelLogDetailPage() {
 
   return (
     <section className="space-y-5">
-      <div className="flex items-center gap-3">
-        <Button variant="outline" size="icon" asChild>
-          <Link to="/fuel/logs" aria-label="Back to fuel logs">
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-        </Button>
-        <PageHeader title="Fuel Log Details" />
-      </div>
+      <BackToListButton to="/fuel/logs" />
+      <PageHeader title="Fuel Log Details" />
 
       <FuelLogForm
         mode="detail"
@@ -985,10 +959,6 @@ function FuelLogDetailPage() {
           Resubmit
         </Button>
       ) : null} */}
-
-      <Button variant="outline" asChild>
-        <Link to="/fuel/logs">Back to Fuel Log</Link>
-      </Button>
 
       <Dialog open={reviewDialogOpen} onOpenChange={(open) => !open && closeReviewDialog()}>
         <DialogContent className="max-w-md">

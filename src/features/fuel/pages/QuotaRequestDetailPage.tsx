@@ -1,5 +1,4 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 
@@ -20,6 +19,7 @@ import {
   type QuotaRequestListRow,
 } from '@/features/fuel/lib/quota-requests-api'
 import { cn } from '@/lib/utils'
+import { BackToListButton } from '@/shared/components/BackToListButton'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { DetailFieldBoxSkeleton } from '@/shared/components/detail-loading'
 import { useAccessControl } from '@/shared/hooks/useAccessControl'
@@ -212,17 +212,8 @@ function QuotaRequestDetailContent({
 
   return (
     <section className="space-y-5">
-      <div className="flex items-center gap-3">
-        <Button variant="outline" size="icon" asChild>
-          <Link
-            to="/fuel/quota-request-list"
-            aria-label="Back to quota requests"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-        </Button>
-        <PageHeader title="Fuel Request Details" />
-      </div>
+      <BackToListButton to="/fuel/quota-request-list" />
+      <PageHeader title="Fuel Request Details" />
 
       <Card className="rounded-xl border border-[var(--fms-strokes)] bg-white">
         <CardContent className="space-y-4 p-4 sm:p-6">
@@ -330,11 +321,7 @@ function QuotaRequestDetailContent({
             </Button>
           ) : null}
         </div>
-      ) : (
-        <Button type="button" variant="outline" asChild>
-          <Link to="/fuel/quota-request-list">Back to list</Link>
-        </Button>
-      )}
+      ) : null}
 
       <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
         <DialogContent className="max-w-md">
@@ -405,6 +392,7 @@ export default function QuotaRequestDetailPage() {
   if (crud.isResolved && !crud.canRead) {
     return (
       <section className="space-y-5">
+        <BackToListButton to="/fuel/quota-request-list" />
         <PageHeader title="Fuel Request Details" />
         <p className="text-sm text-[var(--fms-text-subheading)]">
           You do not have permission to view this request.
@@ -416,17 +404,8 @@ export default function QuotaRequestDetailPage() {
   if (detailQuery.isLoading) {
     return (
       <section className="space-y-5">
-        <div className="flex items-center gap-3">
-          <Button variant="outline" size="icon" asChild>
-            <Link
-              to="/fuel/quota-request-list"
-              aria-label="Back to quota requests"
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </Link>
-          </Button>
-          <PageHeader title="Fuel Request Details" />
-        </div>
+        <BackToListButton to="/fuel/quota-request-list" />
+        <PageHeader title="Fuel Request Details" />
 
         <Card className="rounded-xl border border-[var(--fms-strokes)] bg-white">
           <CardContent className="space-y-4 p-4 sm:p-6">
@@ -448,20 +427,13 @@ export default function QuotaRequestDetailPage() {
   if (detailQuery.isError || !request) {
     return (
       <section className="space-y-5">
-        <Button variant="outline" size="icon" asChild>
-          <Link to="/fuel/quota-request-list" aria-label="Back to quota requests">
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-        </Button>
+        <BackToListButton to="/fuel/quota-request-list" />
         <PageHeader title="Fuel Request Details" subtitle="Request not found" />
         <p className="text-sm text-[var(--fms-text-subheading)]">
           {detailQuery.error instanceof Error
             ? detailQuery.error.message
             : `No quota request matches "${requestId}".`}
         </p>
-        <Button variant="outline" asChild>
-          <Link to="/fuel/quota-request-list">Back to Quota Requests</Link>
-        </Button>
       </section>
     )
   }

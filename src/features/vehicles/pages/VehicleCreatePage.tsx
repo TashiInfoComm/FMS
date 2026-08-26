@@ -36,6 +36,7 @@ import {
   VEHICLE_FORM_FIELD_KEYS,
   type VehicleFormFieldKey,
 } from '@/features/vehicles/lib/vehicle-form-schema'
+import { BackToListButton } from '@/shared/components/BackToListButton'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
@@ -403,6 +404,7 @@ export function VehicleFormPage() {
   if (!isEdit && crud.isResolved && !crud.canCreate) {
     return (
       <section className="space-y-5">
+        <BackToListButton to="/vehicle/list" />
         <PageHeader title={pageTitle} subtitle={pageSubtitle} />
         <p className="text-sm text-[var(--fms-text-subheading)]">You do not have permission to create vehicles.</p>
       </section>
@@ -412,11 +414,9 @@ export function VehicleFormPage() {
   if (isEdit && crud.isResolved && !crud.canRead) {
     return (
       <section className="space-y-5">
+        <BackToListButton to="/vehicle/list" />
         <PageHeader title={pageTitle} subtitle={pageSubtitle} />
         <p className="text-sm text-[var(--fms-text-subheading)]">You do not have permission to view this vehicle.</p>
-        <Button variant="outline" asChild>
-          <Link to="/vehicle/list">Back to list</Link>
-        </Button>
       </section>
     )
   }
@@ -424,13 +424,11 @@ export function VehicleFormPage() {
   if (isEdit && crud.isResolved && crud.canRead && !crud.canUpdate) {
     return (
       <section className="space-y-5">
+        <BackToListButton
+          to={vehicleId ? `/vehicle/list/${encodeURIComponent(vehicleId)}` : '/vehicle/list'}
+        />
         <PageHeader title={pageTitle} subtitle={pageSubtitle} />
         <p className="text-sm text-[var(--fms-text-subheading)]">You do not have permission to edit vehicles.</p>
-        <Button variant="outline" asChild>
-          <Link to={vehicleId ? `/vehicle/list/${encodeURIComponent(vehicleId)}` : '/vehicle/list'}>
-            Back to detail
-          </Link>
-        </Button>
       </section>
     )
   }
@@ -439,6 +437,7 @@ export function VehicleFormPage() {
 
   return (
     <section className="space-y-5">
+      <BackToListButton to="/vehicle/list" />
       <PageHeader title={pageTitle} subtitle={pageSubtitle} />
 
       {showFormLoading ? (

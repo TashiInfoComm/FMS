@@ -1,13 +1,10 @@
-import { ArrowLeft } from 'lucide-react'
-import { Link } from 'react-router-dom'
-
-import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   DetailLabeledValueSkeleton,
   DetailReadOnlyFieldSkeleton,
 } from '@/shared/components/detail-loading'
+import { BackToListButton } from '@/shared/components/BackToListButton'
 import { PageHeader } from '@/shared/components/PageHeader'
 
 const APPLICANT_FIELDS = [
@@ -35,28 +32,21 @@ const TRIP_FIELDS = [
 type TripDetailSkeletonProps = {
   title: string
   backPath: string
-  backLabel: string
 }
 
-export function TripDetailSkeleton({ title, backPath, backLabel }: TripDetailSkeletonProps) {
+export function TripDetailSkeleton({ title, backPath }: TripDetailSkeletonProps) {
   return (
     <section className="space-y-5">
-      <div className="flex items-start gap-3">
-        <Button variant="outline" size="icon" className="shrink-0" asChild>
-          <Link to={backPath} aria-label={backLabel}>
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-        </Button>
-        <PageHeader
-          title={title}
-          subtitle={
-            <span className="inline-flex flex-wrap items-center gap-2">
-              <Skeleton className="h-4 w-36" />
-              <Skeleton className="h-5 w-20 rounded-full" />
-            </span>
-          }
-        />
-      </div>
+      <BackToListButton to={backPath} />
+      <PageHeader
+        title={title}
+        subtitle={
+          <span className="inline-flex flex-wrap items-center gap-2">
+            <Skeleton className="h-4 w-36" />
+            <Skeleton className="h-5 w-20 rounded-full" />
+          </span>
+        }
+      />
 
       <Card className="border border-[var(--fms-strokes)] bg-white">
         <CardContent className="space-y-4 pt-5">

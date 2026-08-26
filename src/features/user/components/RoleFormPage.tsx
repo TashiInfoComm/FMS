@@ -29,6 +29,7 @@ import {
   type FlatSubMenuRow,
   type RoleActions,
 } from '@/features/user/lib/roles-api'
+import { BackToListButton } from '@/shared/components/BackToListButton'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
@@ -246,11 +247,9 @@ export function RoleFormPage() {
   if (isEdit && detailError) {
     return (
       <section className="space-y-5">
+        <BackToListButton to="/admin/roles" />
         <PageHeader title="Edit Role" />
         <p className="text-sm text-[var(--fms-delete)]">{detailError}</p>
-        <Button variant="outline" onClick={() => navigate('/admin/roles')}>
-          Back to roles
-        </Button>
       </section>
     )
   }
@@ -258,17 +257,16 @@ export function RoleFormPage() {
   if (isEdit && crud.isResolved && !crud.canRead) {
     return (
       <section className="space-y-5">
+        <BackToListButton to="/admin/roles" />
         <PageHeader title="Edit Role" />
         <p className="text-sm text-[var(--fms-text-subheading)]">You do not have permission to view this role.</p>
-        <Button variant="outline" onClick={() => navigate('/admin/roles')}>
-          Back to roles
-        </Button>
       </section>
     )
   }
 
   return (
     <section className="space-y-5">
+      <BackToListButton to="/admin/roles" />
       <PageHeader
         title={isEdit ? 'Edit Role' : 'Add Role'}
         subtitle={

@@ -1,4 +1,4 @@
-import { apiGet } from '@/services/apiClient'
+import { apiGet, apiGetBlob } from '@/services/apiClient'
 import {
   appendReportCommonFilterParams,
   type ReportCommonFilterParams,
@@ -28,6 +28,16 @@ export type VehicleModelEfficiencyRow = {
   avgMaintenanceCostNu: number
 }
 
+/** One vehicle type / model in `GET /maintenance/reports/vehicle-type-costs`. */
+export type VehicleTypeCostRow = {
+  id: string
+  /** `Bolero` for the chart axis, where space is tight. */
+  shortLabel: string
+  /** Tooltip / full label. */
+  makeModel: string
+  avgMaintenanceCostNu: number
+}
+
 export type VehicleReportsPageResult = {
   rows: VehicleReportRow[]
   totalCount: number
@@ -39,6 +49,14 @@ export type VehicleReportsPageResult = {
 export type VehicleReportListQuery = {
   page: number
   pageSize: number
+  search?: string
+  common: ReportCommonFilterParams
+}
+
+export type VehicleReportExportFormat = 'xlsx' | 'pdf'
+
+export type VehicleReportExportQuery = {
+  format: VehicleReportExportFormat
   search?: string
   common: ReportCommonFilterParams
 }
@@ -83,10 +101,111 @@ export async function fetchVehicleReportPage(
   }
 }
 
+function buildVehicleExportPath(query: VehicleReportExportQuery): string {
+  const params = new URLSearchParams()
+  params.set('format', query.format)
+
+  const search = query.search?.trim()
+  if (search) params.set('search', search)
+
+  appendReportCommonFilterParams(params, query.common)
+
+  return `/vehicles?${params.toString()}`
+}
+
+function fileNameFromContentDisposition(header: string, fallback: string): string {
+  if (!header) return fallback
+
+  const utf8 = header.match(/filename\*=UTF-8''([^;]+)/i)
+  if (utf8?.[1]) {
+    try {
+      return decodeURIComponent(utf8[1].trim().replace(/^["']|["']$/g, ''))
+    } catch {
+      // Keep looking at the plain filename= form.
+    }
+  }
+
+  const quoted = header.match(/filename="([^"]+)"/i)
+  if (quoted?.[1]) return quoted[1]
+
+  const plain = header.match(/filename=([^;]+)/i)
+  if (plain?.[1]) return plain[1].trim().replace(/^["']|["']$/g, '')
+
+  return fallback
+}
+
+function pickExportFileUrl(payload: unknown): string {
+  if (!payload || typeof payload !== 'object') return ''
+  const root = payload as ApiRecord
+  const data = nestedRecord(root.data)
+  const source = data ?? root
+  return pickScalar(source, [
+    'url',
+    'download_url',
+    'downloadUrl',
+    'file_url',
+    'fileUrl',
+    'signed_url',
+    'signedUrl',
+  ])
+}
+
+function triggerBrowserDownload(href: string, fileName: string) {
+  const link = document.createElement('a')
+  link.href = href
+  link.download = fileName
+  link.rel = 'noopener'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+}
+
+/**
+ * Same list endpoint as Vehicle Reports Master Register:
+ * `GET /vehicles?format=xlsx|pdf`
+ */
+export async function exportVehicleReport(query: VehicleReportExportQuery): Promise<void> {
+  const { blob, contentType, contentDisposition } = await apiGetBlob(buildVehicleExportPath(query))
+  const extension = query.format === 'pdf' ? 'pdf' : 'xlsx'
+  const fallbackName = `vehicle-report.${extension}`
+
+  if (contentType.includes('application/json')) {
+    let payload: unknown
+    try {
+      payload = JSON.parse(await blob.text()) as unknown
+    } catch {
+      throw new Error('Could not export vehicle report.')
+    }
+    const fileUrl = pickExportFileUrl(payload)
+    if (!fileUrl) throw new Error('Export file URL was not returned.')
+    triggerBrowserDownload(fileUrl, fallbackName)
+    return
+  }
+
+  const fileName = fileNameFromContentDisposition(contentDisposition, fallbackName)
+  const objectUrl = URL.createObjectURL(blob)
+  triggerBrowserDownload(objectUrl, fileName)
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000)
+}
+
+function nestedRecord(value: unknown): ApiRecord | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  return value as ApiRecord
+}
+
 function toText(value: unknown): string {
   if (typeof value === 'string') return value.trim()
   if (typeof value === 'number' && Number.isFinite(value)) return String(value)
   return ''
+}
+
+function toNumber(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value.replace(/,/g, ''))
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
 }
 
 function pickScalar(record: ApiRecord, keys: string[]): string {
@@ -98,13 +217,16 @@ function pickScalar(record: ApiRecord, keys: string[]): string {
 }
 
 function pickNumber(record: ApiRecord, keys: string[], fallback = 0): number {
+  return pickNumberOrNull(record, keys) ?? fallback
+}
+
+function pickNumberOrNull(record: ApiRecord, keys: string[]): number | null {
   for (const key of keys) {
-    const value = record[key]
-    if (value === null || value === undefined || value === '') continue
-    const parsed = typeof value === 'number' ? value : Number(value)
-    if (Number.isFinite(parsed)) return parsed
+    if (record[key] === null || record[key] === undefined || record[key] === '') continue
+    const parsed = toNumber(record[key])
+    if (parsed !== null) return parsed
   }
-  return fallback
+  return null
 }
 
 /** Drops the make from `Mahindra Bolero` so the chart axis stays legible. */
@@ -231,12 +353,63 @@ export async function fetchVehicleEfficiencyByModel(
     .filter((row): row is VehicleModelEfficiencyRow => row !== null)
 }
 
+/**
+ * `GET /maintenance/reports/vehicle-type-costs` returns
+ * `{ success, message, data: { vehicle_types: [{ vehicle_type_id, vehicle_type_name, total_cost, work_order_count }] } }`.
+ */
+function extractVehicleTypesList(payload: unknown): ApiRecord[] {
+  const root = nestedRecord(payload)
+  const data = nestedRecord(root?.data) ?? root
+  const list = data?.vehicle_types ?? data?.vehicleTypes ?? root?.vehicle_types
+  if (!Array.isArray(list)) return []
+  return list.filter(
+    (item): item is ApiRecord => Boolean(item) && typeof item === 'object' && !Array.isArray(item),
+  )
+}
+
+function mapVehicleTypeCostRow(record: ApiRecord): VehicleTypeCostRow | null {
+  const name = pickScalar(record, ['vehicle_type_name', 'vehicleTypeName'])
+  if (!name) return null
+
+  const id = pickScalar(record, ['vehicle_type_id', 'vehicleTypeId', 'id']) || name
+  const totalCost = pickNumberOrNull(record, ['total_cost', 'totalCost']) ?? 0
+  const workOrderCount = pickNumberOrNull(record, ['work_order_count', 'workOrderCount']) ?? 0
+  const avgCost = workOrderCount > 0 ? totalCost / workOrderCount : totalCost
+
+  return {
+    id,
+    shortLabel: name,
+    makeModel: name,
+    avgMaintenanceCostNu: avgCost,
+  }
+}
+
+/** `GET /maintenance/reports/vehicle-type-costs` — avg cost per work order, by vehicle type. */
+export async function fetchVehicleTypeMaintenanceCosts(
+  common: ReportCommonFilterParams,
+): Promise<VehicleTypeCostRow[]> {
+  const params = new URLSearchParams()
+  appendReportCommonFilterParams(params, common)
+  const query = params.toString()
+  const payload = await apiGet<unknown>(
+    `/maintenance/reports/vehicle-type-costs${query ? `?${query}` : ''}`,
+  )
+
+  return extractVehicleTypesList(payload)
+    .map((record) => mapVehicleTypeCostRow(record))
+    .filter((row): row is VehicleTypeCostRow => row !== null)
+}
+
+function formatExactNumber(value: number): string {
+  return value.toLocaleString('en-BT', { maximumFractionDigits: 20 })
+}
+
 export function formatKmPerL(value: number): string {
-  return value.toLocaleString('en-BT', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+  return formatExactNumber(value)
 }
 
 export function formatReportNu(value: number): string {
-  return `Nu ${value.toLocaleString('en-BT', { maximumFractionDigits: 0 })}`
+  return `Nu ${formatExactNumber(value)}`
 }
 
 /** Axis ticks only have room for `Nu 75.0K`, not the full figure. */

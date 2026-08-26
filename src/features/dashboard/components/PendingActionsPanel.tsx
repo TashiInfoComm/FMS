@@ -16,6 +16,7 @@ import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import type { DashboardPendingAction } from '@/features/dashboard/lib/dashboard-api'
+import { cn } from '@/lib/utils'
 
 /** Kind keyword to icon; the kind is a normalized (alphanumeric-only) string. */
 const PENDING_ACTION_ICONS: Array<{ match: RegExp; icon: LucideIcon }> = [
@@ -42,6 +43,7 @@ type PendingActionsPanelProps = {
   title?: string
   /** `pending` reads `3 pending` in amber, `count` is a bare red total. */
   badge?: 'pending' | 'count'
+  className?: string
 }
 
 export function PendingActionsPanel({
@@ -51,13 +53,14 @@ export function PendingActionsPanel({
   errorMessage,
   title = 'Pending Actions',
   badge = 'pending',
+  className,
 }: PendingActionsPanelProps) {
   const navigate = useNavigate()
 
   const pendingTotal = actions.reduce((sum, action) => sum + (action.count ?? 1), 0)
 
   return (
-    <Card className="rounded-xl border border-[var(--fms-strokes)] ring-0">
+    <Card className={cn('rounded-xl border border-[var(--fms-strokes)] ring-0', className)}>
       <CardHeader className="flex flex-row items-center justify-between gap-3">
         <CardTitle className="text-base font-semibold text-[var(--fms-text-header)]">
           {title}

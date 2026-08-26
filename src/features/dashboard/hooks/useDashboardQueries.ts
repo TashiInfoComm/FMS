@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 
 import {
   fetchDashboardCostTrend,
+  fetchDashboardCostTrendByAgency,
   fetchDashboardPendingActions,
   fetchDashboardSummary,
 } from '@/features/dashboard/lib/dashboard-api'
@@ -34,6 +35,15 @@ export function useDashboardCostTrend(months: number = COST_TREND_MONTHS) {
   return useQuery({
     queryKey: ['dashboard-cost-trend', role, months],
     queryFn: () => fetchDashboardCostTrend(months),
+    staleTime: 60_000,
+  })
+}
+
+export function useDashboardCostTrendByAgency(months: number = COST_TREND_MONTHS) {
+  const { role } = useAccessControl()
+  return useQuery({
+    queryKey: ['dashboard-cost-trend-by-agency', role, months],
+    queryFn: () => fetchDashboardCostTrendByAgency(months),
     staleTime: 60_000,
   })
 }

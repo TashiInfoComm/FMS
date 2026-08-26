@@ -2,7 +2,7 @@
  * `/admin/roles` management: list (`ViewMode` list), inline read-only matrix (`detail`), or editable matrix (`edit`) with
  * `POST /admin/roles/bulk` and optional role delete. Shares menu grouping helpers with `roles-api`.
  */
-import { ArrowLeft, Check, Search, X } from 'lucide-react'
+import { Check, Search, X } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
@@ -34,6 +34,7 @@ import {
   type RoleListRow,
 } from '@/features/user/lib/roles-api'
 import { DeleteDialog } from '@/shared/components/DeleteDialog'
+import { BackToListButton } from '@/shared/components/BackToListButton'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 import {
@@ -773,10 +774,7 @@ export function RolePermissionManagement() {
   if (detailLoading) {
     return (
       <section className="space-y-5">
-        <Button type="button" variant="ghost" size="sm" className="gap-1 text-[var(--fms-text-header)]" onClick={goList}>
-          <ArrowLeft className="h-4 w-4" />
-          Back to list
-        </Button>
+        <BackToListButton onClick={goList} />
         <PageHeader title={mode === 'edit' ? 'Edit role' : 'Role detail'} subtitle="Loading…" />
         <p className="text-sm text-[var(--fms-text-subheading)]">Loading…</p>
       </section>
@@ -786,10 +784,7 @@ export function RolePermissionManagement() {
   if (menusError) {
     return (
       <section className="space-y-5">
-        <Button type="button" variant="ghost" size="sm" className="gap-1" onClick={goList}>
-          <ArrowLeft className="h-4 w-4" />
-          Back to list
-        </Button>
+        <BackToListButton onClick={goList} />
         <p className="text-sm text-[var(--fms-delete)]">{menusError}</p>
       </section>
     )
@@ -798,10 +793,7 @@ export function RolePermissionManagement() {
   if (detailError) {
     return (
       <section className="space-y-5">
-        <Button type="button" variant="ghost" size="sm" className="gap-1" onClick={goList}>
-          <ArrowLeft className="h-4 w-4" />
-          Back to list
-        </Button>
+        <BackToListButton onClick={goList} />
         <p className="text-sm text-[var(--fms-delete)]">{detailError}</p>
       </section>
     )
@@ -810,10 +802,7 @@ export function RolePermissionManagement() {
   if ((mode === 'detail' || mode === 'edit') && crud.isResolved && !crud.canRead) {
     return (
       <section className="space-y-5">
-        <Button type="button" variant="ghost" size="sm" className="gap-1 text-[var(--fms-text-header)]" onClick={goList}>
-          <ArrowLeft className="h-4 w-4" />
-          Back to list
-        </Button>
+        <BackToListButton onClick={goList} />
         <p className="text-sm text-[var(--fms-text-subheading)]">You do not have permission to view this role.</p>
       </section>
     )
@@ -822,10 +811,7 @@ export function RolePermissionManagement() {
   if (mode === 'detail') {
     return (
       <section className="space-y-5">
-        <Button type="button" variant="ghost" size="sm" className="gap-1 text-[var(--fms-text-header)]" onClick={goList}>
-          <ArrowLeft className="h-4 w-4" />
-          Back to list
-        </Button>
+        <BackToListButton onClick={goList} />
         <PageHeader title="Role detail" />
         <p className="text-sm text-[var(--fms-text-subheading)]">
           Showing role details and permissions for{' '}
@@ -844,10 +830,7 @@ export function RolePermissionManagement() {
 
   return (
     <section className="space-y-5">
-      <Button type="button" variant="ghost" size="sm" className="gap-1 text-[var(--fms-text-header)]" onClick={goList}>
-        <ArrowLeft className="h-4 w-4" />
-        Back to list
-      </Button>
+      <BackToListButton onClick={goList} />
       <PageHeader title="Update role" subtitle="Edit the role and assign permissions for each sub-module" />
 
       <div className="grid gap-6 lg:grid-cols-[minmax(260px,320px)_1fr] lg:items-start">

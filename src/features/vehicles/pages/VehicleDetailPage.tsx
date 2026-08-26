@@ -1,6 +1,6 @@
 // Route: `/vehicle/list/:vehicleId`. Loads one vehicle from GET `/vehicles/{vehicle_id}`.
 // Agency, status, movement status, and other nested relations use embedded objects from the vehicle response.
-import { ArrowLeft, Pencil } from 'lucide-react'
+import { Pencil } from 'lucide-react'
 import { useMemo } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -19,6 +19,7 @@ import {
   VEHICLE_DETAIL_SECTIONS,
   type VehicleDetailField,
 } from '@/features/vehicles/pages/vehicle-detail-sections'
+import { BackToListButton } from '@/shared/components/BackToListButton'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { isUuidLike } from '@/shared/lib/organogram-master-lookup'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
@@ -212,41 +213,32 @@ export function VehicleDetailPage() {
   if (crud.isResolved && !crud.canRead) {
     return (
       <section className="space-y-5">
+        <BackToListButton to="/vehicle/list" />
         <PageHeader title="Vehicle detail" subtitle="View vehicle information" />
         <p className="text-sm text-[var(--fms-text-subheading)]">You do not have permission to view vehicle details.</p>
-        <Button variant="outline" asChild>
-          <Link to="/vehicle/list">Back to list</Link>
-        </Button>
       </section>
     )
   }
 
   return (
     <section className="space-y-5">
+      <BackToListButton to="/vehicle/list" />
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <PageHeader
           title={vehicleQuery.isLoading ? 'Vehicle detail' : title}
           subtitle="Detail Vehicle Information "
         />
-        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:justify-end">
-          {crud.canUpdate && vehicleId && !fromDesignatedList ? (
-            <Button variant="default" asChild className="w-full sm:w-auto">
-              <Link
-                to={`/vehicle/list/${encodeURIComponent(vehicleId)}/edit`}
-                className="inline-flex items-center justify-center gap-2"
-              >
-                <Pencil className="h-4 w-4" aria-hidden />
-                Edit vehicle
-              </Link>
-            </Button>
-          ) : null}
-          <Button variant="outline" asChild className="w-full shrink-0 sm:w-auto">
-            <Link to="/vehicle/list" className="inline-flex items-center gap-2">
-              <ArrowLeft className="h-4 w-4" aria-hidden />
-              Back to list
+        {crud.canUpdate && vehicleId && !fromDesignatedList ? (
+          <Button variant="default" asChild className="w-full sm:w-auto">
+            <Link
+              to={`/vehicle/list/${encodeURIComponent(vehicleId)}/edit`}
+              className="inline-flex items-center justify-center gap-2"
+            >
+              <Pencil className="h-4 w-4" aria-hidden />
+              Edit vehicle
             </Link>
           </Button>
-        </div>
+        ) : null}
       </div>
 
       {vehicleQuery.isLoading ? (

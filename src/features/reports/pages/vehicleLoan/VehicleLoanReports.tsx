@@ -1,8 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
-import { FileSpreadsheet } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
-import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { LoanRequisitionStatusCell } from '@/features/inter-agency-vehicle-loan/components/LoanRequisitionStatusCell'
 import type { LoanRequisitionStatus } from '@/features/inter-agency-vehicle-loan/lib/loan-requisition-types'
@@ -11,6 +9,7 @@ import {
   formatLoanDate,
   formatLoanRequisitionStatusLabel,
 } from '@/features/inter-agency-vehicle-loan/lib/loan-requisition-ui'
+import { ReportExportActions } from '@/features/reports/components/ReportExportActions'
 import { ReportPillTabs } from '@/features/reports/components/ReportPillTabs'
 import { ReportTableToolbar } from '@/features/reports/components/ReportTableToolbar'
 import { useReportCommonFilters } from '@/features/reports/hooks/useReportCommonFilters'
@@ -105,8 +104,10 @@ export default function VehicleLoanReports() {
     if (page > totalPages) setPage(totalPages)
   }, [page, totalPages])
 
-  const handleExport = () => {
-    window.alert('Excel export will be available once the export API is connected.')
+  const handleExport = (format: 'xlsx' | 'pdf') => {
+    window.alert(
+      `${format === 'pdf' ? 'PDF' : 'Excel'} export will be available once the export API is connected.`,
+    )
   }
 
   const hasActiveFilters = Boolean(
@@ -134,15 +135,7 @@ export default function VehicleLoanReports() {
           title={isHighestAdmin ? 'Vehicle loan report' : 'Vehicle Loan Reports'}
           subtitle={loanCountLabel}
         />
-        <Button
-          type="button"
-          variant="outline"
-          onClick={handleExport}
-          className="w-full border-[var(--fms-strokes)] bg-white text-[var(--fms-text-header)] hover:bg-[#fafafa] sm:w-auto"
-        >
-          <FileSpreadsheet className="mr-1 h-4 w-4" />
-          Export Excel
-        </Button>
+        <ReportExportActions onExport={handleExport} />
       </div>
 
       {!isHighestAdmin ? (

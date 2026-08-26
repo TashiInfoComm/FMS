@@ -1,10 +1,6 @@
 // Ranks agency spend as proportional bars against the highest-spending agency.
 import { CHART_SERIES_COLORS } from '@/features/dashboard/components/charts/chart-palette'
-import {
-  formatNuCompact,
-  formatNuExact,
-  type DashboardSlice,
-} from '@/features/dashboard/lib/dashboard-api'
+import { formatNuExact, type DashboardSlice } from '@/features/dashboard/lib/dashboard-api'
 
 type CostByAgencyListProps = {
   slices: DashboardSlice[]
@@ -16,14 +12,17 @@ export function CostByAgencyList({ slices }: CostByAgencyListProps) {
   return (
     <ul className="space-y-3">
       {slices.map((slice, index) => {
-        const share = highest > 0 ? Math.max(4, Math.round((slice.value / highest) * 100)) : 0
+        const share = highest > 0 ? Math.max(6, Math.round((slice.value / highest) * 100)) : 0
         return (
-          <li key={`${slice.label}-${index}`} className="grid grid-cols-[minmax(3.5rem,7rem)_1fr_auto] items-center gap-3">
-            <span className="truncate text-sm font-medium text-[var(--fms-text-header)]" title={slice.label}>
+          <li
+            key={`${slice.label}-${index}`}
+            className="grid grid-cols-[minmax(12rem,22rem)_minmax(0,1fr)_auto] items-center gap-3"
+          >
+            <span className="text-sm font-medium leading-snug break-words text-[var(--fms-text-header)]">
               {slice.label}
             </span>
             <span
-              className="h-2.5 w-full overflow-hidden rounded-full bg-[var(--fms-neutral-fill)]"
+              className="h-2.5 w-full overflow-hidden rounded-full bg-[#eaeef6]"
               role="img"
               aria-label={`${slice.label}: ${formatNuExact(slice.value)}`}
             >
@@ -35,8 +34,8 @@ export function CostByAgencyList({ slices }: CostByAgencyListProps) {
                 }}
               />
             </span>
-            <span className="text-right text-sm font-semibold tabular-nums text-[var(--fms-text-header)]">
-              {formatNuCompact(slice.value)}
+            <span className="min-w-[5.5rem] text-right text-sm font-semibold tabular-nums text-[var(--fms-text-header)]">
+              {formatNuExact(slice.value)}
             </span>
           </li>
         )

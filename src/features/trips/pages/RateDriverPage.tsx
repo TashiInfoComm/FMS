@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Star } from 'lucide-react'
+import { Star } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -24,6 +24,7 @@ import {
   mapTripDetailToDriverFeedbackTrip,
   submitTripFeedback,
 } from '@/features/trips/lib/trips-api'
+import { BackToListButton } from '@/shared/components/BackToListButton'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
 import { cn } from '@/lib/utils'
@@ -222,6 +223,7 @@ export default function RateDriverPage() {
   ) {
     return (
       <section className="space-y-5">
+        <BackToListButton to="/trip/driver-feedback" />
         <PageHeader
           title={shouldFetchFeedback ? 'Driver Feedback' : 'Rate Driver'}
           subtitle={
@@ -240,6 +242,7 @@ export default function RateDriverPage() {
   if (detailQuery.isError || !trip) {
     return (
       <section className="space-y-5">
+        <BackToListButton to="/trip/driver-feedback" />
         <PageHeader
           title="Rate Driver"
           subtitle="Provide feedback for the selected completed trip."
@@ -249,14 +252,6 @@ export default function RateDriverPage() {
             {detailQuery.error instanceof Error
               ? detailQuery.error.message
               : 'Trip not found.'}
-            <div className="mt-4">
-              <Button variant="outline" asChild>
-                <Link to="/trip/driver-feedback">
-                  <ArrowLeft className="mr-1 h-4 w-4" />
-                  Back to Driver Feedback
-                </Link>
-              </Button>
-            </div>
           </CardContent>
         </Card>
       </section>
@@ -266,6 +261,7 @@ export default function RateDriverPage() {
   if (shouldFetchFeedback && feedbackQuery.isError) {
     return (
       <section className="space-y-5">
+        <BackToListButton to="/trip/driver-feedback" />
         <PageHeader
           title="Driver Feedback"
           subtitle="Submitted feedback for the selected completed trip."
@@ -275,14 +271,6 @@ export default function RateDriverPage() {
             {feedbackQuery.error instanceof Error
               ? feedbackQuery.error.message
               : 'Could not load feedback.'}
-            <div className="mt-4">
-              <Button variant="outline" asChild>
-                <Link to="/trip/driver-feedback">
-                  <ArrowLeft className="mr-1 h-4 w-4" />
-                  Back to Driver Feedback
-                </Link>
-              </Button>
-            </div>
           </CardContent>
         </Card>
       </section>
@@ -311,17 +299,12 @@ export default function RateDriverPage() {
   if (isViewMode && visibleFeedback.length > 0) {
     return (
       <section className="space-y-5">
+        <BackToListButton to="/trip/driver-feedback" />
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <PageHeader
             title="Driver Feedback"
             subtitle="Submitted feedback for the selected completed trip."
           />
-          <Button variant="outline" className="w-full sm:w-auto" asChild>
-            <Link to="/trip/driver-feedback">
-              <ArrowLeft className="mr-1 h-4 w-4" />
-              Back
-            </Link>
-          </Button>
         </div>
 
         <Card className="rounded-xl border border-[var(--fms-strokes)] bg-white p-4 sm:p-6">
@@ -356,18 +339,11 @@ export default function RateDriverPage() {
 
   return (
     <section className="space-y-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <PageHeader
-          title="Rate Driver"
-          subtitle="Provide feedback for the selected completed trip."
-        />
-        <Button variant="outline" className="w-full sm:w-auto" asChild>
-          <Link to="/trip/driver-feedback">
-            <ArrowLeft className="mr-1 h-4 w-4" />
-            Back
-          </Link>
-        </Button>
-      </div>
+      <BackToListButton to="/trip/driver-feedback" />
+      <PageHeader
+        title="Rate Driver"
+        subtitle="Provide feedback for the selected completed trip."
+      />
 
       <div className="grid gap-5 lg:grid-cols-[1fr_320px] lg:items-start">
         <Card className="rounded-xl border border-[var(--fms-strokes)] bg-white p-4 sm:p-6">

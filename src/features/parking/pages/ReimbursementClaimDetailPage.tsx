@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Eye } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -26,6 +26,7 @@ import {
   formatParkingLogDate,
   type ParkingLogListRow,
 } from '@/features/parking/lib/parking-logs-mock-data'
+import { BackToListButton } from '@/shared/components/BackToListButton'
 import {
   ListPanelMessage,
   MobileListCard,
@@ -337,9 +338,7 @@ export default function ReimbursementClaimDetailPage() {
 
   return (
     <section className="space-y-5">
-      <Button type="button" variant="outline" asChild>
-        <Link to="/parking/reimbursement-claims">Back to claims</Link>
-      </Button>
+      <BackToListButton to="/parking/reimbursement-claims" />
 
       <Card className="min-w-0 rounded-xl border border-[var(--fms-strokes)] bg-white p-2 sm:p-4">
         <CardContent className="min-w-0 space-y-4 p-0">

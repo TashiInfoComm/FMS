@@ -1,13 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  ArrowLeft,
   CarFront,
   Clock3,
   CloudUpload,
   User,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -49,6 +48,7 @@ import {
   type VerifyWorkOrderInput,
 } from '@/features/maintenance/lib/work-orders-api'
 import { fetchUserById, mapUserDetailFields } from '@/features/user/lib/users-api'
+import { BackToListButton } from '@/shared/components/BackToListButton'
 import { PageHeader } from '@/shared/components/PageHeader'
 import {
   DetailInlineValueSkeleton,
@@ -233,10 +233,6 @@ export default function WorkOrderDetail() {
   const returnTo =
     (location.state as { returnTo?: string } | null)?.returnTo ??
     '/maintenance/work-orders'
-  const returnLabel =
-    returnTo === '/maintenance/records'
-      ? 'Back to Vehicle Service'
-      : 'Back to Work Orders'
   const { apiRoleName } = useAccessControl()
   const crud = useRouteCrudPermissions('/maintenance/work-orders')
   const normalizedRole = apiRoleName?.trim().toLowerCase() ?? ''
@@ -668,6 +664,7 @@ export default function WorkOrderDetail() {
   if (!isMainLoading && (detailQuery.isError || !workOrder)) {
     return (
       <section className="space-y-4">
+        <BackToListButton to={returnTo} />
         <PageHeader
           title="Work Order Details"
           subtitle="This work order has been initiated by the driver."
@@ -679,18 +676,13 @@ export default function WorkOrderDetail() {
               : 'Work order not found.'}
           </CardContent>
         </Card>
-        <Button asChild variant="outline">
-          <Link to={returnTo}>
-            <ArrowLeft className="mr-1 h-4 w-4" />
-            {returnLabel}
-          </Link>
-        </Button>
       </section>
     )
   }
 
   return (
     <section className="space-y-5">
+      <BackToListButton to={returnTo} />
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-2">
           <PageHeader
@@ -713,12 +705,6 @@ export default function WorkOrderDetail() {
             </div>
           ) : null}
         </div>
-        <Button asChild variant="outline" className="w-full sm:w-auto">
-          <Link to={returnTo}>
-            <ArrowLeft className="mr-1 h-4 w-4" />
-            Back
-          </Link>
-        </Button>
       </div>
 
       <div className="grid gap-3 md:grid-cols-3">

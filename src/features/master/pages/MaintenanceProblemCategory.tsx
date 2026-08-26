@@ -16,6 +16,7 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { apiDelete, apiGet, apiPost, apiPut } from '@/services/apiClient'
 import { DeleteDialog } from '@/shared/components/DeleteDialog'
+import { BackToListButton } from '@/shared/components/BackToListButton'
 import { PageHeader } from '@/shared/components/PageHeader'
 import {
   DeleteRowActionButton,
@@ -288,6 +289,7 @@ export function MaintenanceProblemCategory() {
 
   return (
     <section className="space-y-5">
+      <BackToListButton to="/master/maintenance-type" />
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <PageHeader
           title="Problem Category"

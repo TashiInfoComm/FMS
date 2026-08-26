@@ -1,17 +1,20 @@
 import { useQuery } from '@tanstack/react-query'
-import { FileSpreadsheet } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
-import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { ReportCommonFilters } from '@/features/reports/components/ReportCommonFilters'
+import { ReportExportActions } from '@/features/reports/components/ReportExportActions'
 import { ReportPillTabs } from '@/features/reports/components/ReportPillTabs'
 import { ReportTableToolbar } from '@/features/reports/components/ReportTableToolbar'
 import { useReportCommonFilters } from '@/features/reports/hooks/useReportCommonFilters'
+import { reportFilterQueryKey } from '@/features/reports/lib/report-common-filters'
 import { VehiclePerformanceTab } from '@/features/reports/pages/vehicle/components/VehiclePerformanceTab'
 import {
+  exportVehicleReport,
   fetchVehicleEfficiencyByModel,
   fetchVehicleReportPage,
+  fetchVehicleTypeMaintenanceCosts,
+  type VehicleReportExportFormat,
 } from '@/features/reports/pages/vehicle/lib/vehicle-reports-api'
 import {
   ListPanelMessage,
@@ -20,6 +23,7 @@ import {
 } from '@/shared/components/MobileListCard'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { TablePagination } from '@/shared/components/TablePagination'
+import { showErrorToast } from '@/shared/lib/toast'
 
 const REPORT_TABS = [
   { value: 'register', label: 'Master Register' },
@@ -51,6 +55,7 @@ export default function VehicleReports() {
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
+  const [exportingFormat, setExportingFormat] = useState<VehicleReportExportFormat | null>(null)
 
   const listQueryKey = [
     'vehicle-reports',
@@ -73,9 +78,19 @@ export default function VehicleReports() {
     staleTime: 30_000,
   })
 
+  const chartFilters = commonFilters.params
+  const chartFilterKey = reportFilterQueryKey(chartFilters)
+
   const performanceQuery = useQuery({
-    queryKey: ['vehicle-reports-efficiency-by-model', commonFilters.params],
-    queryFn: () => fetchVehicleEfficiencyByModel(commonFilters.params),
+    queryKey: ['vehicle-reports-efficiency-by-model', ...chartFilterKey],
+    queryFn: () => fetchVehicleEfficiencyByModel(chartFilters),
+    enabled: activeTab === 'performance',
+    staleTime: 30_000,
+  })
+
+  const maintenanceCostQuery = useQuery({
+    queryKey: ['vehicle-reports-vehicle-type-costs', ...chartFilterKey],
+    queryFn: () => fetchVehicleTypeMaintenanceCosts(chartFilters),
     enabled: activeTab === 'performance',
     staleTime: 30_000,
   })
@@ -103,8 +118,20 @@ export default function VehicleReports() {
     if (page > totalPages) setPage(totalPages)
   }, [page, totalPages])
 
-  const handleExport = () => {
-    window.alert('Excel export will be available once the export API is connected.')
+  const handleExport = async (format: VehicleReportExportFormat) => {
+    if (exportingFormat) return
+    setExportingFormat(format)
+    try {
+      await exportVehicleReport({
+        format,
+        search,
+        common: commonFilters.params,
+      })
+    } catch (error) {
+      showErrorToast(error, 'Could not export vehicle report.')
+    } finally {
+      setExportingFormat(null)
+    }
   }
 
   const hasActiveFilters = Boolean(
@@ -123,6 +150,11 @@ export default function VehicleReports() {
       ? performanceQuery.error.message
       : 'Could not load model performance report.'
 
+  const maintenanceErrorMessage =
+    maintenanceCostQuery.error instanceof Error
+      ? maintenanceCostQuery.error.message
+      : 'Could not load average maintenance cost by model.'
+
   const vehicleCountLabel = vehicleReportQuery.isLoading
     ? 'Loading vehicles…'
     : `${totalCount.toLocaleString('en-BT')} vehicle${totalCount === 1 ? '' : 's'}`
@@ -140,15 +172,12 @@ export default function VehicleReports() {
           title="Vehicle Reports"
           subtitle={activeTab === 'register' ? vehicleCountLabel : modelCountLabel}
         />
-        <Button
-          type="button"
-          variant="outline"
-          onClick={handleExport}
-          className="w-full border-[var(--fms-strokes)] bg-white text-[var(--fms-text-header)] hover:bg-[#fafafa] sm:w-auto"
-        >
-          <FileSpreadsheet className="mr-1 h-4 w-4" />
-          Export Excel
-        </Button>
+        {activeTab === 'register' ? (
+          <ReportExportActions
+            onExport={(format) => void handleExport(format)}
+            exportingFormat={exportingFormat}
+          />
+        ) : null}
       </div>
 
       <ReportPillTabs
@@ -178,6 +207,10 @@ export default function VehicleReports() {
             isLoading={performanceQuery.isLoading}
             isError={performanceQuery.isError}
             errorMessage={performanceErrorMessage}
+            maintenanceRows={maintenanceCostQuery.data ?? []}
+            maintenanceIsLoading={maintenanceCostQuery.isLoading}
+            maintenanceIsError={maintenanceCostQuery.isError}
+            maintenanceErrorMessage={maintenanceErrorMessage}
           />
         </>
       ) : (

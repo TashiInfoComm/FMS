@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Search, Truck, Undo2 } from 'lucide-react'
+import { Search, Truck, Undo2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 
@@ -37,6 +37,7 @@ import {
   formatFuelingResponsibilityLabel,
   formatLoanDate,
 } from '@/features/inter-agency-vehicle-loan/lib/loan-requisition-ui'
+import { BackToListButton } from '@/shared/components/BackToListButton'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
@@ -548,20 +549,13 @@ function LoanRequisitionDetail() {
   if (detailQuery.isError || !detail) {
     return (
       <section className="space-y-5">
-        <Button variant="outline" size="icon" asChild>
-          <Link to={backPath} aria-label="Back to requisitions">
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-        </Button>
+        <BackToListButton to={backPath} />
         <PageHeader title="Vehicle Loan Requisition" subtitle="Requisition not found" />
         <p className="text-sm text-[var(--fms-text-subheading)]">
           {detailQuery.error instanceof Error
             ? detailQuery.error.message
             : `No requisition matches "${loanId}".`}
         </p>
-        <Button variant="outline" asChild>
-          <Link to={backPath}>Back to list</Link>
-        </Button>
       </section>
     )
   }
@@ -594,6 +588,7 @@ function LoanRequisitionDetail() {
 
   return (
     <section className="space-y-5">
+      <BackToListButton to={backPath} />
       <div className="space-y-2">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <PageHeader
@@ -683,15 +678,7 @@ function LoanRequisitionDetail() {
             ) : null}
           </div>
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <Button variant="outline" asChild>
-            <Link to={backPath} className="inline-flex items-center gap-2">
-              <ArrowLeft className="h-4 w-4" />
-              Back to list
-            </Link>
-          </Button>
-          <LoanRequisitionStatusCell status={detail.status} />
-        </div>
+        <LoanRequisitionStatusCell status={detail.status} />
       </div>
 
       <Card className="border border-[var(--fms-strokes)] bg-white shadow-sm">

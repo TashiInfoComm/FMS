@@ -21,6 +21,7 @@ import {
   toText,
   type FetchedPerson,
 } from '@/features/user/lib/users-api'
+import { BackToListButton } from '@/shared/components/BackToListButton'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 import { formatRealmRoleDisplayName } from '@/shared/lib/format-realm-role-display'
@@ -113,11 +114,9 @@ export function EditUserFormPage() {
   if (crud.isResolved && !crud.canRead) {
     return (
       <section className="space-y-5">
+        <BackToListButton to="/users" />
         <PageHeader title="Edit user" subtitle="Update account details." />
         <p className="text-sm text-[var(--fms-text-subheading)]">You do not have permission to view or edit users.</p>
-        <Button variant="outline" asChild>
-          <Link to="/users">Back to list</Link>
-        </Button>
       </section>
     )
   }
@@ -142,6 +141,7 @@ export function EditUserFormPage() {
 
   return (
     <section className="space-y-5">
+      <BackToListButton to="/users" />
       <PageHeader
         title="Edit user"
         subtitle="Update contact, email, and realm roles. Other fields come from the saved account."

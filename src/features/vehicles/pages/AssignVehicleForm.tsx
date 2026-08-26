@@ -17,6 +17,7 @@ import {
   type CreateDriverVehicleAssignmentBody,
 } from '@/features/vehicles/lib/driver-vehicle-assignments-api'
 import { searchUserDetailByCid } from '@/features/user/lib/users-api'
+import { BackToListButton } from '@/shared/components/BackToListButton'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { isUuidLike } from '@/shared/lib/organogram-master-lookup'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
@@ -253,6 +254,7 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
   if (permissionDenied) {
     return (
       <section className="space-y-5">
+        <BackToListButton to={driversListPath} />
         <PageHeader
           title={isEdit ? 'Edit Assignment' : 'Assign Driver'}
           subtitle={isEdit ? 'Update driver assignment.' : 'Enter the details of the new driver.'}
@@ -267,17 +269,16 @@ export function AssignVehicleForm({ mode, assignmentId }: AssignVehicleFormProps
   if (isEdit && (assignmentQuery.isError || (assignmentQuery.isSuccess && !assignmentQuery.data))) {
     return (
       <section className="space-y-5">
+        <BackToListButton to={driversListPath} />
         <PageHeader title="Edit Assignment" subtitle="Update driver vehicle assignment." />
         <p className="text-sm text-[var(--fms-delete)]">Failed to load assignment.</p>
-        <Button variant="outline" asChild>
-          <Link to={driversListPath}>Back to list</Link>
-        </Button>
       </section>
     )
   }
 
   return (
     <section className="space-y-5">
+      <BackToListButton to={driversListPath} />
       <PageHeader
         title={isEdit ? 'Edit Assignment' : 'Assign Driver'}
         subtitle={isEdit ? 'Update driver vehicle assignment.' : 'Enter the details of the new driver.'}

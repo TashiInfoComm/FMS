@@ -12,6 +12,10 @@ import { useDashboardIdentity } from '@/features/dashboard/hooks/useDashboardIde
 import { useDashboardSummary } from '@/features/dashboard/hooks/useDashboardQueries'
 import { errorMessageOf } from '@/features/dashboard/lib/dashboard-ui'
 import { buildDriverStatItems } from '@/features/dashboard/lib/driver-stats'
+import {
+  fetchDriverFuelQuotaPage,
+  mapDriverVehicleQuotas,
+} from '@/features/dashboard/lib/driver-fuel-quota-api'
 import { fetchDriverAssignedVehicleList } from '@/features/dashboard/lib/driver-vehicles-api'
 import { PageHeader } from '@/shared/components/PageHeader'
 
@@ -31,9 +35,24 @@ export function DriverDashboard() {
     staleTime: 60_000,
   })
 
+  const quotaQuery = useQuery({
+    queryKey: ['dashboard', 'driver-fuel-quota'],
+    queryFn: fetchDriverFuelQuotaPage,
+    staleTime: 60_000,
+  })
+
   const summary = summaryQuery.data
   const summaryError = errorMessageOf(summaryQuery.error, 'Could not load dashboard summary.')
   const driverStats = useMemo(() => buildDriverStatItems(summary), [summary])
+  const fuelQuotas = useMemo(
+    () =>
+      mapDriverVehicleQuotas(
+        vehiclesQuery.data ?? [],
+        quotaQuery.data?.quotaRows ?? [],
+        quotaQuery.data?.consumptionRows ?? [],
+      ),
+    [quotaQuery.data, vehiclesQuery.data],
+  )
 
   return (
     <section className="space-y-5">
@@ -85,8 +104,13 @@ export function DriverDashboard() {
         </div>
       )}
 
-      <div className={`grid min-w-0 gap-4 ${summary?.fuelQuota ? 'lg:grid-cols-2' : ''}`}>
-        {summary?.fuelQuota ? <FuelQuotaCard quota={summary.fuelQuota} /> : null}
+      <div className="grid min-w-0 gap-4 lg:grid-cols-2">
+        <FuelQuotaCard
+          items={fuelQuotas}
+          isLoading={quotaQuery.isLoading || vehiclesQuery.isLoading}
+          isError={quotaQuery.isError}
+          errorMessage={errorMessageOf(quotaQuery.error, 'Could not load fuel quota.')}
+        />
 
         <AssignedTripsPanel
           trips={summary?.todaysTrips ?? []}

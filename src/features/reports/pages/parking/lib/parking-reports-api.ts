@@ -1,4 +1,4 @@
-import { apiGet } from '@/services/apiClient'
+import { apiGet, apiGetBlob } from '@/services/apiClient'
 import type { ParkingClaimStatus } from '@/features/parking/lib/parking-logs-api'
 import {
   appendReportCommonFilterParams,
@@ -36,6 +36,16 @@ export type ParkingReportListQuery = {
   search?: string
   status?: ParkingClaimStatus | ''
   common: ReportCommonFilterParams
+}
+
+export type ParkingReportExportFormat = 'xlsx' | 'pdf'
+
+export type ParkingReportExportQuery = {
+  format: ParkingReportExportFormat
+  search?: string
+  status?: ParkingClaimStatus | ''
+  common: ReportCommonFilterParams
+  year?: number
 }
 
 function toText(value: unknown): string {
@@ -313,6 +323,97 @@ export async function fetchParkingReportPage(
     effectivePageSize: paged.effectivePageSize,
     serialBase: paged.serialBase,
   }
+}
+
+function buildParkingExportPath(query: ParkingReportExportQuery): string {
+  const params = new URLSearchParams()
+  params.set('format', query.format)
+  params.set('year', String(query.year ?? new Date().getFullYear()))
+
+  const search = query.search?.trim()
+  if (search) params.set('search', search)
+
+  const status = query.status?.trim()
+  if (status) params.set('status', status)
+
+  appendReportCommonFilterParams(params, query.common)
+
+  return `/parking/reports/export?${params.toString()}`
+}
+
+function fileNameFromContentDisposition(header: string, fallback: string): string {
+  if (!header) return fallback
+
+  const utf8 = header.match(/filename\*=UTF-8''([^;]+)/i)
+  if (utf8?.[1]) {
+    try {
+      return decodeURIComponent(utf8[1].trim().replace(/^["']|["']$/g, ''))
+    } catch {
+      // Keep looking at the plain filename= form.
+    }
+  }
+
+  const quoted = header.match(/filename="([^"]+)"/i)
+  if (quoted?.[1]) return quoted[1]
+
+  const plain = header.match(/filename=([^;]+)/i)
+  if (plain?.[1]) return plain[1].trim().replace(/^["']|["']$/g, '')
+
+  return fallback
+}
+
+function pickExportFileUrl(payload: unknown): string {
+  if (!payload || typeof payload !== 'object') return ''
+  const root = payload as ApiRecord
+  const data = nestedRecord(root.data)
+  const source = data ?? root
+  return pickScalar(source, [
+    'url',
+    'download_url',
+    'downloadUrl',
+    'file_url',
+    'fileUrl',
+    'signed_url',
+    'signedUrl',
+  ])
+}
+
+function triggerBrowserDownload(href: string, fileName: string) {
+  const link = document.createElement('a')
+  link.href = href
+  link.download = fileName
+  link.rel = 'noopener'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+}
+
+/**
+ * `GET /parking/reports/export?format=xlsx|pdf`
+ * Downloads the monthly claims report using the same list filters.
+ */
+export async function exportParkingReport(query: ParkingReportExportQuery): Promise<void> {
+  const { blob, contentType, contentDisposition } = await apiGetBlob(buildParkingExportPath(query))
+  const extension = query.format === 'pdf' ? 'pdf' : 'xlsx'
+  const fallbackName = `parking-report.${extension}`
+
+  if (contentType.includes('application/json')) {
+    let payload: unknown
+    try {
+      payload = JSON.parse(await blob.text()) as unknown
+    } catch {
+      throw new Error('Could not export parking report.')
+    }
+    const fileUrl = pickExportFileUrl(payload)
+    if (!fileUrl) throw new Error('Export file URL was not returned.')
+    triggerBrowserDownload(fileUrl, fallbackName)
+    return
+  }
+
+  const fileName = fileNameFromContentDisposition(contentDisposition, fallbackName)
+  const objectUrl = URL.createObjectURL(blob)
+  triggerBrowserDownload(objectUrl, fileName)
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000)
 }
 
 export function formatParkingReportAmount(amount: number): string {

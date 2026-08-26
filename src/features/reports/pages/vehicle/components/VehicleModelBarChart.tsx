@@ -9,10 +9,16 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from '@/components/ui/chart'
-import type { VehicleModelEfficiencyRow } from '@/features/reports/pages/vehicle/lib/vehicle-reports-api'
+
+type VehicleModelBarChartRow = {
+  shortLabel: string
+  makeModel: string
+  fuelEfficiencyKmPerL?: number
+  avgMaintenanceCostNu?: number
+}
 
 type VehicleModelBarChartProps = {
-  rows: VehicleModelEfficiencyRow[]
+  rows: VehicleModelBarChartRow[]
   /** Metric plotted on the Y axis. */
   metric: 'fuelEfficiencyKmPerL' | 'avgMaintenanceCostNu'
   seriesLabel: string
@@ -43,13 +49,13 @@ export function VehicleModelBarChart({
       rows.map((row) => ({
         label: row.shortLabel,
         makeModel: row.makeModel,
-        value: row[metric],
+        value: Number(row[metric] ?? 0),
       })),
     [rows, metric],
   )
 
   return (
-    <ChartContainer config={chartConfig} className="aspect-auto h-64 w-full">
+    <ChartContainer config={chartConfig} className="aspect-auto h-72 w-full">
       <BarChart accessibilityLayer data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
         <CartesianGrid vertical={false} strokeDasharray="4 4" />
         <XAxis

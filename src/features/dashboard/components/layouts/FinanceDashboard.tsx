@@ -1,5 +1,5 @@
 // Finance officer dashboard: spend totals, how they break down, and claims awaiting sign-off.
-import { SquareParking } from 'lucide-react'
+import { Fuel, SquareParking } from 'lucide-react'
 import { useMemo } from 'react'
 
 import { Card, CardContent } from '@/components/ui/card'
@@ -41,6 +41,16 @@ export function FinanceDashboard() {
       accent: string
     }> = []
 
+    if (summary.fuelTotalAmount !== null) {
+      items.push({
+        id: 'fuel-total-amount',
+        label: 'Fuel total amount',
+        value: formatNuExact(summary.fuelTotalAmount),
+        icon: Fuel,
+        accent: '#fb923c',
+      })
+    }
+
     if (summary.parkingTotalAmount !== null) {
       items.push({
         id: 'parking-total-amount',
@@ -52,6 +62,8 @@ export function FinanceDashboard() {
     }
 
     for (const spec of FINANCE_STAT_CARDS) {
+      if (spec.key === 'fuelCost' && summary.fuelTotalAmount !== null) continue
+      if (spec.key === 'parkingCost' && summary.parkingTotalAmount !== null) continue
       const value = summary.metrics[spec.key]
       if (value === undefined) continue
       items.push({
@@ -113,38 +125,34 @@ export function FinanceDashboard() {
         </div>
       )}
 
-      <div className="grid min-w-0 gap-4 lg:grid-cols-5">
-        <div className="min-w-0 lg:col-span-2">
-          <DashboardChartCard
-            title="Cost Composition"
-            isLoading={costTrendQuery.isLoading}
-            isError={costTrendQuery.isError}
-            errorMessage={trendError}
-            isEmpty={composition.slices.length === 0}
-            emptyMessage="No cost data available."
-          >
-            <CostCompositionChart
-              slices={composition.slices}
-              total={composition.total}
-              periodLabel={trendWindow.toLowerCase()}
-            />
-          </DashboardChartCard>
-        </div>
-
-        <div className="min-w-0 lg:col-span-3">
-          <DashboardChartCard
-            title="Monthly Cost Summary"
-            meta={trendMeta}
-            isLoading={costTrendQuery.isLoading}
-            isError={costTrendQuery.isError}
-            errorMessage={trendError}
-            isEmpty={costTrend.length === 0}
-            emptyMessage="No cost data available."
-          >
-            <MonthlyCostChart points={costTrend} />
-          </DashboardChartCard>
-        </div>
+      <div className="grid min-w-0 gap-4 lg:grid-cols-2">
+        <DashboardChartCard
+          title="Cost Composition"
+          isLoading={costTrendQuery.isLoading}
+          isError={costTrendQuery.isError}
+          errorMessage={trendError}
+          isEmpty={composition.slices.length === 0}
+          emptyMessage="No cost data available."
+        >
+          <CostCompositionChart
+            slices={composition.slices}
+            total={composition.total}
+            periodLabel={trendWindow.toLowerCase()}
+          />
+        </DashboardChartCard>
       </div>
+
+      <DashboardChartCard
+        title="Monthly Cost Summary"
+        meta={trendMeta}
+        isLoading={costTrendQuery.isLoading}
+        isError={costTrendQuery.isError}
+        errorMessage={trendError}
+        isEmpty={costTrend.length === 0}
+        emptyMessage="No cost data available."
+      >
+        <MonthlyCostChart points={costTrend} />
+      </DashboardChartCard>
     </section>
   )
 }

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Plus, Trash2, X } from 'lucide-react'
+import { Plus, Trash2, X } from 'lucide-react'
 import { type FormEvent, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -24,6 +24,7 @@ import {
   type EmergencyIncidentRow,
 } from '@/features/emergency-vehicle/lib/emergency-broadcast-types'
 import { cn } from '@/lib/utils'
+import { BackToListButton } from '@/shared/components/BackToListButton'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { SearchableMultiAutocomplete } from '@/shared/components/SearchableMultiAutocomplete'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
@@ -261,18 +262,11 @@ function CreateEmergencyBroadcast() {
 
   return (
     <section className="space-y-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <PageHeader
-          title="Emergency Assistance Request"
-          subtitle="Create one or more incident requirements to broadcast."
-        />
-        <Button type="button" variant="outline" className="w-full sm:w-auto" asChild>
-          <Link to="/emergency/broadcast">
-            <ArrowLeft className="mr-1 h-4 w-4" />
-            Back to list
-          </Link>
-        </Button>
-      </div>
+      <BackToListButton to="/emergency/broadcast" />
+      <PageHeader
+        title="Emergency Assistance Request"
+        subtitle="Create one or more incident requirements to broadcast."
+      />
 
       <Card className="min-w-0 overflow-visible rounded-xl border border-[var(--fms-strokes)] bg-white p-2 sm:p-4">
         <CardContent className="min-w-0 p-0">

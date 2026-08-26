@@ -267,7 +267,7 @@ async function fetchBlobWithAuthHandling(
   path: string,
   init: RequestInit | undefined,
   alreadyRetriedAfterRefresh: boolean,
-): Promise<{ blob: Blob; contentType: string }> {
+): Promise<{ blob: Blob; contentType: string; contentDisposition: string }> {
   const headers = new Headers(init?.headers);
   const token = getAuthToken();
 
@@ -309,7 +309,11 @@ async function fetchBlobWithAuthHandling(
     throw new Error(message);
   }
 
-  return { blob: await response.blob(), contentType };
+  return {
+    blob: await response.blob(),
+    contentType,
+    contentDisposition: response.headers.get("content-disposition") ?? "",
+  };
 }
 
 export async function apiGetBlob(path: string, init?: RequestInit) {

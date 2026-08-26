@@ -12,6 +12,7 @@ export type SubMenuRoleActions = {
   create: number
   update: number
   delete: number
+  export?: number
 }
 
 export type MenuSubRow = {
@@ -173,7 +174,11 @@ function roleActionsFromAssignedField(raw: unknown): SubMenuRoleActions | undefi
   if (raw === undefined || raw === null) return undefined
   if (Array.isArray(raw)) {
     const codes = assignedActionCodes(raw)
-    return codes.length > 0 ? roleActionsFromAssignedCodes(codes) : roleActionsFromAssignedCodes([])
+    const crud = roleActionsFromAssignedCodes(codes)
+    return {
+      ...crud,
+      export: codes.includes('export') ? 1 : 0,
+    }
   }
   if (typeof raw === 'object') return parseSubMenuActions(raw)
   return undefined
@@ -374,6 +379,7 @@ export function parseSubMenuActions(raw: unknown): SubMenuRoleActions | undefine
     create: normalizeActionFlag(a.create),
     update: rawUpdate,
     delete: normalizeActionFlag(a.delete),
+    export: normalizeActionFlag(a.export),
   }
 }
 
