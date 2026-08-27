@@ -8,9 +8,13 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from '@/components/ui/chart'
+import {
+  ChartCompactValue,
+  DonutCenterLabel,
+} from '@/features/dashboard/components/charts/ChartCompactValue'
 import { ChartTooltipRow } from '@/features/dashboard/components/charts/ChartTooltipRow'
 import { costCategoryColor, toSeriesKey } from '@/features/dashboard/components/charts/chart-palette'
-import { formatNuExact, type DashboardSlice } from '@/features/dashboard/lib/dashboard-api'
+import { formatNuCompact, formatNuExact, type DashboardSlice } from '@/features/dashboard/lib/dashboard-api'
 
 type CostCompositionChartProps = {
   slices: DashboardSlice[]
@@ -20,7 +24,7 @@ type CostCompositionChartProps = {
 }
 
 export function CostCompositionChart({ slices, total, periodLabel }: CostCompositionChartProps) {
-  const { data, chartConfig } = useMemo(() => {
+  const { data, pieData, chartConfig } = useMemo(() => {
     const config: ChartConfig = {}
     const rows = slices.map((slice, index) => {
       const key = toSeriesKey(slice.label)
@@ -28,7 +32,11 @@ export function CostCompositionChart({ slices, total, periodLabel }: CostComposi
       config[key] = { label: slice.label, color }
       return { key, label: slice.label, value: slice.value, color }
     })
-    return { data: rows, chartConfig: config }
+    return {
+      data: rows,
+      pieData: rows.filter((row) => row.value > 0),
+      chartConfig: config,
+    }
   }, [slices])
 
   return (
@@ -56,7 +64,7 @@ export function CostCompositionChart({ slices, total, periodLabel }: CostComposi
               }
             />
             <Pie
-              data={data}
+              data={pieData}
               dataKey="value"
               nameKey="key"
               innerRadius="62%"
@@ -65,19 +73,19 @@ export function CostCompositionChart({ slices, total, periodLabel }: CostComposi
               strokeWidth={2}
               isAnimationActive={false}
             >
-              {data.map((row) => (
+              {pieData.map((row) => (
                 <Cell key={row.key} fill={row.color} />
               ))}
             </Pie>
           </PieChart>
         </ChartContainer>
 
-        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-lg font-semibold tabular-nums text-[var(--fms-text-header)]">
-            {formatNuExact(total)}
-          </span>
-          <span className="text-[11px] text-[var(--fms-text-subheading)]">{periodLabel}</span>
-        </div>
+        <DonutCenterLabel
+          compact={formatNuCompact(total)}
+          exact={formatNuExact(total)}
+          caption={periodLabel}
+          compactClassName="text-lg"
+        />
       </div>
 
       <ul className="flex w-full flex-wrap justify-center gap-x-5 gap-y-2">
@@ -90,7 +98,7 @@ export function CostCompositionChart({ slices, total, periodLabel }: CostComposi
             />
             <span className="font-medium text-[var(--fms-text-header)]">{row.label}</span>
             <span className="tabular-nums text-[var(--fms-text-subheading)]">
-              {formatNuExact(row.value)}
+              <ChartCompactValue compact={formatNuCompact(row.value)} exact={formatNuExact(row.value)} />
             </span>
           </li>
         ))}

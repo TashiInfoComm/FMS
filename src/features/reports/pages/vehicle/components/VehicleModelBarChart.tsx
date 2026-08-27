@@ -27,7 +27,7 @@ type VehicleModelBarChartProps = {
   formatTick: (value: number) => string
   /** Tooltip value, where the exact figure matters. */
   formatValue: (value: number) => string
-  /** Widen for money axes so `Nu 100.0K` does not wrap. */
+  /** Widen for money axes so `Nu 100k` does not wrap. */
   yAxisWidth?: number
 }
 

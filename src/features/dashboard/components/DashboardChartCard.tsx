@@ -30,14 +30,14 @@ export function DashboardChartCard({
   children,
 }: DashboardChartCardProps) {
   return (
-    <Card className={cn('min-w-0 rounded-xl border border-[var(--fms-strokes)] ring-0', className)}>
+    <Card className={cn('min-w-0 overflow-visible rounded-xl border border-[var(--fms-strokes)] ring-0', className)}>
       <CardHeader className="flex flex-row flex-wrap items-baseline gap-x-2 gap-y-1">
         <CardTitle className="text-base font-semibold text-[var(--fms-text-header)]">
           {title}
         </CardTitle>
         {meta ? <span className="text-xs text-[var(--fms-text-subheading)]">{meta}</span> : null}
       </CardHeader>
-      <CardContent className="min-w-0">
+      <CardContent className="min-w-0 overflow-visible">
         {isLoading ? (
           <div className="flex h-64 items-center justify-center">
             <Skeleton className="h-full w-full rounded-lg" />

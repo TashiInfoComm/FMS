@@ -7,6 +7,10 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from '@/components/ui/chart'
+import {
+  ChartCompactValue,
+  DonutCenterLabel,
+} from '@/features/dashboard/components/charts/ChartCompactValue'
 import { ChartTooltipRow } from '@/features/dashboard/components/charts/ChartTooltipRow'
 import { CHART_SERIES_COLORS, toSeriesKey } from '@/features/dashboard/components/charts/chart-palette'
 import { formatCompactNumber } from '@/features/dashboard/lib/dashboard-api'
@@ -132,12 +136,12 @@ function TripsDonut({
             </Pie>
           </PieChart>
         </ChartContainer>
-        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-2xl font-semibold text-[var(--fms-text-header)]">
-            {total.toLocaleString('en-BT')}
-          </span>
-          <span className="text-xs text-[var(--fms-text-subheading)]">trips</span>
-        </div>
+        <DonutCenterLabel
+          compact={formatCompactNumber(total)}
+          exact={total.toLocaleString('en-BT')}
+          caption="trips"
+          compactClassName="text-2xl"
+        />
       </div>
 
       <ul className="flex w-full flex-wrap justify-center gap-x-5 gap-y-2">
@@ -150,7 +154,10 @@ function TripsDonut({
             />
             <span className="font-medium text-[var(--fms-text-header)]">{row.label}</span>
             <span className="text-[var(--fms-text-subheading)]">
-              {row.value.toLocaleString('en-BT')}
+              <ChartCompactValue
+                compact={formatCompactNumber(row.value)}
+                exact={row.value.toLocaleString('en-BT')}
+              />
             </span>
           </li>
         ))}
@@ -191,7 +198,10 @@ function TripBreakdownBars({ slices }: { slices: TripReportSlice[] }) {
               />
             </span>
             <span className="text-right text-sm font-semibold tabular-nums text-[var(--fms-text-header)]">
-              {slice.value.toLocaleString('en-BT')}
+              <ChartCompactValue
+                compact={formatCompactNumber(slice.value)}
+                exact={slice.value.toLocaleString('en-BT')}
+              />
             </span>
           </li>
         )

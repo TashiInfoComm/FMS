@@ -26,6 +26,14 @@ export type DashboardSlice = {
   value: number
 }
 
+/** Agency row from `cost-trend?by_agency=true`, including the cost-head split. */
+export type DashboardAgencyCostSlice = DashboardSlice & {
+  fuel: number
+  maintenance: number
+  parking: number
+  insurance: number
+}
+
 export type DashboardFuelQuota = {
   remainingPercent: number | null
   remainingLitres: number | null
@@ -61,6 +69,8 @@ export type DashboardSummary = {
   /** Agency or nationwide label reported by the API. */
   scopeLabel: string
   fleetStatus: DashboardSlice[]
+  /** `fleet.total` / `utilization.total` when the API sends a fleet size separately from the slices. */
+  fleetStatusTotal: number
   costByAgency: DashboardSlice[]
   fuelQuota: DashboardFuelQuota | null
   todaysTrips: DashboardTripItem[]
@@ -77,10 +87,14 @@ export type DashboardSummary = {
   parkingClaims: number | null
   /** `fuel.total_amount`. */
   fuelTotalAmount: number | null
+  /** `maintenance.total_amount`. */
+  maintenanceTotalAmount: number | null
   /** `parking.total_amount`. */
   parkingTotalAmount: number | null
   /** `parking.pending_approval`. */
   parkingPendingApproval: number | null
+  /** `fuel.pending_quota` / `fuel.pending_approval`. */
+  fuelPendingApproval: number | null
   /** `fleet.by_category` counts. */
   fleetByCategory: DashboardSlice[]
   /** `emergency.total_deployments`. */
@@ -105,6 +119,14 @@ export type DashboardCostTrendPoint = {
   parking: number
   insurance: number
   total: number
+}
+
+/** Combined payload of `cost-trend?by_agency=true` — monthly series plus agency split. */
+export type DashboardCostTrendByAgency = {
+  points: DashboardCostTrendPoint[]
+  slices: DashboardAgencyCostSlice[]
+  total: number
+  composition: { slices: DashboardSlice[]; total: number }
 }
 
 /** Nested payloads are walked this deep when hunting for a field. */
@@ -253,7 +275,7 @@ function findBreakdown(payload: unknown, keys: string[]): unknown | undefined {
   return findContainer(payload, keys, 'array') ?? findContainer(payload, keys, 'record')
 }
 
-function pickValue(record: ApiRecord, keys: string[]): unknown {
+function pickValue(record: ApiRecord, keys: readonly string[]): unknown {
   const byKey = new Map<string, unknown>()
   for (const [key, value] of Object.entries(record)) byKey.set(normalizeKey(key), value)
 
@@ -264,7 +286,7 @@ function pickValue(record: ApiRecord, keys: string[]): unknown {
   return undefined
 }
 
-function pickNumber(record: ApiRecord, keys: string[]): number | null {
+function pickNumber(record: ApiRecord, keys: readonly string[]): number | null {
   return toNumber(pickValue(record, keys))
 }
 
@@ -387,23 +409,96 @@ const COST_BY_AGENCY_KEYS = [
   'agencies',
 ]
 
+const FLEET_STATUS_FIELDS = [
+  { label: 'Available', keys: ['available'] },
+  { label: 'Inactive', keys: ['inactive'] },
+  { label: 'On Loan', keys: ['on_loan', 'onLoan'] },
+  { label: 'On Trip', keys: ['on_trip', 'onTrip'] },
+  { label: 'Under Maintenance', keys: ['under_maintenance', 'underMaintenance'] },
+] as const
+
 /** Fallback donut when the API sends counts but no status breakdown. */
-function fleetStatusFromMetrics(metrics: DashboardMetrics): DashboardSlice[] {
+function fleetStatusFromMetrics(metrics: DashboardMetrics): {
+  slices: DashboardSlice[]
+  total: number
+} {
   const total = metrics.totalVehicles
-  if (total === undefined) return []
+  if (total === undefined) return { slices: [], total: 0 }
 
   const onTrip = metrics.onTrip ?? 0
   const maintenance = metrics.underMaintenance ?? 0
   const emergency = metrics.emergencyDeployed ?? 0
   const idle = metrics.idleVehicles ?? 0
+  const available = Math.max(0, total - onTrip - maintenance - emergency - idle)
 
-  return [
-    { label: 'Available', value: Math.max(0, total - onTrip - maintenance - emergency - idle) },
+  const slices = [
+    { label: 'Available', value: available },
     { label: 'On Trip', value: onTrip },
     { label: 'Under Maintenance', value: maintenance },
     { label: 'Emergency Deployed', value: emergency },
     { label: 'Idle', value: idle },
-  ].filter((slice) => slice.value > 0)
+  ]
+
+  return { slices, total }
+}
+
+function extractFleetStatus(payload: unknown, metrics: DashboardMetrics): {
+  slices: DashboardSlice[]
+  total: number
+} {
+  const fleet = extractNamedRecord(payload, ['fleet'])
+  const utilization =
+    extractNamedRecord(payload, ['utilization']) ??
+    (fleet && isRecord(fleet.utilization) ? fleet.utilization : null)
+  const root =
+    isRecord(payload) && isRecord(payload.data) && !Array.isArray(payload.data)
+      ? payload.data
+      : isRecord(payload)
+        ? payload
+        : null
+  const rootHasStatuses =
+    root != null &&
+    FLEET_STATUS_FIELDS.some(({ keys }) => pickNumber(root, keys) !== null)
+
+  if (fleet || utilization || rootHasStatuses) {
+    const pickStatus = (keys: readonly string[]): number =>
+      (utilization ? pickNumber(utilization, keys) : null) ??
+      (fleet ? pickNumber(fleet, keys) : null) ??
+      (rootHasStatuses && root ? pickNumber(root, keys) : null) ??
+      0
+
+    const slices = FLEET_STATUS_FIELDS.map(({ label, keys }) => ({
+      label,
+      value: pickStatus(keys),
+    }))
+
+    const reportedTotal =
+      (utilization ? pickNumber(utilization, ['total', 'total_vehicles', 'vehicle_count']) : null) ??
+      (fleet ? pickNumber(fleet, ['total', 'total_vehicles', 'vehicle_count']) : null) ??
+      (rootHasStatuses && root
+        ? pickNumber(root, ['total', 'total_vehicles', 'vehicle_count'])
+        : null)
+
+    return {
+      slices,
+      total: reportedTotal ?? slices.reduce((sum, slice) => sum + slice.value, 0),
+    }
+  }
+
+  const fromBreakdown = toSlices(
+    findBreakdown(payload, FLEET_STATUS_KEYS),
+    ['label', 'status', 'name', 'status_name', 'state'],
+    ['value', 'count', 'total', 'vehicles', 'vehicle_count'],
+  ).filter((slice) => slice.value > 0)
+
+  if (fromBreakdown.length > 0) {
+    return {
+      slices: fromBreakdown,
+      total: fromBreakdown.reduce((sum, slice) => sum + slice.value, 0),
+    }
+  }
+
+  return fleetStatusFromMetrics(metrics)
 }
 
 const FUEL_QUOTA_KEYS = ['fuel_quota', 'quota', 'fuel_balance_detail', 'fuel']
@@ -629,6 +724,12 @@ function extractFuelTotalAmount(payload: unknown): number | null {
   return pickNumber(fuel, ['total_amount', 'totalAmount'])
 }
 
+function extractMaintenanceTotalAmount(payload: unknown): number | null {
+  const maintenance = extractNamedRecord(payload, ['maintenance'])
+  if (!maintenance) return null
+  return pickNumber(maintenance, ['total_amount', 'totalAmount'])
+}
+
 function extractParkingTotalAmount(payload: unknown): number | null {
   const parking = extractNamedRecord(payload, ['parking'])
   if (!parking) return null
@@ -639,6 +740,19 @@ function extractParkingPendingApproval(payload: unknown): number | null {
   const parking = extractNamedRecord(payload, ['parking'])
   if (!parking) return null
   return pickNumber(parking, ['pending_approval', 'pendingApproval'])
+}
+
+function extractFuelPendingApproval(payload: unknown): number | null {
+  const fuel = extractNamedRecord(payload, ['fuel'])
+  if (!fuel) return null
+  return pickNumber(fuel, [
+    'pending_quota',
+    'pendingQuota',
+    'pending_approval',
+    'pendingApproval',
+    'forwarded_count',
+    'forwardedCount',
+  ])
 }
 
 function extractFleetByCategory(payload: unknown): DashboardSlice[] {
@@ -709,11 +823,7 @@ function mapSummary(payload: unknown): DashboardSummary {
     if (value !== null) metrics[key] = value
   }
 
-  const fleetStatus = toSlices(
-    findBreakdown(payload, FLEET_STATUS_KEYS),
-    ['label', 'status', 'name', 'status_name', 'state'],
-    ['value', 'count', 'total', 'vehicles', 'vehicle_count'],
-  ).filter((slice) => slice.value > 0)
+  const fleetStatus = extractFleetStatus(payload, metrics)
 
   return {
     metrics,
@@ -733,7 +843,8 @@ function mapSummary(payload: unknown): DashboardSummary {
       'organization',
       'organisation',
     ]),
-    fleetStatus: fleetStatus.length > 0 ? fleetStatus : fleetStatusFromMetrics(metrics),
+    fleetStatus: fleetStatus.slices,
+    fleetStatusTotal: fleetStatus.total,
     costByAgency: toSlices(
       findBreakdown(payload, COST_BY_AGENCY_KEYS),
       ['label', 'agency', 'agency_name', 'name', 'short_name', 'agency_code', 'code'],
@@ -759,8 +870,10 @@ function mapSummary(payload: unknown): DashboardSummary {
     maintenanceStats: extractMaintenanceStats(payload),
     parkingClaims: extractParkingClaims(payload),
     fuelTotalAmount: extractFuelTotalAmount(payload),
+    maintenanceTotalAmount: extractMaintenanceTotalAmount(payload),
     parkingTotalAmount: extractParkingTotalAmount(payload),
     parkingPendingApproval: extractParkingPendingApproval(payload),
+    fuelPendingApproval: extractFuelPendingApproval(payload),
     fleetByCategory: extractFleetByCategory(payload),
     emergencyDeployments: extractEmergencyDeployments(payload),
     driverRating: extractDriverRating(payload),
@@ -910,6 +1023,36 @@ function toMonthLabel(raw: unknown, index: number): string {
   return text || `Point ${index + 1}`
 }
 
+function costHeadsFromRecord(record: ApiRecord): Omit<DashboardCostTrendPoint, 'label'> {
+  const fuel = pickNumber(record, ['fuel', 'fuel_cost', 'total_fuel_cost', 'fuel_amount']) ?? 0
+  const maintenance =
+    pickNumber(record, [
+      'maintenance',
+      'maintenance_cost',
+      'total_maintenance_cost',
+      'maintenance_amount',
+    ]) ?? 0
+  const parking =
+    pickNumber(record, ['parking', 'parking_cost', 'total_parking_cost', 'parking_amount']) ?? 0
+  const insurance =
+    pickNumber(record, [
+      'insurance',
+      'insurance_cost',
+      'total_insurance_cost',
+      'insurance_amount',
+    ]) ?? 0
+
+  return {
+    fuel,
+    maintenance,
+    parking,
+    insurance,
+    total:
+      pickNumber(record, ['total', 'total_cost', 'operating_cost', 'grand_total']) ??
+      fuel + maintenance + parking + insurance,
+  }
+}
+
 function mapCostTrend(payload: unknown): DashboardCostTrendPoint[] {
   return extractRecordList(payload, [
     'periods',
@@ -942,34 +1085,7 @@ function mapCostTrend(payload: unknown): DashboardCostTrendPoint[] {
           ? `${MONTH_LABELS[month - 1]} ${year}`
           : toMonthLabel(pickValue(record, ['month']), index))
 
-      const fuel = pickNumber(record, ['fuel', 'fuel_cost', 'total_fuel_cost', 'fuel_amount']) ?? 0
-      const maintenance =
-        pickNumber(record, [
-          'maintenance',
-          'maintenance_cost',
-          'total_maintenance_cost',
-          'maintenance_amount',
-        ]) ?? 0
-      const parking =
-        pickNumber(record, ['parking', 'parking_cost', 'total_parking_cost', 'parking_amount']) ?? 0
-      const insurance =
-        pickNumber(record, [
-          'insurance',
-          'insurance_cost',
-          'total_insurance_cost',
-          'insurance_amount',
-        ]) ?? 0
-
-      return {
-        label,
-        fuel,
-        maintenance,
-        parking,
-        insurance,
-        total:
-          pickNumber(record, ['total', 'total_cost', 'operating_cost', 'grand_total']) ??
-          fuel + maintenance + parking + insurance,
-      }
+      return { label, ...costHeadsFromRecord(record) }
     })
     .filter((point) => !/^total$/i.test(point.label))
 }
@@ -997,7 +1113,10 @@ function pickAgencyLabel(record: ApiRecord): string {
   return pickText(record, ['agency_code', 'code']).replace(/_/g, ' ')
 }
 
-function mapCostByAgencySlices(payload: unknown): { slices: DashboardSlice[]; total: number } {
+function mapCostByAgencySlices(payload: unknown): {
+  slices: DashboardAgencyCostSlice[]
+  total: number
+} {
   const records = extractRecordList(payload, [
     'by_agency',
     'byAgency',
@@ -1006,10 +1125,17 @@ function mapCostByAgencySlices(payload: unknown): { slices: DashboardSlice[]; to
     'cost_by_agency',
   ])
   const slices = records
-    .map((record) => ({
-      label: pickAgencyLabel(record),
-      value: pickNumber(record, ['total', 'total_cost', 'grand_total']) ?? 0,
-    }))
+    .map((record) => {
+      const heads = costHeadsFromRecord(record)
+      return {
+        label: pickAgencyLabel(record),
+        value: heads.total,
+        fuel: heads.fuel,
+        maintenance: heads.maintenance,
+        parking: heads.parking,
+        insurance: heads.insurance,
+      }
+    })
     .filter((slice) => Boolean(slice.label) && slice.value > 0)
     .sort((a, b) => b.value - a.value)
 
@@ -1023,15 +1149,35 @@ function mapCostByAgencySlices(payload: unknown): { slices: DashboardSlice[]; to
   }
 }
 
-/** `GET /dashboard/cost-trend?by_agency=true&months=n` — spend split by agency. */
+function mapCostCompositionFromPayload(
+  payload: unknown,
+  points: DashboardCostTrendPoint[],
+): { slices: DashboardSlice[]; total: number } {
+  const totals = findContainer(payload, ['totals', 'summary'], 'record')
+  if (isRecord(totals)) {
+    const fromTotals = toCostComposition([{ label: 'Total', ...costHeadsFromRecord(totals) }])
+    if (fromTotals.slices.length > 0) return fromTotals
+  }
+  return toCostComposition(points)
+}
+
+/** `GET /dashboard/cost-trend?by_agency=true&months=n` — monthly series and agency split in one call. */
 export async function fetchDashboardCostTrendByAgency(
   months: number,
-): Promise<{ slices: DashboardSlice[]; total: number }> {
+): Promise<DashboardCostTrendByAgency> {
   const query = new URLSearchParams({
     months: String(months),
     by_agency: 'true',
   }).toString()
-  return mapCostByAgencySlices(await apiGet<unknown>(`/dashboard/cost-trend?${query}`))
+  const payload = await apiGet<unknown>(`/dashboard/cost-trend?${query}`)
+  const points = mapCostTrend(payload)
+  const { slices, total } = mapCostByAgencySlices(payload)
+  return {
+    points,
+    slices,
+    total,
+    composition: mapCostCompositionFromPayload(payload, points),
+  }
 }
 
 /** Totals the trend series by category, for the composition donut. */
@@ -1041,37 +1187,42 @@ export function toCostComposition(points: DashboardCostTrendPoint[]): {
 } {
   const slices = (
     [
-      { label: 'Fuel', key: 'fuel' },
-      { label: 'Maintenance', key: 'maintenance' },
-      { label: 'Parking', key: 'parking' },
-      { label: 'Insurance', key: 'insurance' },
+      { label: 'Fuel', key: 'fuel', always: true },
+      { label: 'Maintenance', key: 'maintenance', always: true },
+      { label: 'Parking', key: 'parking', always: true },
+      { label: 'Insurance', key: 'insurance', always: false },
     ] as const
   )
-    .map(({ label, key }) => ({
+    .map(({ label, key, always }) => ({
       label,
       value: points.reduce((sum, point) => sum + (Number(point[key]) || 0), 0),
+      always,
     }))
-    .filter((slice) => slice.value > 0)
+    .filter((slice) => slice.always || slice.value > 0)
+    .map(({ label, value }) => ({ label, value }))
 
-  return { slices, total: slices.reduce((sum, slice) => sum + slice.value, 0) }
+  const total = slices.reduce((sum, slice) => sum + slice.value, 0)
+  if (total === 0) return { slices: [], total: 0 }
+
+  return { slices, total }
 }
 
-/** Keeps compact figures to 3 significant-ish digits: `1.25K`, `12.5K`, `125K`. */
-function toCompactDigits(value: number): string {
-  const abs = Math.abs(value)
-  if (abs >= 100) return value.toFixed(0)
-  if (abs >= 10) return value.toFixed(1)
-  return value.toFixed(2)
+/** `16057` → `16k`, `2500` → `2.5k`, `2000000` → `2M`. */
+function toCompactDigits(scaled: number): string {
+  const abs = Math.abs(scaled)
+  const rounded = abs >= 10 ? Math.round(abs) : Math.round(abs * 10) / 10
+  const digits = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)
+  return scaled < 0 ? `-${digits}` : digits
 }
 
 export function formatCompactNumber(value: number): string {
   const abs = Math.abs(value)
   if (abs >= 1_000_000) return `${toCompactDigits(value / 1_000_000)}M`
-  if (abs >= 1_000) return `${toCompactDigits(value / 1_000)}K`
+  if (abs >= 1_000) return `${toCompactDigits(value / 1_000)}k`
   return value.toLocaleString('en-BT', { maximumFractionDigits: 0 })
 }
 
-/** Card and axis figures, where space is tight: `Nu 1.25M`. */
+/** Card and axis figures, where space is tight: `Nu 16k`. */
 export function formatNuCompact(value: number): string {
   return `Nu ${formatCompactNumber(value)}`
 }

@@ -15,22 +15,19 @@ import { MonthlyCostChart } from '@/features/dashboard/components/charts/Monthly
 import { useDashboardIdentity } from '@/features/dashboard/hooks/useDashboardIdentity'
 import {
   COST_TREND_MONTHS,
-  useDashboardCostTrend,
   useDashboardCostTrendByAgency,
   useDashboardPendingActions,
   useDashboardSummary,
 } from '@/features/dashboard/hooks/useDashboardQueries'
-import { toCostComposition } from '@/features/dashboard/lib/dashboard-api'
 import { errorMessageOf } from '@/features/dashboard/lib/dashboard-ui'
-import { buildMtoStatItems, pendingApprovalsFromSummary } from '@/features/dashboard/lib/mto-stats'
+import { buildMtoStatItems, pendingApprovalsFromSummary, visiblePendingActions } from '@/features/dashboard/lib/mto-stats'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { useAccessControl } from '@/shared/hooks/useAccessControl'
 
 export function NationwideDashboard() {
   const summaryQuery = useDashboardSummary()
   const pendingActionsQuery = useDashboardPendingActions()
-  const costTrendQuery = useDashboardCostTrend()
-  const costByAgencyQuery = useDashboardCostTrendByAgency()
+  const costTrendQuery = useDashboardCostTrendByAgency()
 
   const { roles } = useAccessControl()
   const isSuperAdmin = roles.includes('fms-super-admin')
@@ -40,18 +37,18 @@ export function NationwideDashboard() {
   const summary = summaryQuery.data
   const nationwideStats = useMemo(() => buildMtoStatItems(summary), [summary])
   const fleetStatus = summary?.fleetStatus ?? []
-  const fleetStatusTotal = fleetStatus.reduce((sum, slice) => sum + slice.value, 0)
-  const costTrend = costTrendQuery.data ?? []
-  const composition = useMemo(() => toCostComposition(costTrend), [costTrend])
-  const costByAgency = costByAgencyQuery.data ?? { slices: [], total: 0 }
+  const fleetStatusTotal = summary?.fleetStatusTotal ?? fleetStatus.reduce((sum, slice) => sum + slice.value, 0)
+  const costTrend = costTrendQuery.data?.points ?? []
+  const composition = costTrendQuery.data?.composition ?? { slices: [], total: 0 }
+  const costByAgency = costTrendQuery.data ?? { slices: [], total: 0 }
   const pendingActions = useMemo(() => {
-    const fromApi = pendingActionsQuery.data ?? []
+    const fromApi = visiblePendingActions(pendingActionsQuery.data ?? [])
     return fromApi.length > 0 ? fromApi : pendingApprovalsFromSummary(summary)
   }, [pendingActionsQuery.data, summary])
 
   const summaryError = errorMessageOf(summaryQuery.error, 'Could not load dashboard summary.')
   const trendError = errorMessageOf(costTrendQuery.error, 'Could not load cost trend.')
-  const agencyError = errorMessageOf(costByAgencyQuery.error, 'Could not load cost by agency.')
+  const agencyError = trendError
   const trendWindow = `Last ${COST_TREND_MONTHS} months`
   const trendMeta = `${trendWindow} · Nu`
 
@@ -94,6 +91,18 @@ export function NationwideDashboard() {
         </div>
       )}
 
+      <PendingActionsPanel
+        title="Pending Approvals"
+        badge="count"
+        actions={pendingActions}
+        isLoading={pendingActionsQuery.isLoading}
+        isError={pendingActionsQuery.isError && pendingActions.length === 0}
+        errorMessage={errorMessageOf(
+          pendingActionsQuery.error,
+          'Could not load pending approvals.',
+        )}
+      />
+
       <div className="grid min-w-0 items-stretch gap-4 lg:grid-cols-2">
         <DashboardChartCard
           title="Fleet Status Distribution"
@@ -111,8 +120,9 @@ export function NationwideDashboard() {
           isLoading={costTrendQuery.isLoading}
           isError={costTrendQuery.isError}
           errorMessage={trendError}
-          isEmpty={composition.slices.length === 0}
+          isEmpty={composition.total === 0}
           emptyMessage="No cost data available."
+          className="overflow-visible"
         >
           <CostCompositionChart
             slices={composition.slices}
@@ -121,18 +131,6 @@ export function NationwideDashboard() {
           />
         </DashboardChartCard>
       </div>
-
-      <PendingActionsPanel
-        title="Pending Approvals"
-        badge="count"
-        actions={pendingActions}
-        isLoading={pendingActionsQuery.isLoading}
-        isError={pendingActionsQuery.isError && pendingActions.length === 0}
-        errorMessage={errorMessageOf(
-          pendingActionsQuery.error,
-          'Could not load pending approvals.',
-        )}
-      />
 
       <DashboardChartCard
         title="Monthly Cost Summary"
@@ -160,11 +158,12 @@ export function NationwideDashboard() {
 
       <DashboardChartCard
         title="Cost by Agency"
-        isLoading={costByAgencyQuery.isLoading}
-        isError={costByAgencyQuery.isError}
+        isLoading={costTrendQuery.isLoading}
+        isError={costTrendQuery.isError}
         errorMessage={agencyError}
         isEmpty={costByAgency.slices.length === 0}
         emptyMessage="No agency cost breakdown available."
+        className="overflow-visible"
       >
         <CostByAgencyList slices={costByAgency.slices} />
       </DashboardChartCard>

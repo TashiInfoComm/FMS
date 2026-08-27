@@ -8,12 +8,16 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from '@/components/ui/chart'
+import {
+  ChartCompactValue,
+  DonutCenterLabel,
+} from '@/features/dashboard/components/charts/ChartCompactValue'
 import { ChartTooltipRow } from '@/features/dashboard/components/charts/ChartTooltipRow'
 import {
   fleetStatusColor,
   toSeriesKey,
 } from '@/features/dashboard/components/charts/chart-palette'
-import type { DashboardSlice } from '@/features/dashboard/lib/dashboard-api'
+import { formatCompactNumber, type DashboardSlice } from '@/features/dashboard/lib/dashboard-api'
 
 type FleetStatusChartProps = {
   slices: DashboardSlice[]
@@ -21,7 +25,7 @@ type FleetStatusChartProps = {
 }
 
 export function FleetStatusChart({ slices, total }: FleetStatusChartProps) {
-  const { data, chartConfig } = useMemo(() => {
+  const { data, pieData, chartConfig } = useMemo(() => {
     const config: ChartConfig = {}
     const rows = slices.map((slice, index) => {
       const key = toSeriesKey(slice.label)
@@ -29,13 +33,17 @@ export function FleetStatusChart({ slices, total }: FleetStatusChartProps) {
       config[key] = { label: slice.label, color }
       return { key, label: slice.label, value: slice.value, color }
     })
-    return { data: rows, chartConfig: config }
+    return {
+      data: rows,
+      pieData: rows.filter((row) => row.value > 0),
+      chartConfig: config,
+    }
   }, [slices])
 
   return (
     <div className="flex flex-col items-center gap-4">
       <div className="relative">
-        <ChartContainer config={chartConfig} className="aspect-square h-52 w-52">
+        <ChartContainer config={chartConfig} className="aspect-square h-48 w-48">
           <PieChart>
             <ChartTooltip
               cursor={false}
@@ -43,6 +51,7 @@ export function FleetStatusChart({ slices, total }: FleetStatusChartProps) {
                 <ChartTooltipContent
                   hideLabel
                   formatter={(value, name, item) => {
+                    if (!name) return null
                     const count = Number(value) || 0
                     const share = total > 0 ? Math.round((count / total) * 100) : 0
                     return (
@@ -56,31 +65,32 @@ export function FleetStatusChart({ slices, total }: FleetStatusChartProps) {
                 />
               }
             />
-            <Pie
-              data={data}
-              dataKey="value"
-              nameKey="key"
-              innerRadius="68%"
-              outerRadius="100%"
-              stroke="#ffffff"
-              strokeWidth={2}
-              isAnimationActive={false}
-            >
-              {data.map((row) => (
-                <Cell key={row.key} fill={row.color} />
-              ))}
-            </Pie>
+            {pieData.length > 0 ? (
+              <Pie
+                data={pieData}
+                dataKey="value"
+                nameKey="key"
+                innerRadius="62%"
+                outerRadius="100%"
+                stroke="#ffffff"
+                strokeWidth={2}
+                isAnimationActive={false}
+              >
+                {pieData.map((row) => (
+                  <Cell key={row.key} fill={row.color} />
+                ))}
+              </Pie>
+            ) : null}
           </PieChart>
         </ChartContainer>
 
-        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-3xl font-semibold text-[var(--fms-text-header)]">
-            {total.toLocaleString('en-BT')}
-          </span>
-          <span className="text-xs text-[var(--fms-text-subheading)]">
-            {total === 1 ? 'vehicle' : 'vehicles'}
-          </span>
-        </div>
+        <DonutCenterLabel
+          compact={formatCompactNumber(total)}
+          exact={total.toLocaleString('en-BT')}
+          caption={total === 1 ? 'vehicle' : 'vehicles'}
+          compactClassName="text-3xl"
+          holePercent={62}
+        />
       </div>
 
       <ul className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
@@ -93,7 +103,10 @@ export function FleetStatusChart({ slices, total }: FleetStatusChartProps) {
             />
             <span className="text-[var(--fms-text-subheading)]">{row.label}</span>
             <span className="font-semibold text-[var(--fms-text-header)]">
-              {row.value.toLocaleString('en-BT')}
+              <ChartCompactValue
+                compact={formatCompactNumber(row.value)}
+                exact={row.value.toLocaleString('en-BT')}
+              />
             </span>
           </li>
         ))}

@@ -1,17 +1,19 @@
 // Finance officer dashboard: spend totals, how they break down, and claims awaiting sign-off.
-import { Fuel, SquareParking } from 'lucide-react'
+import { Fuel, SquareParking, Wrench } from 'lucide-react'
 import { useMemo } from 'react'
 
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DashboardChartCard } from '@/features/dashboard/components/DashboardChartCard'
 import { DashboardStatCard } from '@/features/dashboard/components/DashboardStatCard'
+import { PendingActionsPanel } from '@/features/dashboard/components/PendingActionsPanel'
 import { CostCompositionChart } from '@/features/dashboard/components/charts/CostCompositionChart'
 import { MonthlyCostChart } from '@/features/dashboard/components/charts/MonthlyCostChart'
 import { useDashboardIdentity } from '@/features/dashboard/hooks/useDashboardIdentity'
 import {
   COST_TREND_MONTHS,
   useDashboardCostTrend,
+  useDashboardPendingActions,
   useDashboardSummary,
 } from '@/features/dashboard/hooks/useDashboardQueries'
 import {
@@ -21,10 +23,12 @@ import {
 } from '@/features/dashboard/lib/dashboard-api'
 import { FINANCE_STAT_CARDS } from '@/features/dashboard/lib/dashboard-stat-specs'
 import { errorMessageOf } from '@/features/dashboard/lib/dashboard-ui'
+import { financePendingApprovalsFromSummary, visiblePendingActions } from '@/features/dashboard/lib/mto-stats'
 import { PageHeader } from '@/shared/components/PageHeader'
 
 export function FinanceDashboard() {
   const summaryQuery = useDashboardSummary()
+  const pendingActionsQuery = useDashboardPendingActions()
   const costTrendQuery = useDashboardCostTrend()
 
   const { roleTitle, scopeLabel } = useDashboardIdentity(summaryQuery.data?.scopeLabel)
@@ -41,6 +45,9 @@ export function FinanceDashboard() {
       accent: string
     }> = []
 
+    const hasFuelOrParkingTotals =
+      summary.fuelTotalAmount !== null || summary.parkingTotalAmount !== null
+
     if (summary.fuelTotalAmount !== null) {
       items.push({
         id: 'fuel-total-amount',
@@ -48,6 +55,16 @@ export function FinanceDashboard() {
         value: formatNuExact(summary.fuelTotalAmount),
         icon: Fuel,
         accent: '#fb923c',
+      })
+    }
+
+    if (hasFuelOrParkingTotals && summary.maintenanceTotalAmount !== null) {
+      items.push({
+        id: 'maintenance-total-amount',
+        label: 'Maintenance total amount',
+        value: formatNuExact(summary.maintenanceTotalAmount),
+        icon: Wrench,
+        accent: '#f59e0b',
       })
     }
 
@@ -63,6 +80,7 @@ export function FinanceDashboard() {
 
     for (const spec of FINANCE_STAT_CARDS) {
       if (spec.key === 'fuelCost' && summary.fuelTotalAmount !== null) continue
+      if (spec.key === 'maintenanceCost' && summary.maintenanceTotalAmount !== null) continue
       if (spec.key === 'parkingCost' && summary.parkingTotalAmount !== null) continue
       const value = summary.metrics[spec.key]
       if (value === undefined) continue
@@ -80,6 +98,10 @@ export function FinanceDashboard() {
 
     return items
   }, [summary])
+  const pendingActions = useMemo(() => {
+    const fromApi = visiblePendingActions(pendingActionsQuery.data ?? [])
+    return fromApi.length > 0 ? fromApi : financePendingApprovalsFromSummary(summary)
+  }, [pendingActionsQuery.data, summary])
   const costTrend = useMemo(() => costTrendQuery.data ?? [], [costTrendQuery.data])
   const composition = useMemo(() => toCostComposition(costTrend), [costTrend])
 
@@ -125,22 +147,32 @@ export function FinanceDashboard() {
         </div>
       )}
 
-      <div className="grid min-w-0 gap-4 lg:grid-cols-2">
-        <DashboardChartCard
-          title="Cost Composition"
-          isLoading={costTrendQuery.isLoading}
-          isError={costTrendQuery.isError}
-          errorMessage={trendError}
-          isEmpty={composition.slices.length === 0}
-          emptyMessage="No cost data available."
-        >
-          <CostCompositionChart
-            slices={composition.slices}
-            total={composition.total}
-            periodLabel={trendWindow.toLowerCase()}
-          />
-        </DashboardChartCard>
-      </div>
+      <PendingActionsPanel
+        title="Pending Approvals"
+        badge="count"
+        actions={pendingActions}
+        isLoading={pendingActionsQuery.isLoading}
+        isError={pendingActionsQuery.isError && pendingActions.length === 0}
+        errorMessage={errorMessageOf(
+          pendingActionsQuery.error,
+          'Could not load pending approvals.',
+        )}
+      />
+
+      <DashboardChartCard
+        title="Cost Composition"
+        isLoading={costTrendQuery.isLoading}
+        isError={costTrendQuery.isError}
+        errorMessage={trendError}
+        isEmpty={composition.total === 0}
+        emptyMessage="No cost data available."
+      >
+        <CostCompositionChart
+          slices={composition.slices}
+          total={composition.total}
+          periodLabel={trendWindow.toLowerCase()}
+        />
+      </DashboardChartCard>
 
       <DashboardChartCard
         title="Monthly Cost Summary"

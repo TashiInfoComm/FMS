@@ -6,6 +6,8 @@ export const CHART_COLORS = {
   parking: '#06b6d4',
   insurance: '#8b5cf6',
   available: '#22c55e',
+  inactive: '#64748b',
+  onLoan: '#8b5cf6',
   onTrip: '#3b82f6',
   underMaintenance: '#f59e0b',
   emergency: '#ef4444',
@@ -30,10 +32,11 @@ export const CHART_SERIES_COLORS = [
 export function fleetStatusColor(label: string, index: number): string {
   const text = label.toLowerCase()
   if (text.includes('available')) return CHART_COLORS.available
+  if (text.includes('inactive') || text.includes('idle')) return CHART_COLORS.idle
+  if (text.includes('loan')) return CHART_COLORS.parking
   if (text.includes('trip') || text.includes('dispatch')) return CHART_COLORS.onTrip
   if (text.includes('maintenance') || text.includes('repair')) return CHART_COLORS.underMaintenance
   if (text.includes('emergency')) return CHART_COLORS.emergency
-  if (text.includes('idle')) return CHART_COLORS.idle
   return CHART_SERIES_COLORS[index % CHART_SERIES_COLORS.length]
 }
 

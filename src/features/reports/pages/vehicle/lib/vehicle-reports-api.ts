@@ -1,4 +1,5 @@
 import { apiGet, apiGetBlob } from '@/services/apiClient'
+import { formatNuCompact } from '@/features/dashboard/lib/dashboard-api'
 import {
   appendReportCommonFilterParams,
   type ReportCommonFilterParams,
@@ -412,12 +413,9 @@ export function formatReportNu(value: number): string {
   return `Nu ${formatExactNumber(value)}`
 }
 
-/** Axis ticks only have room for `Nu 75.0K`, not the full figure. */
+/** Axis ticks only have room for `Nu 75k`, not the full figure. */
 export function formatCompactNu(value: number): string {
-  const abs = Math.abs(value)
-  if (abs >= 1_000_000) return `Nu ${(value / 1_000_000).toFixed(1)}M`
-  if (abs >= 1_000) return `Nu ${(value / 1_000).toFixed(1)}K`
-  return `Nu ${value.toLocaleString('en-BT', { maximumFractionDigits: 0 })}`
+  return formatNuCompact(value)
 }
 
 export type { VehicleReportRow }

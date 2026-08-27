@@ -96,6 +96,9 @@ export function buildMtoStatItems(summary: DashboardSummary | undefined): MtoSta
     { icon: Siren, accent: '#ef4444' },
   )
 
+  const hasFuelOrParkingTotals =
+    summary.fuelTotalAmount !== null || summary.parkingTotalAmount !== null
+
   if (summary.fuelTotalAmount !== null) {
     items.push({
       id: 'fuel-total-amount',
@@ -103,6 +106,16 @@ export function buildMtoStatItems(summary: DashboardSummary | undefined): MtoSta
       value: formatNuExact(summary.fuelTotalAmount),
       icon: Fuel,
       accent: '#fb923c',
+    })
+  }
+
+  if (hasFuelOrParkingTotals && summary.maintenanceTotalAmount !== null) {
+    items.push({
+      id: 'maintenance-total-amount',
+      label: 'Maintenance total amount',
+      value: formatNuExact(summary.maintenanceTotalAmount),
+      icon: Wrench,
+      accent: '#f59e0b',
     })
   }
 
@@ -168,7 +181,7 @@ export function pendingApprovalsFromSummary(
   ]
 
   return rows
-    .filter((row) => row.count !== null)
+    .filter((row) => row.count !== null && row.count > 0)
     .map((row) => ({
       id: row.id,
       title: row.title,
@@ -177,4 +190,50 @@ export function pendingApprovalsFromSummary(
       count: row.count,
       href: row.href,
     }))
+}
+
+/** Finance officer queues: parking claims and fuel quota waiting on sign-off. */
+export function financePendingApprovalsFromSummary(
+  summary: DashboardSummary | undefined,
+): DashboardPendingAction[] {
+  if (!summary) return []
+
+  const rows: Array<{
+    id: string
+    title: string
+    kind: string
+    count: number | null
+    href: string
+  }> = [
+    {
+      id: 'parking-pending-approval',
+      title: 'Parking pending approval',
+      kind: 'parking',
+      count: summary.parkingPendingApproval,
+      href: '/parking/reimbursement-claims',
+    },
+    {
+      id: 'fuel-pending-approval',
+      title: 'Fuel quota pending approval',
+      kind: 'quota',
+      count: summary.fuelPendingApproval,
+      href: '/fuel/quota-request-list',
+    },
+  ]
+
+  return rows
+    .filter((row) => row.count !== null && row.count > 0)
+    .map((row) => ({
+      id: row.id,
+      title: row.title,
+      description: '',
+      kind: row.kind,
+      count: row.count,
+      href: row.href,
+    }))
+}
+
+/** Drops empty count rows so the panel only lists queues that actually have work. */
+export function visiblePendingActions(actions: DashboardPendingAction[]): DashboardPendingAction[] {
+  return actions.filter((action) => action.count === null || action.count > 0)
 }

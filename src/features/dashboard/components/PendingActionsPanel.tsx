@@ -57,7 +57,8 @@ export function PendingActionsPanel({
 }: PendingActionsPanelProps) {
   const navigate = useNavigate()
 
-  const pendingTotal = actions.reduce((sum, action) => sum + (action.count ?? 1), 0)
+  const visibleActions = actions.filter((action) => action.count === null || action.count > 0)
+  const pendingTotal = visibleActions.reduce((sum, action) => sum + (action.count ?? 1), 0)
 
   return (
     <Card className={cn('rounded-xl border border-[var(--fms-strokes)] ring-0', className)}>
@@ -65,7 +66,7 @@ export function PendingActionsPanel({
         <CardTitle className="text-base font-semibold text-[var(--fms-text-header)]">
           {title}
         </CardTitle>
-        {!isLoading && !isError && actions.length > 0 ? (
+        {!isLoading && !isError && visibleActions.length > 0 ? (
           badge === 'count' ? (
             <span className="rounded-md bg-[var(--fms-error-fill)] px-2.5 py-0.5 text-xs font-semibold text-[var(--fms-error-text)]">
               {pendingTotal}
@@ -85,13 +86,13 @@ export function PendingActionsPanel({
           <p className="py-4 text-sm text-[var(--fms-error-text)]">
             {errorMessage ?? 'Could not load pending actions.'}
           </p>
-        ) : actions.length === 0 ? (
+        ) : visibleActions.length === 0 ? (
           <p className="py-4 text-sm text-[var(--fms-text-subheading)]">
             Nothing needs your attention right now.
           </p>
         ) : (
           <ul className="divide-y divide-[var(--fms-strokes)]">
-            {actions.map((action) => {
+            {visibleActions.map((action) => {
               const Icon = iconForKind(action.kind)
               return (
                 <li

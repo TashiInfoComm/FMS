@@ -8,6 +8,7 @@ import { DashboardStatCard } from '@/features/dashboard/components/DashboardStat
 import { PendingActionsPanel } from '@/features/dashboard/components/PendingActionsPanel'
 import { CostCompositionChart } from '@/features/dashboard/components/charts/CostCompositionChart'
 import { CostTrendChart } from '@/features/dashboard/components/charts/CostTrendChart'
+import { FleetStatusChart } from '@/features/dashboard/components/charts/FleetStatusChart'
 import { MonthlyCostChart } from '@/features/dashboard/components/charts/MonthlyCostChart'
 import { useDashboardIdentity } from '@/features/dashboard/hooks/useDashboardIdentity'
 import {
@@ -18,7 +19,7 @@ import {
 } from '@/features/dashboard/hooks/useDashboardQueries'
 import { toCostComposition } from '@/features/dashboard/lib/dashboard-api'
 import { errorMessageOf } from '@/features/dashboard/lib/dashboard-ui'
-import { buildMtoStatItems, pendingApprovalsFromSummary } from '@/features/dashboard/lib/mto-stats'
+import { buildMtoStatItems, pendingApprovalsFromSummary, visiblePendingActions } from '@/features/dashboard/lib/mto-stats'
 import { PageHeader } from '@/shared/components/PageHeader'
 
 export function DispatchDashboard() {
@@ -30,11 +31,15 @@ export function DispatchDashboard() {
 
   const mtoStats = useMemo(() => buildMtoStatItems(summaryQuery.data), [summaryQuery.data])
   const pendingActions = useMemo(() => {
-    const fromApi = pendingActionsQuery.data ?? []
+    const fromApi = visiblePendingActions(pendingActionsQuery.data ?? [])
     return fromApi.length > 0 ? fromApi : pendingApprovalsFromSummary(summaryQuery.data)
   }, [pendingActionsQuery.data, summaryQuery.data])
   const costTrend = useMemo(() => costTrendQuery.data ?? [], [costTrendQuery.data])
   const composition = useMemo(() => toCostComposition(costTrend), [costTrend])
+  const fleetStatus = summaryQuery.data?.fleetStatus ?? []
+  const fleetStatusTotal =
+    summaryQuery.data?.fleetStatusTotal ??
+    fleetStatus.reduce((sum, slice) => sum + slice.value, 0)
 
   const summaryError = errorMessageOf(summaryQuery.error, 'Could not load dashboard summary.')
   const trendError = errorMessageOf(costTrendQuery.error, 'Could not load cost trend.')
@@ -80,6 +85,45 @@ export function DispatchDashboard() {
         </div>
       )}
 
+      <PendingActionsPanel
+        title="Pending Approvals"
+        badge="count"
+        actions={pendingActions}
+        isLoading={pendingActionsQuery.isLoading}
+        isError={pendingActionsQuery.isError && pendingActions.length === 0}
+        errorMessage={errorMessageOf(pendingActionsQuery.error, 'Could not load pending approvals.')}
+      />
+
+      <div className="grid min-w-0 items-stretch gap-4 lg:grid-cols-2">
+        <DashboardChartCard
+          className="h-full"
+          title="Fleet Status Distribution"
+          isLoading={summaryQuery.isLoading}
+          isError={summaryQuery.isError}
+          errorMessage={summaryError}
+          isEmpty={fleetStatus.length === 0}
+          emptyMessage="No vehicle status data available."
+        >
+          <FleetStatusChart slices={fleetStatus} total={fleetStatusTotal} />
+        </DashboardChartCard>
+
+        <DashboardChartCard
+          className="h-full"
+          title="Cost Composition"
+          isLoading={costTrendQuery.isLoading}
+          isError={costTrendQuery.isError}
+          errorMessage={trendError}
+          isEmpty={composition.total === 0}
+          emptyMessage="No cost data available."
+        >
+          <CostCompositionChart
+            slices={composition.slices}
+            total={composition.total}
+            periodLabel={trendWindow.toLowerCase()}
+          />
+        </DashboardChartCard>
+      </div>
+
       <DashboardChartCard
         title="Cost Trend — Fuel, Maintenance & Parking"
         meta={trendMeta}
@@ -91,34 +135,6 @@ export function DispatchDashboard() {
       >
         <CostTrendChart points={costTrend} />
       </DashboardChartCard>
-
-      <div className="grid min-w-0 items-stretch gap-4 lg:grid-cols-2">
-        <DashboardChartCard
-          className="h-full"
-          title="Cost Composition"
-          isLoading={costTrendQuery.isLoading}
-          isError={costTrendQuery.isError}
-          errorMessage={trendError}
-          isEmpty={composition.slices.length === 0}
-          emptyMessage="No cost data available."
-        >
-          <CostCompositionChart
-            slices={composition.slices}
-            total={composition.total}
-            periodLabel={trendWindow.toLowerCase()}
-          />
-        </DashboardChartCard>
-
-        <PendingActionsPanel
-          className="h-full"
-          title="Pending Approvals"
-          badge="count"
-          actions={pendingActions}
-          isLoading={pendingActionsQuery.isLoading}
-          isError={pendingActionsQuery.isError && pendingActions.length === 0}
-          errorMessage={errorMessageOf(pendingActionsQuery.error, 'Could not load pending approvals.')}
-        />
-      </div>
 
       <DashboardChartCard
         title="Monthly Cost Summary"
