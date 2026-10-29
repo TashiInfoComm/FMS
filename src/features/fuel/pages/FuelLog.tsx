@@ -1,10 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
 import { Plus } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { DesignatedTypeListFilter } from '@/features/fuel/components/DesignatedTypeListFilter'
 import { FuelTableListToolbar } from '@/features/fuel/components/FuelTableListToolbar'
 import { FuelLogStatusCell } from '@/features/fuel/components/FuelLogStatusCell'
 import {
@@ -17,6 +18,7 @@ import {
   formatFuelLogDate,
   formatFuelLogQuota,
 } from '@/features/fuel/lib/fuel-log-mock-data'
+import { useUserStore } from '@/services/user-store'
 import {
   ListPanelMessage,
   MobileListCard,
@@ -28,7 +30,12 @@ import {
   rowActionsContainerClassName,
 } from '@/shared/components/TableRowActionButtons'
 import { TablePagination } from '@/shared/components/TablePagination'
+import { useAccessControl } from '@/shared/hooks/useAccessControl'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
+import {
+  canFilterDesignatedVehicleLists,
+  canShowDesignatedFuelLogCreate,
+} from '@/shared/lib/designated-mto-access'
 
 const TABLE_COLUMNS = [
   'Sl.No',
@@ -42,13 +49,21 @@ const TABLE_COLUMNS = [
 export default function FuelLog() {
   const navigate = useNavigate()
   const crud = useRouteCrudPermissions('/fuel/logs')
+  const { apiRoleName, role } = useAccessControl()
+  const user = useUserStore((state) => state.user)
+  const canAddFuelLog = crud.canCreate || canShowDesignatedFuelLogCreate(apiRoleName, user)
+  const showDesignatedTypeFilter =
+    canFilterDesignatedVehicleLists(apiRoleName, user) ||
+    canFilterDesignatedVehicleLists(role, user)
   const [search, setSearch] = useState('')
+  const [designationType, setDesignationType] = useState('')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
+  const designationTypeParam = showDesignatedTypeFilter ? designationType : ''
 
   const listQuery = useQuery({
-    queryKey: ['fuel-logs', search, page, pageSize],
-    queryFn: () => fetchFuelLogsPage(search, page, pageSize),
+    queryKey: ['fuel-logs', search, designationTypeParam, page, pageSize],
+    queryFn: () => fetchFuelLogsPage(search, page, pageSize, designationTypeParam),
     enabled: !crud.isResolved || crud.canRead,
     staleTime: 30_000,
   })
@@ -60,14 +75,6 @@ export default function FuelLog() {
     listQuery.data?.totalPages ?? Math.max(1, Math.ceil(totalCount / Math.max(1, effectivePageSize)))
   const serialBase = listQuery.data?.serialBase ?? (page - 1) * pageSize
 
-  useEffect(() => {
-    setPage(1)
-  }, [search, pageSize])
-
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages)
-  }, [page, totalPages])
-
   const openDetail = (row: FuelLogListRow) => {
     navigate(`/fuel/logs/${encodeURIComponent(row.id)}`)
   }
@@ -76,7 +83,7 @@ export default function FuelLog() {
     <section className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <PageHeader title="Fuel Log" subtitle="View and manage fuel refill records." />
-        {crud.canCreate ? (
+        {canAddFuelLog ? (
           <Button
             asChild
             className="w-full bg-[var(--fms-button)] hover:bg-[var(--fms-button-hover)] sm:w-auto"
@@ -99,6 +106,17 @@ export default function FuelLog() {
             }}
             searchPlaceholder="Search driver, vehicle, status, date…"
             searchAriaLabel="Search fuel logs"
+            leading={
+              showDesignatedTypeFilter ? (
+                <DesignatedTypeListFilter
+                  value={designationType}
+                  onChange={(next) => {
+                    setDesignationType(next)
+                    setPage(1)
+                  }}
+                />
+              ) : null
+            }
           />
 
           <div className="hidden w-full min-w-0 overflow-x-auto rounded-lg border border-[var(--fms-strokes)] md:block">
@@ -152,8 +170,8 @@ export default function FuelLog() {
                       colSpan={TABLE_COLUMNS.length + 1}
                       className="px-4 py-6 text-center text-[var(--fms-text-subheading)]"
                     >
-                      {search.trim()
-                        ? 'No fuel logs match your search.'
+                      {search.trim() || designationTypeParam
+                        ? 'No fuel logs match your filters.'
                         : 'No fuel logs found.'}
                     </td>
                   </tr>
@@ -212,8 +230,8 @@ export default function FuelLog() {
               </ListPanelMessage>
             ) : rows.length === 0 ? (
               <ListPanelMessage>
-                {search.trim()
-                  ? 'No fuel logs match your search.'
+                {search.trim() || designationTypeParam
+                  ? 'No fuel logs match your filters.'
                   : 'No fuel logs found.'}
               </ListPanelMessage>
             ) : (

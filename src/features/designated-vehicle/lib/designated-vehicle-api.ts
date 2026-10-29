@@ -1,14 +1,13 @@
-import type {
-  DesignatedVehicleDetail,
-  DesignatedVehicleListRow,
-  DesignatedVehicleStatus,
+import {
+  isVehicleDesignatedType,
+  normalizeVehicleDesignatedType,
+  vehicleDesignatedTypeLabel,
+  type DesignatedVehicleDetail,
+  type DesignatedVehicleListRow,
+  type DesignatedVehicleStatus,
 } from '@/features/designated-vehicle/lib/designated-vehicle-types'
 import { apiDelete, apiGet, apiPost, apiPut } from '@/services/apiClient'
-import type { SearchableAutocompleteOption } from '@/shared/components/SearchableAutocomplete'
-import { extractMasterList } from '@/shared/lib/organogram-master-lookup'
 import { applyPagination } from '@/shared/utils/pagination'
-
-const USAGE_TYPES_PAGE_SIZE = 200
 
 type ApiRecord = Record<string, unknown>
 
@@ -115,6 +114,14 @@ function pickOfficialName(record: ApiRecord): string {
   )
 }
 
+function pickStringField(record: ApiRecord, keys: string[]): string {
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return ''
+}
+
 function pickDesignationTypeInfo(
   record: ApiRecord,
   official: ApiRecord,
@@ -125,47 +132,30 @@ function pickDesignationTypeInfo(
     getNestedRecord(record, 'designation_type') ||
     getNestedRecord(record, 'designationType')
 
+  const candidates = [
+    pickStringField(official, ['designation_type', 'designationType', 'usage_type', 'usageType']),
+    pickStringField(record, ['designation_type', 'designationType', 'usage_type', 'usageType']),
+    pickFirstText(nested ?? {}, ['code', 'name']),
+  ]
+  const enumValue = candidates
+    .map((candidate) => normalizeVehicleDesignatedType(candidate))
+    .find((candidate) => isVehicleDesignatedType(candidate))
+
   const id =
-    pickFirstText(official, ['designation_type_id', 'designationTypeId']) ||
-    pickFirstText(record, ['designation_type_id', 'designationTypeId']) ||
-    pickFirstText(nested ?? {}, ['id', 'uuid'])
-  const name =
+    enumValue ||
+    pickStringField(official, ['designation_type', 'designationType']) ||
+    pickStringField(record, ['designation_type', 'designationType']) ||
+    pickFirstText(nested ?? {}, ['code', 'name'])
+
+  const rawName =
     pickFirstText(nested ?? {}, ['name', 'label', 'title']) ||
     pickFirstText(official, ['designation_type_name', 'designationTypeName']) ||
     pickFirstText(record, ['designation_type_name', 'designationTypeName'])
+  const name = isVehicleDesignatedType(id)
+    ? vehicleDesignatedTypeLabel(id)
+    : vehicleDesignatedTypeLabel(rawName || id)
 
   return { id, name }
-}
-
-function mapUsageTypeOption(record: ApiRecord): SearchableAutocompleteOption | null {
-  const id =
-    record.id != null && String(record.id).trim() !== '' ? String(record.id).trim() : ''
-  const name = pickFirstText(record, ['name', 'label', 'title'])
-  const code = pickFirstText(record, ['code'])
-  const value = id || code
-  if (!value) return null
-  const label = name || code || value
-  return {
-    value,
-    label,
-    description: code && code !== label ? code : undefined,
-    searchText: [label, code, value].filter(Boolean).join(' '),
-  }
-}
-
-function isActiveUsageType(record: ApiRecord): boolean {
-  if (record.active === undefined) return true
-  return record.active === true || record.active === 1 || record.active === '1'
-}
-
-export async function fetchUsageTypeOptions(): Promise<SearchableAutocompleteOption[]> {
-  const payload = await apiGet<unknown>(
-    `/master/usage-types?active=true&page=1&page_size=${USAGE_TYPES_PAGE_SIZE}&code=&search=`,
-  )
-  return extractMasterList(payload)
-    .filter(isActiveUsageType)
-    .map(mapUsageTypeOption)
-    .filter((option): option is SearchableAutocompleteOption => option !== null)
 }
 
 function pickMakeModel(vehicle: ApiRecord | null): string {
@@ -257,7 +247,7 @@ function mapDesignatedVehicleDetail(record: ApiRecord): DesignatedVehicleDetail 
       pickFirstText(official, ['cid', 'citizen_id', 'citizenId', 'cid_no']) || '—',
     officialName: listRow.officialName,
     designation: listRow.designation,
-    designationTypeId: designationType.id || undefined,
+    designationType: designationType.id || undefined,
     designationTypeName: designationType.name || undefined,
     remarks: remarks || undefined,
     agency:
@@ -337,7 +327,7 @@ export type DesignatedOfficialUpsertBody = {
   cid: string
   full_name: string
   designation: string
-  designation_type_id: string
+  designation_type: string
   remarks: string
 }
 

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { DismissableLayerBranch } from '@radix-ui/react-dismissable-layer'
 import { Check, ChevronDown } from 'lucide-react'
 
@@ -7,7 +8,9 @@ import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 
 import {
+  autocompletePanelClassName,
   filterOptions,
+  useAnchoredAutocompletePanel,
   useModalScrollableList,
   type SearchableAutocompleteOption,
 } from '@/shared/components/SearchableAutocomplete'
@@ -65,6 +68,7 @@ export function SearchableMultiAutocomplete({
   const listRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   useModalScrollableList(listRef, open)
+  useAnchoredAutocompletePanel(open, containerRef, panelRef, side)
 
   useEffect(() => {
     if (!open) return
@@ -130,17 +134,15 @@ export function SearchableMultiAutocomplete({
         </span>
         <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
       </Button>
-      {open ? (
+      {open
+        ? createPortal(
         <DismissableLayerBranch>
           <div
             ref={panelRef}
             role="listbox"
             aria-multiselectable
             data-searchable-autocomplete-panel=""
-            className={cn(
-              'absolute left-0 right-0 z-[100] overflow-hidden rounded-xl border border-[var(--fms-strokes)] bg-popover text-popover-foreground shadow-md ring-1 ring-foreground/10',
-              side === 'top' ? 'bottom-full mb-1' : 'top-full mt-1',
-            )}
+            className={autocompletePanelClassName()}
           >
             <div className="border-b border-[var(--fms-strokes)] p-2">
               <Input
@@ -201,8 +203,10 @@ export function SearchableMultiAutocomplete({
               )}
             </div>
           </div>
-        </DismissableLayerBranch>
-      ) : null}
+        </DismissableLayerBranch>,
+        document.body,
+      )
+        : null}
     </div>
   )
 }

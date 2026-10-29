@@ -23,7 +23,21 @@ function getRefreshToken() {
 /** Avoid refresh loops and wrong-password login flows. */
 function isRefreshSkippedPath(path: string) {
   const normalized = path.startsWith("/") ? path : `/${path}`;
-  return normalized === "/auth/login" || normalized === "/auth/refresh";
+  return (
+    normalized === "/auth/login" ||
+    normalized === "/auth/refresh" ||
+    normalized === "/auth/forgot-password" ||
+    normalized === "/auth/reset-password"
+  );
+}
+
+/** Invalid reset links return 401 and must not clear an existing session. */
+function skipsSessionClearOnUnauthorized(path: string) {
+  const normalized = path.startsWith("/") ? path : `/${path}`;
+  return (
+    normalized === "/auth/forgot-password" ||
+    normalized === "/auth/reset-password"
+  );
 }
 
 type TokenPayload = Record<string, unknown>;
@@ -69,8 +83,9 @@ let refreshInFlight: Promise<boolean> | null = null;
  * POST /auth/refresh (typically …/api/v1/auth/refresh via VITE_API_URL) with
  * `{ refresh_token }` in the JSON body per API contract; updates session on success.
  * Deduplicates concurrent refresh attempts.
+ * Also called after a successful active-role change so the new token matches that role.
  */
-async function tryRefreshAccessToken(): Promise<boolean> {
+export async function tryRefreshAccessToken(): Promise<boolean> {
   if (refreshInFlight) return refreshInFlight;
 
   refreshInFlight = (async () => {
@@ -126,7 +141,11 @@ function isPublicAuthPath(pathname: string) {
   return (
     pathname === "/" ||
     pathname.startsWith("/login") ||
-    pathname.startsWith("/signup")
+    pathname.startsWith("/signup") ||
+    pathname === "/reset-password" ||
+    pathname.startsWith("/reset-password/") ||
+    pathname === "/change-password" ||
+    pathname.startsWith("/change-password/")
   );
 }
 
@@ -253,7 +272,7 @@ async function fetchWithAuthHandling<T>(
       }
     }
 
-    if (response.status === 401) {
+    if (response.status === 401 && !skipsSessionClearOnUnauthorized(path)) {
       await handleUnauthorized();
     }
     const message = getErrorMessage(payload, response.status);
@@ -302,7 +321,7 @@ async function fetchBlobWithAuthHandling(
       }
     }
 
-    if (response.status === 401) {
+    if (response.status === 401 && !skipsSessionClearOnUnauthorized(path)) {
       await handleUnauthorized();
     }
     const message = getErrorMessage(payload, response.status);

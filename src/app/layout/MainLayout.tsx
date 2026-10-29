@@ -47,6 +47,7 @@ export function MainLayout() {
   const {
     role,
     roles: profileRoles,
+    isSwitchingRole,
     setRole,
     sidebarMenus,
     isSidebarMenusLoading,
@@ -325,8 +326,10 @@ export function MainLayout() {
               Role:
               <select
                 value={role}
+                disabled={isSwitchingRole}
+                aria-busy={isSwitchingRole}
                 onChange={(event) => setRole(event.target.value as Role)}
-                className="ml-1 bg-transparent text-[var(--fms-text-header)] outline-none"
+                className="ml-1 bg-transparent text-[var(--fms-text-header)] outline-none disabled:cursor-wait"
               >
                 {profileRoles.map((roleOption) => (
                   <option key={roleOption} value={roleOption}>

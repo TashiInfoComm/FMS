@@ -91,6 +91,7 @@ export function AgencyHierarchyCrudSection({
   const [dialogOpen, setDialogOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [editingCode, setEditingCode] = useState<string | null>(null)
+  const [handlesDesignatedVehicles, setHandlesDesignatedVehicles] = useState(false)
   const [selectedDeleteCode, setSelectedDeleteCode] = useState<string | null>(null)
   const queryClient = useQueryClient()
   const navigate = useNavigate()
@@ -132,6 +133,7 @@ export function AgencyHierarchyCrudSection({
         normalized.name = row.name ?? ''
         normalized.id = row.id ?? ''
         normalized.active = row.active ?? true
+        normalized.handlesDesignatedVehicles = Boolean(row.handlesDesignatedVehicles)
         return normalized
       }),
     [listQuery.data?.rows, tableKeys],
@@ -209,12 +211,14 @@ export function AgencyHierarchyCrudSection({
   const closeDialog = () => {
     setDialogOpen(false)
     setEditingCode(null)
+    setHandlesDesignatedVehicles(false)
     reset(emptyHierarchyFormValues(formFields))
   }
 
   const onCreateOpen = () => {
     if (!canCreate) return
     setEditingCode(null)
+    setHandlesDesignatedVehicles(false)
     reset(emptyHierarchyFormValues(formFields))
     setDialogOpen(true)
   }
@@ -227,6 +231,7 @@ export function AgencyHierarchyCrudSection({
       return
     }
     setEditingCode(code)
+    setHandlesDesignatedVehicles(Boolean(row.handlesDesignatedVehicles))
     const values = emptyHierarchyFormValues(formFields)
     values.code = toText(row.code)
     values.name = toText(row.name)
@@ -260,7 +265,12 @@ export function AgencyHierarchyCrudSection({
     if (editingCode && !canUpdate) return
     if (!editingCode && !canCreate) return
 
-    const payload = buildHierarchyPayload(raw, parentField, parentId)
+    const payload = buildHierarchyPayload(
+      raw,
+      parentField,
+      parentId,
+      editingCode ? handlesDesignatedVehicles : undefined,
+    )
     if (editingCode) {
       updateMutation.mutate({ code: editingCode, payload })
     } else {
@@ -546,6 +556,22 @@ export function AgencyHierarchyCrudSection({
                 </div>
               )
             })}
+
+            {editingCode ? (
+              <div className="flex items-center gap-3 pt-1">
+                <Switch
+                  id="handles-designated-vehicles"
+                  checked={handlesDesignatedVehicles}
+                  onCheckedChange={setHandlesDesignatedVehicles}
+                />
+                <Label
+                  htmlFor="handles-designated-vehicles"
+                  className="text-[var(--fms-text-subheading)]"
+                >
+                  Handles Secretariat Vehicles
+                </Label>
+              </div>
+            ) : null}
 
             <DialogFooter className="gap-2 sm:gap-0">
               <Button type="button" variant="outline" onClick={closeDialog}>

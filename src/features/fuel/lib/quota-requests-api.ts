@@ -23,6 +23,8 @@ export type QuotaRequestListRow = {
   remarks: string
   status: QuotaRequestStatus
   fuelQuotaId: string
+  requestChannel: string
+  assignedDriverName: string
 }
 
 export type QuotaRequestsPageResult = {
@@ -67,6 +69,7 @@ function normalizeQuotaRequestStatus(value: unknown): QuotaRequestStatus {
   if (status === 'MTO_REJECTED') return 'MTO_REJECTED'
   if (status === 'FINANCE_REJECTED') return 'FINANCE_REJECTED'
   if (status === 'REJECTED' || status === 'DECLINED') return 'REJECTED'
+  if (status === 'ROUTED' || status === 'ROUTE') return 'ROUTED'
   return 'PENDING'
 }
 
@@ -138,6 +141,8 @@ export function mapQuotaRequestListRow(record: ApiRecord): QuotaRequestListRow |
     remarks,
     status: normalizeQuotaRequestStatus(record.status ?? record.request_status ?? record.requestStatus),
     fuelQuotaId: pickScalar(record, ['fuel_quota_id', 'fuelQuotaId']),
+    requestChannel: pickScalar(record, ['request_channel', 'requestChannel']),
+    assignedDriverName: pickScalar(record, ['assigned_driver_name', 'assignedDriverName']),
   }
 }
 
@@ -200,6 +205,7 @@ export function quotaRequestsListPath(
   statusFilter: string,
   page: number,
   pageSize: number,
+  requestChannel = '',
 ) {
   const params = new URLSearchParams()
   params.set('page', String(page))
@@ -208,6 +214,8 @@ export function quotaRequestsListPath(
   if (q) params.set('search', q)
   const status = statusFilter.trim()
   if (status && status !== 'all') params.set('status', status)
+  const channel = requestChannel.trim()
+  if (channel) params.set('request_channel', channel)
   return `/fuel/quota-requests?${params.toString()}`
 }
 
@@ -216,9 +224,10 @@ export async function fetchQuotaRequestsPage(
   statusFilter: string,
   page: number,
   pageSize: number,
+  requestChannel = '',
 ): Promise<QuotaRequestsPageResult> {
   const payload = await apiGet<unknown>(
-    quotaRequestsListPath(search, statusFilter, page, pageSize),
+    quotaRequestsListPath(search, statusFilter, page, pageSize, requestChannel),
   )
   const records = extractQuotaRequestList(payload)
   const rows = records
@@ -255,27 +264,38 @@ export async function fetchQuotaRequestById(requestId: string): Promise<QuotaReq
   return mapped
 }
 
+type QuotaRequestMtoReviewBody = {
+  action: QuotaRequestMtoReviewAction
+  approved_amount: number
+  remarks: string
+  assigned_driver_name?: string
+}
+
 export async function reviewQuotaRequestMto(
   requestId: string,
   action: QuotaRequestMtoReviewAction,
   approvedAmount: number,
   remarks: string,
+  assignedDriverName?: string,
 ): Promise<void> {
   const trimmedId = requestId.trim()
   const trimmedRemarks = remarks.trim()
+  const driverName = assignedDriverName?.trim() ?? ''
   if (!trimmedId) throw new Error('Quota request id is required')
   if (!Number.isFinite(approvedAmount) || approvedAmount <= 0) {
     throw new Error('Approved amount must be greater than 0')
   }
   if (!trimmedRemarks) throw new Error('Remarks are required')
-  await apiPatch<
-    unknown,
-    { action: QuotaRequestMtoReviewAction; approved_amount: number; remarks: string }
-  >(`/fuel/quota-requests/${encodeURIComponent(trimmedId)}/mto-review`, {
+  const body: QuotaRequestMtoReviewBody = {
     action,
     approved_amount: approvedAmount,
     remarks: trimmedRemarks,
-  })
+  }
+  if (driverName) body.assigned_driver_name = driverName
+  await apiPatch<unknown, QuotaRequestMtoReviewBody>(
+    `/fuel/quota-requests/${encodeURIComponent(trimmedId)}/mto-review`,
+    body,
+  )
 }
 
 export async function reviewQuotaRequestFinance(

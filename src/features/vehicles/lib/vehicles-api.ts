@@ -281,6 +281,11 @@ export async function fetchVehiclesPage(
   }
 }
 
+/** `POST /maintenance/renewal-checks/trigger` — temporary stand-in for the production cron. */
+export async function fetchExpiringVehicles(): Promise<void> {
+  return apiPost('/maintenance/renewal-checks/trigger', {})
+}
+
 export async function fetchVehicles(): Promise<VehicleListRow[]> {
   const pageSize = 100
   const firstPage = await fetchVehiclesPage('', 1, pageSize)
@@ -333,7 +338,13 @@ export type VehicleUpsertBody = {
   registration_date: string
   registration_expiry: string
   insurance_provider_id: string
+  insurance_policy_number: string
+  insurance_issued_date: string
   insurance_expiry: string
+  fitness_certificate_registered_date: string
+  fitness_certificate_expiry: string
+  emission_checked_date: string
+  emission_expiry_date: string
   gps_device_imei: string
   cost: number
   identification_code: string
@@ -360,7 +371,13 @@ const FORM_KEYS = [
   "registration_date",
   "registration_expiry",
   "insurance_provider_id",
+  "insurance_policy_number",
+  "insurance_issued_date",
   "insurance_expiry",
+  "fitness_certificate_registered_date",
+  "fitness_certificate_expiry",
+  "emission_checked_date",
+  "emission_expiry_date",
   "gps_device_imei",
   "cost",
   "identification_code",
@@ -579,11 +596,35 @@ export function vehicleRecordToFormState(record: ApiRecord): VehicleFormStringSt
     ]).slice(0, 10),
     insurance_provider_id: pickStringFromRecord(record, [
       "insurance_provider_id",
+      "insuranceProviderId",
+    ]),
+    insurance_policy_number: pickStringFromRecord(record, [
+      "insurance_policy_number",
       "insurancePolicyNumber",
     ]),
+    insurance_issued_date: pickStringFromRecord(record, [
+      "insurance_issued_date",
+      "insuranceIssuedDate",
+    ]).slice(0, 10),
     insurance_expiry: pickStringFromRecord(record, [
       "insurance_expiry",
       "insuranceExpiry",
+    ]).slice(0, 10),
+    fitness_certificate_registered_date: pickStringFromRecord(record, [
+      "fitness_certificate_registered_date",
+      "fitnessCertificateRegisteredDate",
+    ]).slice(0, 10),
+    fitness_certificate_expiry: pickStringFromRecord(record, [
+      "fitness_certificate_expiry",
+      "fitnessCertificateExpiry",
+    ]).slice(0, 10),
+    emission_checked_date: pickStringFromRecord(record, [
+      "emission_checked_date",
+      "emissionCheckedDate",
+    ]).slice(0, 10),
+    emission_expiry_date: pickStringFromRecord(record, [
+      "emission_expiry_date",
+      "emissionExpiryDate",
     ]).slice(0, 10),
     gps_device_imei: pickStringFromRecord(record, [
       "gps_device_imei",
@@ -634,7 +675,13 @@ export function vehicleFormStateToPayload(
     registration_date: form.registration_date.trim(),
     registration_expiry: form.registration_expiry.trim(),
     insurance_provider_id: form.insurance_provider_id.trim(),
+    insurance_policy_number: form.insurance_policy_number.trim(),
+    insurance_issued_date: form.insurance_issued_date.trim(),
     insurance_expiry: form.insurance_expiry.trim(),
+    fitness_certificate_registered_date: form.fitness_certificate_registered_date.trim(),
+    fitness_certificate_expiry: form.fitness_certificate_expiry.trim(),
+    emission_checked_date: form.emission_checked_date.trim(),
+    emission_expiry_date: form.emission_expiry_date.trim(),
     gps_device_imei: form.gps_device_imei.trim(),
     cost: parseFloatField(form.cost, 0),
     identification_code: form.identification_code.trim(),

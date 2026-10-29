@@ -78,6 +78,8 @@ export function useRouteCrudPermissions(
     canReject: isResolved && rolePerm.canReject,
     canAssign: isResolved && rolePerm.canAssign,
     canExport: isResolved && rolePerm.canExport,
+    canPay: isResolved && rolePerm.canPay,
+    canVerify: isResolved && rolePerm.canVerify,
     hasAction: (code: string) => isResolved && rolePerm.hasAction(code),
     allowed: rolePerm.allowed,
   }

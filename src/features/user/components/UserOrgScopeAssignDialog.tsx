@@ -336,11 +336,11 @@ export function UserOrgScopeAssignDialog({
           <Button
             type="button"
             variant="outline"
-            className="bg-[var(--fms-info-border)] hover:bg-[#1b458bvar(--fms-info-border)] text-white"
+            className="bg-[var(--fms-success-border)]  hover:bg-[var(--fms-success-border)] text-white"
             onClick={handleAddMore}
           >
             <Plus className="mr-1 h-4 w-4" />
-            Add more
+            Add more  
           </Button>
         </div>
 

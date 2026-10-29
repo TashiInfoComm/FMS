@@ -22,6 +22,16 @@ export function toText(value: unknown) {
   return typeof value === 'string' ? value : ''
 }
 
+export function toBooleanFlag(value: unknown): boolean {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'number') return value === 1
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    return normalized === 'true' || normalized === '1'
+  }
+  return false
+}
+
 export function toId(value: unknown) {
   if (typeof value === 'string' || typeof value === 'number') return String(value)
   return ''
@@ -119,6 +129,7 @@ export function mapAgencyRows(records: ApiRecord[], serialStart: number): Hierar
     const name = toText(item.name)
     const description = toText(item.description)
     const active = typeof item.active === 'boolean' ? item.active : item.active === 1 || item.active === '1'
+    const handlesDesignatedVehicles = toBooleanFlag(item.handles_designated_vehicles)
 
     return {
       serialNo,
@@ -129,6 +140,7 @@ export function mapAgencyRows(records: ApiRecord[], serialStart: number): Hierar
       shortName: code || '-',
       description: description || '-',
       active,
+      handlesDesignatedVehicles,
     }
   })
 }
@@ -141,6 +153,7 @@ export function mapDepartmentRows(records: ApiRecord[], serialStart: number): Hi
     const name = toText(item.name)
     const description = toText(item.description)
     const active = typeof item.active === 'boolean' ? item.active : item.active === 1 || item.active === '1'
+    const handlesDesignatedVehicles = toBooleanFlag(item.handles_designated_vehicles)
 
     return {
       serialNo,
@@ -151,6 +164,7 @@ export function mapDepartmentRows(records: ApiRecord[], serialStart: number): Hi
       displayCode: code || '-',
       description: description || '-',
       active,
+      handlesDesignatedVehicles,
     }
   })
 }
@@ -163,6 +177,7 @@ export function mapDivisionRows(records: ApiRecord[], serialStart: number): Hier
     const name = toText(item.name)
     const description = toText(item.description)
     const active = typeof item.active === 'boolean' ? item.active : item.active === 1 || item.active === '1'
+    const handlesDesignatedVehicles = toBooleanFlag(item.handles_designated_vehicles)
 
     return {
       serialNo,
@@ -173,6 +188,7 @@ export function mapDivisionRows(records: ApiRecord[], serialStart: number): Hier
       displayCode: code || '-',
       description: description || '-',
       active,
+      handlesDesignatedVehicles,
     }
   })
 }
@@ -185,6 +201,7 @@ export function mapSubDivisionRows(records: ApiRecord[], serialStart: number): H
     const name = toText(item.name)
     const description = toText(item.description)
     const active = typeof item.active === 'boolean' ? item.active : item.active === 1 || item.active === '1'
+    const handlesDesignatedVehicles = toBooleanFlag(item.handles_designated_vehicles)
 
     return {
       serialNo,
@@ -195,6 +212,7 @@ export function mapSubDivisionRows(records: ApiRecord[], serialStart: number): H
       displayCode: code || '-',
       description: description || '-',
       active,
+      handlesDesignatedVehicles,
     }
   })
 }
@@ -203,6 +221,7 @@ export function buildHierarchyPayload(
   form: HierarchyFormValues,
   parentField?: HierarchyParentField,
   parentId?: string,
+  handlesDesignatedVehicles?: boolean,
 ) {
   const payload: Record<string, string | number | boolean> = {
     code: form.code.trim(),
@@ -210,6 +229,10 @@ export function buildHierarchyPayload(
     description: form.description.trim(),
     display_order: 1,
     active: true,
+  }
+
+  if (typeof handlesDesignatedVehicles === 'boolean') {
+    payload.handles_designated_vehicles = handlesDesignatedVehicles
   }
 
   if (parentField && parentId?.trim()) {
@@ -231,6 +254,7 @@ export function buildHierarchyStatusPayload(
     description: toText(row.description === '-' ? '' : row.description).trim(),
     display_order: 1,
     active,
+    handles_designated_vehicles: toBooleanFlag(row.handlesDesignatedVehicles),
   }
 
   if (parentField && parentId?.trim()) {
@@ -339,6 +363,51 @@ export async function fetchDivisionByCode(code: string): Promise<DivisionEntityS
   const department = readNestedDepartment(record ?? {})
   const agency = readNestedAgency(record ?? {})
   return { ...base, ...department, ...agency }
+}
+
+export type DesignatedVehicleHandler = {
+  id: string
+  code: string
+  name: string
+  level: string
+}
+
+function readHandlerLevel(record: ApiRecord) {
+  const raw = toText(record.entity_type) || toText(record.entityType)
+  const normalized = raw.trim().toLowerCase().replace(/[\s_-]+/g, '')
+  if (normalized.startsWith('subdiv')) return 'Sub-Division'
+  if (normalized.startsWith('div')) return 'Division'
+  if (normalized.startsWith('dep')) return 'Department'
+  if (normalized.startsWith('agenc')) return 'Agency'
+  return raw.trim()
+}
+
+function mapDesignatedVehicleHandler(record: ApiRecord): DesignatedVehicleHandler | null {
+  const name = toText(record.name).trim()
+  const code = toText(record.code).trim()
+  if (!name && !code) return null
+  return {
+    id: toId(record.entity_id) || toId(record.id) || code || name,
+    code,
+    name: name || code,
+    level: readHandlerLevel(record),
+  }
+}
+
+/** The endpoint returns one handler under `data`; a list is accepted too. */
+function extractHandlerRecords(payload: unknown): ApiRecord[] {
+  const list = extractHierarchyList(payload)
+  if (list.length) return list
+  const root = toObject(payload)
+  const record = toObject(root?.data) ?? root
+  return record ? [record] : []
+}
+
+export async function fetchDesignatedVehicleHandlers(): Promise<DesignatedVehicleHandler[]> {
+  const payload = await apiGet<unknown>('/master/designated-vehicle-handler')
+  return extractHandlerRecords(payload)
+    .map(mapDesignatedVehicleHandler)
+    .filter((handler): handler is DesignatedVehicleHandler => handler !== null)
 }
 
 export async function syncAgencyHierarchy(): Promise<unknown> {

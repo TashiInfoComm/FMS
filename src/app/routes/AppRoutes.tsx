@@ -2,7 +2,9 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 
 import { MainLayout } from '@/app/layout/MainLayout'
+import { ChangePasswordPage } from '@/features/auth/components/ChangePasswordPage'
 import { LoginPage } from '@/features/auth/components/LoginPage'
+import { ResetPasswordPage } from '@/features/auth/components/ResetPasswordPage'
 import { NdiLoginPage } from '@/features/auth/components/NdiLoginPage'
 import { NdiRegistrationPage } from '@/features/auth/components/NdiRegistrationPage'
 import { SignupPage } from '@/features/auth/components/SignupPage'
@@ -79,7 +81,6 @@ import LoanRequisitionDetail from '@/features/inter-agency-vehicle-loan/pages/Lo
 import DispatchVehicle from '@/features/inter-agency-vehicle-loan/pages/DispatchVehicle'
 import ReturnVehicle from '@/features/inter-agency-vehicle-loan/pages/ReturnVehicle'
 import CheckListItem from '@/features/master/pages/CheckListItem'
-import { VehicleDesignatedTypePage } from '@/features/master/pages/VehicleDesignatedTypePage'
 import DesignatedVehicle from '@/features/designated-vehicle/pages/DesignatedVehicle'
 import DriverOffence from '@/features/driver-offence/pages/DriverOffence'
 import CreateEmergencyBroadcast from '@/features/emergency-vehicle/pages/CreateEmergencyBroadcast'
@@ -88,6 +89,9 @@ import EmergencyBroadcastDetail from '@/features/emergency-vehicle/pages/Emergen
 import EmergencyDispatchedList from '@/features/emergency-vehicle/pages/EmergencyDispatchedList'
 import EmergencyRequest from '@/features/emergency-vehicle/pages/EmergencyRequest'
 import VehicleDeployment from '@/features/emergency-vehicle/pages/VehicleDeployment'
+import PreventiveMaintenance from '@/features/maintenance/pages/PreventiveMaintenance'
+import RenewalApplicationDetail from '@/features/maintenance/pages/RenewalApplicationDetail'
+import RenewalApplicationViewPage from '@/features/maintenance/pages/RenewalApplicationViewPage'
 
 export function AppRoutes() {
   return (
@@ -97,6 +101,8 @@ export function AppRoutes() {
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/login/ndi" element={<NdiLoginPage />} />
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/change-password" element={<ChangePasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/signup" element={<NdiRegistrationPage />} />
         <Route path="/signup/manual" element={<SignupPage />} />
 
@@ -152,10 +158,6 @@ export function AppRoutes() {
           />
           <Route path="/master/trip-type" element={<TripTypePage />} />
           <Route path="/master/checklist-items" element={<CheckListItem />} />
-          <Route
-            path="/master/designated-type"
-            element={<VehicleDesignatedTypePage />}
-          />
           {/* Vehicle routes */}
           <Route path="/vehicle/list" element={<VehicleManagementPage />} />
           <Route path="/vehicle/list/:vehicleId/edit" element={<VehicleFormPage />} />
@@ -237,6 +239,15 @@ export function AppRoutes() {
           <Route path="/maintenance/work-orders/create" element={<CreateWorkOrder />} />
           <Route path="/maintenance/work-orders/:workOrderId" element={<WorkOrderDetail />} />
           <Route path="/maintenance/records" element={<ServiceRecord />} />
+          <Route path="/maintenance/renewal" element={<PreventiveMaintenance />} />
+          <Route
+            path="/maintenance/renewal/:applicationId/details"
+            element={<RenewalApplicationViewPage />}
+          />
+          <Route
+            path="/maintenance/renewal/:applicationId"
+            element={<RenewalApplicationDetail />}
+          />
 
           {/* Parking routes */}
           <Route path="/parking/expense-log" element={<ParkingLogs />} />

@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { Pencil } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { DesignatedTypeListFilter } from "@/features/fuel/components/DesignatedTypeListFilter";
 import { FuelTableListToolbar } from "@/features/fuel/components/FuelTableListToolbar";
 import {
   Select,
@@ -36,8 +37,10 @@ import {
   rowActionsContainerClassName,
 } from "@/shared/components/TableRowActionButtons";
 import { TablePagination } from "@/shared/components/TablePagination";
+import { useUserStore } from "@/services/user-store";
 import { useAccessControl } from "@/shared/hooks/useAccessControl";
 import { useRouteCrudPermissions } from "@/shared/hooks/useRouteCrudPermissions";
+import { canFilterDesignatedVehicleLists } from "@/shared/lib/designated-mto-access";
 
 const TABLE_COLUMNS = [
   "Sl.No",
@@ -49,6 +52,13 @@ const TABLE_COLUMNS = [
 ] as const;
 
 function QuotaRequestStatusCell({ status }: { status: QuotaRequestStatus }) {
+  if (status === "ROUTED") {
+    return (
+      <span className="rounded-full  px-2 py-1 text-xs  text-[#0a72a5]">
+        ROUTED
+      </span>
+    );
+  }
   if (status === "PENDING") {
     return (
       <span className="rounded-full  px-2 py-1 text-xs  text-[#0a72a5]">
@@ -56,6 +66,7 @@ function QuotaRequestStatusCell({ status }: { status: QuotaRequestStatus }) {
       </span>
     );
   }
+  
   if (status === "APPROVED") {
     return (
       <span className="rounded-full  px-2 py-1 text-xs  text-[#0f8e5c]">
@@ -108,15 +119,22 @@ function QuotaRequestStatusCell({ status }: { status: QuotaRequestStatus }) {
 export default function QuotaRequestList() {
   const navigate = useNavigate();
   const crud = useRouteCrudPermissions("/fuel/quota-request-list");
-  const { apiRoleName } = useAccessControl();
+  const { apiRoleName, role } = useAccessControl();
+  const user = useUserStore((state) => state.user);
+  const showDesignatedTypeFilter =
+    canFilterDesignatedVehicleLists(apiRoleName, user) ||
+    canFilterDesignatedVehicleLists(role, user);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [requestChannel, setRequestChannel] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const requestChannelParam = showDesignatedTypeFilter ? requestChannel : "";
 
   const listQuery = useQuery({
-    queryKey: ["fuel-quota-requests", search, statusFilter, page, pageSize],
-    queryFn: () => fetchQuotaRequestsPage(search, statusFilter, page, pageSize),
+    queryKey: ["fuel-quota-requests", search, statusFilter, requestChannelParam, page, pageSize],
+    queryFn: () =>
+      fetchQuotaRequestsPage(search, statusFilter, page, pageSize, requestChannelParam),
     enabled: !crud.isResolved || crud.canRead,
     staleTime: 30_000,
   });
@@ -138,14 +156,6 @@ export default function QuotaRequestList() {
     normalizedRole.includes("finance_officer") ||
     normalizedRole.includes("finance officer");
 
-  useEffect(() => {
-    setPage(1);
-  }, [search, statusFilter, pageSize]);
-
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
-
   const openDetail = (row: QuotaRequestListRow) => {
     navigate(`/fuel/quota-request-list/${encodeURIComponent(row.id)}`);
   };
@@ -158,7 +168,7 @@ export default function QuotaRequestList() {
 
   const canOpenReplenish = (row: QuotaRequestListRow) => {
     if (!crud.canUpdate) return false;
-    if (isMto) return row.status === "PENDING" || row.status === "FINANCE_REJECTED";
+    if (isMto) return row.status === "PENDING" || row.status === "ROUTED" || row.status === "FINANCE_REJECTED";
     if (isFinanceOfficer) return row.status === "FORWARDED";
     return false;
   };
@@ -178,24 +188,35 @@ export default function QuotaRequestList() {
             searchPlaceholder="Search vehicle"
             searchAriaLabel="Search quota requests"
             leading={
-              <Select
-                value={statusFilter}
-                onValueChange={(next) => {
-                  setStatusFilter(next);
-                  setPage(1);
-                }}
-              >
-                <SelectTrigger className="h-10 w-full sm:w-[200px]">
-                  <SelectValue placeholder="All statuses" />
-                </SelectTrigger>
-                <SelectContent>
-                  {QUOTA_REQUEST_STATUS_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <>
+                {showDesignatedTypeFilter ? (
+                  <DesignatedTypeListFilter
+                    value={requestChannel}
+                    onChange={(next) => {
+                      setRequestChannel(next);
+                      setPage(1);
+                    }}
+                  />
+                ) : null}
+                <Select
+                  value={statusFilter}
+                  onValueChange={(next) => {
+                    setStatusFilter(next);
+                    setPage(1);
+                  }}
+                >
+                  <SelectTrigger className="h-8 w-full sm:w-[200px]">
+                    <SelectValue placeholder="All statuses" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {QUOTA_REQUEST_STATUS_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </>
             }
           />
 
@@ -252,7 +273,7 @@ export default function QuotaRequestList() {
                       colSpan={TABLE_COLUMNS.length + 1}
                       className="px-4 py-6 text-center text-[var(--fms-text-subheading)]"
                     >
-                      {search.trim() || statusFilter !== "all"
+                      {search.trim() || statusFilter !== "all" || requestChannelParam
                         ? "No quota requests match your filters."
                         : "No quota requests found."}
                     </td>
@@ -337,7 +358,7 @@ export default function QuotaRequestList() {
               </ListPanelMessage>
             ) : rows.length === 0 ? (
               <ListPanelMessage>
-                {search.trim() || statusFilter !== "all"
+                {search.trim() || statusFilter !== "all" || requestChannelParam
                   ? "No quota requests match your filters."
                   : "No quota requests found."}
               </ListPanelMessage>

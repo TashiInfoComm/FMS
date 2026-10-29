@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, CloudUpload } from 'lucide-react'
+import { AlertTriangle, CloudUpload, Info } from 'lucide-react'
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 
@@ -18,6 +18,7 @@ import { Label } from '@/components/ui/label'
 import { FuelLogStatusCell } from '@/features/fuel/components/FuelLogStatusCell'
 import {
   createFuelLog,
+  fetchDesignatedOfficialVehicleOptions,
   fetchDriverVehicles,
   fetchFuelLogById,
   formatFuelLogVehicleDisplay,
@@ -44,7 +45,9 @@ import { useUserStore } from '@/services/user-store'
 import { SearchableAutocomplete } from '@/shared/components/SearchableAutocomplete'
 import { BackToListButton } from '@/shared/components/BackToListButton'
 import { PageHeader } from '@/shared/components/PageHeader'
+import { useAccessControl } from '@/shared/hooks/useAccessControl'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
+import { canShowDesignatedFuelLogCreate } from '@/shared/lib/designated-mto-access'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
 import { preOpenBrowserTab } from '@/shared/lib/open-in-new-tab'
 
@@ -287,8 +290,22 @@ function ReceiptUploadField({
   )
 }
 
+type DesignatedFuelLogNote = {
+  message: string
+  vehicleLabel?: string
+  officialName?: string
+}
+
+function designatedFuelLogMessage(designationTypeName: string | undefined): string {
+  const typeName = designationTypeName?.trim() ?? ''
+  if (!typeName) return 'Creating a fuel log for a designated vehicle.'
+  const article = /^[aeiou]/i.test(typeName) ? 'an' : 'a'
+  return `Creating a fuel log for ${article} ${typeName} vehicle.`
+}
+
 type FuelLogFormProps = {
   mode: 'create' | 'detail'
+  designatedNote?: DesignatedFuelLogNote | null
   vehicleNumber: string
   vehicleId?: string
   vehicleOptions?: DriverVehicleOption[]
@@ -322,6 +339,7 @@ type FuelLogFormProps = {
 
 function FuelLogForm({
   mode,
+  designatedNote = null,
   vehicleNumber,
   vehicleId = '',
   vehicleOptions = [],
@@ -376,6 +394,22 @@ function FuelLogForm({
             <p className="text-sm text-[var(--fms-text-subheading)]">Fuel Log Form</p>
           )}
         </div>
+
+        {!isDetail && designatedNote ? (
+          <div className="flex items-start gap-3 rounded-xl border border-[#bfdbfe] bg-[#eff6ff] px-4 py-3 text-sm text-[#1e40af]">
+            <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+            <div className="min-w-0 space-y-1">
+              <p className="font-medium">{designatedNote.message}</p>
+              {designatedNote.vehicleLabel || designatedNote.officialName ? (
+                <p className="text-[#1e3a8a]">
+                  {[designatedNote.vehicleLabel, designatedNote.officialName]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </p>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
 
         <form
           className="space-y-4"
@@ -554,7 +588,10 @@ function CreateFuelLogPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const crud = useRouteCrudPermissions('/fuel/create-fuel-log')
+  const { apiRoleName } = useAccessControl()
   const user = useUserStore((state) => state.user)
+  const canCreateFuelLog = crud.canCreate || canShowDesignatedFuelLogCreate(apiRoleName, user)
+  const useDesignatedVehicles = canShowDesignatedFuelLogCreate(apiRoleName, user)
 
   const profileRecord = useMemo((): ApiRecord | null => {
     if (user && typeof user === 'object' && !Array.isArray(user)) {
@@ -578,9 +615,14 @@ function CreateFuelLogPage() {
   }, [profile?.id, profileRecord])
 
   const vehiclesQuery = useQuery({
-    queryKey: ['fuel-logs', 'driver-vehicles', driverId],
-    queryFn: () => fetchDriverVehicles(driverId),
-    enabled: Boolean(driverId) && (!crud.isResolved || crud.canCreate),
+    queryKey: useDesignatedVehicles
+      ? ['fuel-logs', 'secretariat-vehicles']
+      : ['fuel-logs', 'driver-vehicles', driverId],
+    queryFn: () =>
+      useDesignatedVehicles ? fetchDesignatedOfficialVehicleOptions() : fetchDriverVehicles(driverId),
+    enabled: useDesignatedVehicles
+      ? !crud.isResolved || canCreateFuelLog
+      : Boolean(driverId) && (!crud.isResolved || canCreateFuelLog),
     staleTime: 60_000,
   })
 
@@ -601,8 +643,15 @@ function CreateFuelLogPage() {
     }
   }, [vehicleId, vehicleOptions, vehiclesQuery.isLoading])
 
-  const selectedVehicleLabel =
-    vehicleOptions.find((option) => option.value === vehicleId)?.label ?? ''
+  const selectedVehicle = vehicleOptions.find((option) => option.value === vehicleId)
+  const selectedVehicleLabel = selectedVehicle?.label ?? ''
+  const designatedNote = useDesignatedVehicles
+    ? {
+        message: designatedFuelLogMessage(selectedVehicle?.designationTypeName),
+        vehicleLabel: selectedVehicleLabel || undefined,
+        officialName: selectedVehicle?.officialName,
+      }
+    : null
 
   const canSubmit =
     Boolean(vehicleId) &&
@@ -638,7 +687,7 @@ function CreateFuelLogPage() {
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault()
-    if (!crud.canCreate && crud.isResolved) return
+    if (!canCreateFuelLog && crud.isResolved) return
     if (!canSubmit) {
       showErrorToast('Fill in all required fuel log fields')
       return
@@ -646,7 +695,7 @@ function CreateFuelLogPage() {
     createMutation.mutate()
   }
 
-  if (crud.isResolved && !crud.canCreate) {
+  if (crud.isResolved && !canCreateFuelLog) {
     return (
       <section className="space-y-5">
         <PageHeader title="Add Fuel Log" />
@@ -668,6 +717,7 @@ function CreateFuelLogPage() {
 
       <FuelLogForm
         mode="create"
+        designatedNote={designatedNote}
         vehicleNumber={selectedVehicleLabel}
         vehicleId={vehicleId}
         vehicleOptions={vehicleOptions}

@@ -1,10 +1,12 @@
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type RefObject,
 } from 'react'
+import { createPortal } from 'react-dom'
 import { DismissableLayerBranch } from '@radix-ui/react-dismissable-layer'
 import { ChevronDown } from 'lucide-react'
 
@@ -89,6 +91,77 @@ export function useModalScrollableList(
   }, [enabled, listRef])
 }
 
+const AUTOCOMPLETE_PANEL_Z_INDEX = '200'
+
+/**
+ * Place the menu on document.body with fixed coordinates so cards and page
+ * shells that use overflow:hidden cannot clip the option list.
+ */
+export function useAnchoredAutocompletePanel(
+  open: boolean,
+  anchorRef: RefObject<HTMLElement | null>,
+  panelRef: RefObject<HTMLElement | null>,
+  side: 'top' | 'bottom',
+) {
+  useLayoutEffect(() => {
+    if (!open) return
+
+    const update = () => {
+      const anchor = anchorRef.current
+      const panel = panelRef.current
+      if (!anchor || !panel) return
+
+      const rect = anchor.getBoundingClientRect()
+      const gap = 4
+      const margin = 8
+      const spaceBelow = window.innerHeight - rect.bottom - gap - margin
+      const spaceAbove = rect.top - gap - margin
+      const placeAbove =
+        side === 'top'
+          ? spaceAbove >= 96 || spaceAbove >= spaceBelow
+          : spaceBelow < 160 && spaceAbove > spaceBelow
+      const width = Math.max(rect.width, 180)
+      const maxWidth = window.innerWidth - margin * 2
+      const panelWidth = Math.min(width, maxWidth)
+      let left = rect.left
+      if (left + panelWidth > window.innerWidth - margin) {
+        left = Math.max(margin, window.innerWidth - margin - panelWidth)
+      }
+
+      panel.style.position = 'fixed'
+      panel.style.zIndex = AUTOCOMPLETE_PANEL_Z_INDEX
+      panel.style.left = `${left}px`
+      panel.style.width = `${panelWidth}px`
+      panel.style.right = 'auto'
+      panel.style.pointerEvents = 'auto'
+      if (placeAbove) {
+        panel.style.top = 'auto'
+        panel.style.bottom = `${window.innerHeight - rect.top + gap}px`
+      } else {
+        panel.style.bottom = 'auto'
+        panel.style.top = `${rect.bottom + gap}px`
+      }
+    }
+
+    update()
+    const frame = requestAnimationFrame(update)
+    window.addEventListener('resize', update)
+    window.addEventListener('scroll', update, true)
+    return () => {
+      cancelAnimationFrame(frame)
+      window.removeEventListener('resize', update)
+      window.removeEventListener('scroll', update, true)
+    }
+  }, [open, side, anchorRef, panelRef])
+}
+
+export function autocompletePanelClassName(className?: string) {
+  return cn(
+    'pointer-events-auto fixed z-[200] overflow-hidden rounded-xl border border-[var(--fms-strokes)] bg-popover text-popover-foreground shadow-md ring-1 ring-foreground/10',
+    className,
+  )
+}
+
 /** Single-select dropdown with inline search and scrollable options (works inside dialogs). */
 export function SearchableAutocomplete({
   id,
@@ -112,6 +185,7 @@ export function SearchableAutocomplete({
   const listRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   useModalScrollableList(listRef, open)
+  useAnchoredAutocompletePanel(open, containerRef, panelRef, side)
 
   useEffect(() => {
     if (!open) return
@@ -180,16 +254,14 @@ export function SearchableAutocomplete({
         </span>
         <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
       </Button>
-      {open ? (
+      {open
+        ? createPortal(
         <DismissableLayerBranch>
           <div
             ref={panelRef}
             role="listbox"
             data-searchable-autocomplete-panel=""
-            className={cn(
-              'absolute left-0 right-0 z-[100] overflow-hidden rounded-xl border border-[var(--fms-strokes)] bg-popover text-popover-foreground shadow-md ring-1 ring-foreground/10',
-              side === 'top' ? 'bottom-full mb-1' : 'top-full mt-1',
-            )}
+            className={autocompletePanelClassName()}
           >
             <div className="border-b border-[var(--fms-strokes)] p-2">
               <Input
@@ -246,8 +318,10 @@ export function SearchableAutocomplete({
               )}
             </div>
           </div>
-        </DismissableLayerBranch>
-      ) : null}
+        </DismissableLayerBranch>,
+        document.body,
+      )
+        : null}
     </div>
   )
 }

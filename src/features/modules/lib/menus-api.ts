@@ -3,6 +3,12 @@
 import { fetchRolePermissionsRawCached, roleActionsFromAssignedCodes } from '@/features/user/lib/roles-api'
 import { apiGet } from '@/services/apiClient'
 import { MENU_ITEMS } from '@/shared/constants/access-control'
+import {
+  canShowDesignatedParkingLog,
+  canShowMaintenanceRenewalMenu,
+  isAgencyAdminRole,
+  isDesignatedRenewalRole,
+} from '@/shared/lib/designated-mto-access'
 
 export type ApiRecord = Record<string, unknown>
 
@@ -275,6 +281,189 @@ function staticMenuFallbacks(): Map<string, StaticMenuFallback> {
 }
 
 const STATIC_MENU_FALLBACKS = staticMenuFallbacks()
+
+const RENEWAL_MENU_ROUTE = '/maintenance/renewal'
+
+function isMaintenanceModule(menu: MenuRecord): boolean {
+  if (menu.direct_route?.trim()) return false
+  const name = menu.name.trim().toLowerCase()
+  if (name === 'maintenance' || name.startsWith('maintenance ')) return true
+  return (menu.sub_menus ?? []).some((sub) =>
+    normalizeFrontendRoute(sub.route).toLowerCase().startsWith('/maintenance'),
+  )
+}
+
+function isRenewalSubMenu(sub: MenuSubRow): boolean {
+  const route = normalizeFrontendRoute(sub.route).toLowerCase()
+  const name = sub.name.trim().toLowerCase()
+  return (
+    route === RENEWAL_MENU_ROUTE ||
+    route === '/maintenance/preventive-maintenance' ||
+    name.includes('renewal')
+  )
+}
+
+function renewalSubMenu(existing?: MenuSubRow): MenuSubRow {
+  return {
+    id: existing?.id?.trim() || 'maintenance-renewal',
+    name: existing?.name?.trim() || 'Renewal',
+    route: RENEWAL_MENU_ROUTE,
+    permission_code: existing?.permission_code?.trim() || 'maintenance-renewal:view',
+    display_order: existing?.display_order ?? 90,
+    actions: {
+      read: 1,
+      create: existing?.actions?.create ?? 0,
+      update: existing?.actions?.update ?? 0,
+      delete: existing?.actions?.delete ?? 0,
+      ...(existing?.actions?.export !== undefined ? { export: existing.actions.export } : {}),
+    },
+  }
+}
+
+/**
+ * Designated-vehicle MTO, finance officer, and accountant roles see Renewal
+ * under Maintenance even when the role menu omits it.
+ */
+function ensureMaintenanceRenewalSubMenu(
+  menus: MenuRecord[],
+  sourceMenus: MenuRecord[],
+): MenuRecord[] {
+  const source = sourceMenus.find(isMaintenanceModule)
+  let next = menus
+  let index = next.findIndex(isMaintenanceModule)
+  if (index < 0) {
+    const base = source ?? {
+      id: 'maintenance',
+      name: 'Maintenance',
+      icon: 'Wrench',
+      icon_color: '',
+      display_order: 90,
+    }
+    next = [
+      ...next,
+      {
+        id: base.id,
+        name: base.name,
+        icon: base.icon,
+        icon_color: base.icon_color,
+        display_order: base.display_order,
+        sub_menus: [],
+      },
+    ]
+    index = next.length - 1
+  }
+
+  const menu = next[index]!
+  const subs = [...(menu.sub_menus ?? [])]
+  const fromSource = (source?.sub_menus ?? []).find(isRenewalSubMenu)
+  const existingIndex = subs.findIndex(isRenewalSubMenu)
+  if (existingIndex >= 0) {
+    subs[existingIndex] = renewalSubMenu(subs[existingIndex])
+  } else {
+    subs.push(renewalSubMenu(fromSource))
+  }
+
+  const updated = [...next]
+  updated[index] = { ...menu, sub_menus: subs }
+  return updated
+}
+
+const PARKING_EXPENSE_LOG_ROUTE = '/parking/expense-log'
+
+function isParkingModule(menu: MenuRecord): boolean {
+  if (menu.direct_route?.trim()) return false
+  const name = menu.name.trim().toLowerCase()
+  if (name === 'parking' || name.startsWith('parking ')) return true
+  return (menu.sub_menus ?? []).some((sub) =>
+    normalizeFrontendRoute(sub.route).toLowerCase().startsWith('/parking'),
+  )
+}
+
+function isParkingExpenseLogSubMenu(sub: MenuSubRow): boolean {
+  const route = normalizeFrontendRoute(sub.route).toLowerCase()
+  const name = sub.name.trim().toLowerCase()
+  return (
+    route === PARKING_EXPENSE_LOG_ROUTE ||
+    name.includes('parking expense') ||
+    (name.includes('expense') && name.includes('log'))
+  )
+}
+
+function parkingExpenseLogSubMenu(existing?: MenuSubRow): MenuSubRow {
+  return {
+    id: existing?.id?.trim() || 'parking-expense-log',
+    name: existing?.name?.trim() || 'Parking Expense Logs',
+    route: PARKING_EXPENSE_LOG_ROUTE,
+    permission_code: existing?.permission_code?.trim() || 'parking-expense-log:view',
+    display_order: existing?.display_order ?? 10,
+    actions: {
+      read: 1,
+      create: 1,
+      update: existing?.actions?.update ?? 0,
+      delete: existing?.actions?.delete ?? 0,
+      ...(existing?.actions?.export !== undefined ? { export: existing.actions.export } : {}),
+    },
+  }
+}
+
+/**
+ * Designated-vehicle MTO sees Parking Expense Logs even when the role menu omits it.
+ */
+function ensureParkingExpenseLogSubMenu(
+  menus: MenuRecord[],
+  sourceMenus: MenuRecord[],
+): MenuRecord[] {
+  const source = sourceMenus.find(isParkingModule)
+  let next = menus
+  let index = next.findIndex(isParkingModule)
+  if (index < 0) {
+    const base = source ?? {
+      id: 'parking',
+      name: 'Parking',
+      icon: 'SquareParking',
+      icon_color: '',
+      display_order: 80,
+    }
+    next = [
+      ...next,
+      {
+        id: base.id,
+        name: base.name,
+        icon: base.icon,
+        icon_color: base.icon_color,
+        display_order: base.display_order,
+        sub_menus: [],
+      },
+    ]
+    index = next.length - 1
+  }
+
+  const menu = next[index]!
+  const subs = [...(menu.sub_menus ?? [])]
+  const fromSource = (source?.sub_menus ?? []).find(isParkingExpenseLogSubMenu)
+  const existingIndex = subs.findIndex(isParkingExpenseLogSubMenu)
+  if (existingIndex >= 0) {
+    subs[existingIndex] = parkingExpenseLogSubMenu(subs[existingIndex])
+  } else {
+    subs.push(parkingExpenseLogSubMenu(fromSource))
+  }
+
+  const updated = [...next]
+  updated[index] = { ...menu, sub_menus: subs }
+  return updated
+}
+
+/** Agency admin never sees Maintenance → Renewal. Other roles follow their granted submenu permission. */
+function hideMaintenanceRenewalSubMenu(menus: MenuRecord[]): MenuRecord[] {
+  return menus
+    .map((menu) => {
+      if (!isMaintenanceModule(menu)) return menu
+      const subs = (menu.sub_menus ?? []).filter((sub) => !isRenewalSubMenu(sub))
+      if (subs.length === (menu.sub_menus ?? []).length) return menu
+      return { ...menu, sub_menus: subs }
+    })
+    .filter((menu) => menu.direct_route?.trim() || (menu.sub_menus ?? []).length > 0)
+}
 
 /** Final fallback: fill route gaps using {@link MENU_ITEMS} by menu/sub-menu label. */
 function applyStaticRouteFallback(menus: MenuRecord[]): MenuRecord[] {
@@ -831,9 +1020,22 @@ export async function fetchUserSidebarMenus(realmRoleName: string | null | undef
     meMenus.length > 0 ? mergeMeMenusWithRolePermissionActions(meMenus, roleMenus) : roleMenus
 
   menus = applyStaticRouteFallback(menus)
+  const menusBeforePermissionFilter = menus
 
   if (mePayload !== undefined && meRawRecords.length > 0) {
     menus = filterMenusByUserPermissionListsAgainstRoleAssigned(menus, mePayload, meRawRecords, roleRecords)
+  }
+
+  if (isAgencyAdminRole(role)) {
+    menus = hideMaintenanceRenewalSubMenu(menus)
+  } else if (isDesignatedRenewalRole(role) && canShowMaintenanceRenewalMenu(role)) {
+    // Handles designated vehicles: show Renewal even when the role menu omits it.
+    // Without that flag, the granted role permission above decides visibility.
+    menus = ensureMaintenanceRenewalSubMenu(menus, menusBeforePermissionFilter)
+  }
+
+  if (canShowDesignatedParkingLog(role)) {
+    menus = ensureParkingExpenseLogSubMenu(menus, menusBeforePermissionFilter)
   }
 
   return menus

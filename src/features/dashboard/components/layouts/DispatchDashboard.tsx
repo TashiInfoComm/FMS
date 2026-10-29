@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DashboardChartCard } from '@/features/dashboard/components/DashboardChartCard'
+import { ExpiringVehiclesCard } from '@/features/dashboard/components/ExpiringVehiclesCard'
 import { DashboardStatCard } from '@/features/dashboard/components/DashboardStatCard'
 import { PendingActionsPanel } from '@/features/dashboard/components/PendingActionsPanel'
 import { CostCompositionChart } from '@/features/dashboard/components/charts/CostCompositionChart'
@@ -147,6 +148,8 @@ export function DispatchDashboard() {
       >
         <MonthlyCostChart points={costTrend} />
       </DashboardChartCard>
+
+      <ExpiringVehiclesCard />
     </section>
   )
 }

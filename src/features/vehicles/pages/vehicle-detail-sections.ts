@@ -149,8 +149,23 @@ export const VEHICLE_DETAIL_SECTIONS: readonly VehicleDetailSection[] = [
       },
       { keys: ["gims_asset_id", "gimsAssetId"], label: "GIMS Asset" },
       {
+        keys: [
+          "fitness_certificate_registered_date",
+          "fitnessCertificateRegisteredDate",
+        ],
+        label: "Fitness Certificate Registered Date",
+      },
+      {
         keys: ["fitness_certificate_expiry", "fitnessCertificateExpiry"],
         label: "Fitness Certificate Expiry",
+      },
+      {
+        keys: ["emission_checked_date", "emissionCheckedDate"],
+        label: "Emission Checked Date",
+      },
+      {
+        keys: ["emission_expiry_date", "emissionExpiryDate"],
+        label: "Emission Expiry Date",
       },
     ],
   },
@@ -193,6 +208,14 @@ export const VEHICLE_DETAIL_SECTIONS: readonly VehicleDetailSection[] = [
           "insuranceProviderId",
         ],
         label: "Insurance Provider",
+      },
+      {
+        keys: ["insurance_policy_number", "insurancePolicyNumber"],
+        label: "Insurance Policy Number",
+      },
+      {
+        keys: ["insurance_issued_date", "insuranceIssuedDate"],
+        label: "Insurance Issued Date",
       },
       {
         keys: ["insurance_expiry", "insuranceExpiry"],

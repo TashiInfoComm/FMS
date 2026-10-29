@@ -197,8 +197,43 @@ const VEHICLE_FORM_SECTIONS: {
         placeholder: "Select Insurance Provider",
       },
       {
+        key: "insurance_policy_number",
+        label: "Insurance policy number",
+        placeholder: "Policy number",
+      },
+      {
+        key: "insurance_issued_date",
+        label: "Insurance issued date",
+        placeholder: "",
+        type: "date",
+      },
+      {
         key: "insurance_expiry",
         label: "Insurance expiry",
+        placeholder: "",
+        type: "date",
+      },
+      {
+        key: "fitness_certificate_registered_date",
+        label: "Fitness certificate registered date",
+        placeholder: "",
+        type: "date",
+      },
+      {
+        key: "fitness_certificate_expiry",
+        label: "Fitness certificate expiry",
+        placeholder: "",
+        type: "date",
+      },
+      {
+        key: "emission_checked_date",
+        label: "Emission checked date",
+        placeholder: "",
+        type: "date",
+      },
+      {
+        key: "emission_expiry_date",
+        label: "Emission expiry date",
         placeholder: "",
         type: "date",
       },

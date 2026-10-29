@@ -1,6 +1,8 @@
+import { vehicleDesignatedTypeLabel } from '@/features/designated-vehicle/lib/designated-vehicle-types'
+import type { FuelLogStatus } from '@/features/fuel/lib/fuel-log-mock-data'
 import type { ApiRecord } from '@/features/user/lib/roles-api'
 import { toText } from '@/features/user/lib/users-api'
-import { fetchVehicleById, mapVehicleRecordToListRow } from '@/features/vehicles/lib/vehicles-api'
+import { extractVehicleList, fetchVehicleById, mapVehicleRecordToListRow } from '@/features/vehicles/lib/vehicles-api'
 import { apiClient, apiGet, apiGetBlob, apiPatch } from '@/services/apiClient'
 import {
   closeBrowserTab,
@@ -9,8 +11,6 @@ import {
 import { extractMasterList, isUuidLike } from '@/shared/lib/organogram-master-lookup'
 import { formatFileSizeLabel } from '@/features/trips/lib/trip-form-utils'
 import { applyPagination } from '@/shared/utils/pagination'
-
-import type { FuelLogStatus } from '@/features/fuel/lib/fuel-log-mock-data'
 
 export type FuelLogListRow = {
   id: string
@@ -72,6 +72,8 @@ export type DriverVehicleOption = {
   label: string
   description?: string
   searchText?: string
+  designationTypeName?: string
+  officialName?: string
 }
 
 export type FuelLogVehicleDetail = {
@@ -427,12 +429,19 @@ export function mapFuelLogListRow(record: ApiRecord): FuelLogListRow | null {
   }
 }
 
-export function fuelLogsListPath(search: string, page: number, pageSize: number): string {
+export function fuelLogsListPath(
+  search: string,
+  page: number,
+  pageSize: number,
+  designationType = '',
+): string {
   const params = new URLSearchParams()
   params.set('page', String(page))
   params.set('page_size', String(pageSize))
   const q = search.trim()
   if (q) params.set('search', q)
+  const designation = designationType.trim()
+  if (designation) params.set('designation_type', designation)
   return `/fuel/fuel-logs?${params.toString()}`
 }
 
@@ -440,8 +449,9 @@ export async function fetchFuelLogsPage(
   search: string,
   page: number,
   pageSize: number,
+  designationType = '',
 ): Promise<FuelLogsPageResult> {
-  const payload = await apiGet<unknown>(fuelLogsListPath(search, page, pageSize))
+  const payload = await apiGet<unknown>(fuelLogsListPath(search, page, pageSize, designationType))
   const records = extractFuelLogList(payload)
   const rows = records
     .map((record) => mapFuelLogListRow(record))
@@ -704,4 +714,75 @@ export async function fetchDriverVehicles(driverId: string): Promise<DriverVehic
   return details
     .filter((detail): detail is FuelLogVehicleDetail => detail !== null)
     .map(vehicleDetailToOption)
+}
+
+const SECRETARIAT_VEHICLE_PAGE_SIZE = 100
+const SECRETARIAT_VEHICLE_MAX_PAGES = 20
+const SECRETARIAT_DESIGNATION_TYPE = 'SECRETARIAT'
+
+function secretariatVehiclesPath(page: number, pageSize: number): string {
+  return `/vehicles?page=${page}&page_size=${pageSize}&designation_type=${SECRETARIAT_DESIGNATION_TYPE}`
+}
+
+function presentText(value: string): string {
+  const trimmed = value.trim()
+  return trimmed && trimmed !== '—' ? trimmed : ''
+}
+
+function secretariatVehicleOption(record: ApiRecord): DriverVehicleOption | null {
+  const detail = mapVehicleRecordToFuelLogDetail(record)
+  if (!detail.id) return null
+  const option = vehicleDetailToOption(detail)
+  const officialName = presentText(
+    pickScalar(record, [
+      'official_name',
+      'officialName',
+      'full_name',
+      'fullName',
+      'designated_official_name',
+      'designatedOfficialName',
+    ]),
+  )
+  const designationTypeName = vehicleDesignatedTypeLabel(SECRETARIAT_DESIGNATION_TYPE)
+
+  return {
+    ...option,
+    designationTypeName,
+    officialName: officialName || undefined,
+    searchText: [option.searchText, officialName, designationTypeName].filter(Boolean).join(' '),
+  }
+}
+
+/** Secretariat vehicles for an MTO who handles designated vehicles. */
+export async function fetchDesignatedOfficialVehicleOptions(): Promise<DriverVehicleOption[]> {
+  const pageSize = SECRETARIAT_VEHICLE_PAGE_SIZE
+  const firstPayload = await apiGet<unknown>(secretariatVehiclesPath(1, pageSize))
+  const firstRecords = extractVehicleList(firstPayload)
+  const firstPage = applyPagination(firstPayload, firstRecords, 1, pageSize, {
+    page: 1,
+    pageSize,
+    pageLength: firstRecords.length,
+  })
+  const records = [...firstRecords]
+  const pageCount = Math.min(Math.max(1, firstPage.totalPages), SECRETARIAT_VEHICLE_MAX_PAGES)
+  if (pageCount > 1) {
+    const rest = await Promise.all(
+      Array.from({ length: pageCount - 1 }, (_, index) =>
+        apiGet<unknown>(
+          secretariatVehiclesPath(index + 2, firstPage.effectivePageSize || pageSize),
+        ),
+      ),
+    )
+    for (const payload of rest) records.push(...extractVehicleList(payload))
+  }
+
+  const seen = new Set<string>()
+  const options: DriverVehicleOption[] = []
+  for (const record of records) {
+    const option = secretariatVehicleOption(record)
+    if (!option || seen.has(option.value)) continue
+    seen.add(option.value)
+    options.push(option)
+  }
+  return options
 }

@@ -10,6 +10,7 @@ import {
 } from '@/features/parking/components/ParkingClaimStatusCell'
 import {
     fetchParkingClaims,
+    type ParkingClaimRow,
 } from '@/features/parking/lib/parking-logs-api'
 import {
     ListPanelMessage,
@@ -25,6 +26,11 @@ import { useAccessControl } from '@/shared/hooks/useAccessControl'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 
 const BASE_CLAIM_COLUMNS = ['Reference No.', 'Month & Year', 'Amount', 'Status'] as const
+
+function claimDriverLabel(claim: ParkingClaimRow): string {
+    if (claim.channel?.trim().toUpperCase() === 'SECRETARIAT') return '(Secretariat vehicle)'
+    return claim.driverName || '—'
+}
 
 function formatCurrency(amount: number): string {
     return `Nu. ${amount.toLocaleString('en-US', {
@@ -59,7 +65,7 @@ export default function ReimbursementClaims() {
         if (!q) return monthlyClaims
         return monthlyClaims.filter((claim) => {
             const statusLabel = formatParkingClaimStatusLabel(claim.status).toLowerCase()
-            const driverName = claim.driverName?.toLowerCase() ?? ''
+            const driverName = claimDriverLabel(claim).toLowerCase()
             return (
                 claim.referenceNo.toLowerCase().includes(q) ||
                 claim.monthLabel.toLowerCase().includes(q) ||
@@ -166,7 +172,7 @@ export default function ReimbursementClaims() {
                                             <td className="px-4 py-3 text-[var(--fms-text-header)]">{row.monthLabel}</td>
                                             {showDriverColumn ? (
                                                 <td className="px-4 py-3 text-[var(--fms-text-header)]">
-                                                    {row.driverName || '—'}
+                                                    {claimDriverLabel(row)}
                                                 </td>
                                             ) : null}
                                             <td className="px-4 py-3 text-[var(--fms-text-subheading)]">
@@ -220,7 +226,7 @@ export default function ReimbursementClaims() {
                                     <MobileListField label="Reference No.">{row.referenceNo}</MobileListField>
                                     <MobileListField label="Month">{row.monthLabel}</MobileListField>
                                     {showDriverColumn ? (
-                                        <MobileListField label="Driver">{row.driverName || '—'}</MobileListField>
+                                        <MobileListField label="Driver">{claimDriverLabel(row)}</MobileListField>
                                     ) : null}
                                     <MobileListField label="Amount">{formatCurrency(row.amount)}</MobileListField>
                                     <MobileListField label="Status">

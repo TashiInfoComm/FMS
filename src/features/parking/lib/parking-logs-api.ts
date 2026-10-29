@@ -1,3 +1,4 @@
+import { fetchDesignatedOfficialVehicleOptions } from '@/features/fuel/lib/fuel-logs-api'
 import type { ApiRecord } from '@/features/user/lib/roles-api'
 import {
   type ParkingLogListRow,
@@ -34,6 +35,7 @@ export type ParkingClaimRow = {
   status: ParkingClaimStatus
   currentLevelCode?: string
   currentLevelName?: string
+  channel?: string
   driverName?: string
   agencyName?: string
   departmentName?: string
@@ -62,6 +64,8 @@ export type DriverVehicleOption = {
   value: string
   label: string
   description?: string
+  designationTypeName?: string
+  officialName?: string
 }
 
 function pickScalar(record: ApiRecord, keys: string[]): string {
@@ -300,6 +304,23 @@ function toMonthKeyFromRecord(record: ApiRecord): string {
   return ''
 }
 
+function pickClaimChannels(record: ApiRecord): string[] {
+  const raw = record.channels ?? record.channel ?? record.request_channel ?? record.requestChannel
+  if (Array.isArray(raw)) {
+    return raw
+      .map((item) => {
+        if (typeof item === 'string') return item.trim()
+        if (item && typeof item === 'object' && !Array.isArray(item)) {
+          return pickScalar(item as ApiRecord, ['code', 'name', 'value', 'channel'])
+        }
+        return ''
+      })
+      .filter(Boolean)
+  }
+  const single = pickScalar(record, ['channel', 'request_channel', 'requestChannel'])
+  return single ? [single] : []
+}
+
 function pickDriverName(record: ApiRecord): string {
   const driver = record.driver
   if (driver && typeof driver === 'object' && !Array.isArray(driver)) {
@@ -386,6 +407,10 @@ function mapParkingClaimRow(record: ApiRecord): ParkingClaimRow | null {
         record.claimAmount,
     ) || logs.reduce((sum, item) => sum + item.amount, 0)
 
+  const channels = pickClaimChannels(record)
+  const channel =
+    channels.find((value) => value.toUpperCase() === 'SECRETARIAT') ?? channels[0]
+
   return {
     id: id || resolvedMonthKey,
     referenceNo:
@@ -402,6 +427,7 @@ function mapParkingClaimRow(record: ApiRecord): ParkingClaimRow | null {
     status: normalizeParkingClaimStatus(record.status),
     currentLevelCode: pickCurrentLevelCode(record) || undefined,
     currentLevelName: pickCurrentLevelName(record) || undefined,
+    channel,
     driverName: pickDriverName(record) || undefined,
     agencyName:
       pickNestedOrgLabel(record, ['agency'], ['agency_name', 'agencyName']) || undefined,
@@ -470,6 +496,18 @@ export async function fetchDriverParkingVehicles(driverId: string): Promise<Driv
     .filter((option): option is DriverVehicleOption => option !== null)
 }
 
+/** Secretariat vehicles for an MTO who handles designated vehicles. */
+export async function fetchDesignatedOfficialParkingVehicles(): Promise<DriverVehicleOption[]> {
+  const options = await fetchDesignatedOfficialVehicleOptions()
+  return options.map((option) => ({
+    value: option.value,
+    label: option.label,
+    description: option.description,
+    designationTypeName: option.designationTypeName,
+    officialName: option.officialName,
+  }))
+}
+
 function unwrapParkingClaimRecord(payload: unknown): ApiRecord | null {
   if (!payload || typeof payload !== 'object') return null
   const root = payload as ApiRecord
@@ -523,12 +561,15 @@ export function parkingLogsListPath(
   search: string,
   page: number,
   pageSize: number,
+  channel?: string,
 ): string {
   const params = new URLSearchParams()
   params.set('page', String(page))
   params.set('page_size', String(pageSize))
   const q = search.trim()
   if (q) params.set('search', q)
+  const channelValue = channel?.trim()
+  if (channelValue) params.set('channel', channelValue)
   return `/parking/logs?${params.toString()}`
 }
 
@@ -536,8 +577,9 @@ export async function fetchParkingLogsPage(
   search: string,
   page: number,
   pageSize: number,
+  channel?: string,
 ): Promise<ParkingLogsPageResult> {
-  const payload = await apiGet<unknown>(parkingLogsListPath(search, page, pageSize))
+  const payload = await apiGet<unknown>(parkingLogsListPath(search, page, pageSize, channel))
   const records = extractParkingLogList(payload)
   const rows = records
     .map((record) => mapParkingLogListRow(record))

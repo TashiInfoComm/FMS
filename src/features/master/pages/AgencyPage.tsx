@@ -23,6 +23,7 @@ import {
   buildHierarchyStatusPayload,
   emptyHierarchyFormValues,
   extractHierarchyList,
+  fetchDesignatedVehicleHandlers,
   hierarchyBasePath,
   mapAgencyRows,
   syncAgencyHierarchy,
@@ -58,7 +59,7 @@ const AGENCY_FORM_FIELDS: HierarchyFieldConfig[] = [
   },
 ]
 
-const TABLE_COLUMNS = ['Sl.No', 'Agency Name', 'Code',  'Status'] as const
+const TABLE_COLUMNS = ['Sl.No', 'Agency Name', 'Code', 'Status'] as const
 const TABLE_KEYS = ['serialNo', 'agencyName', 'code'] as const
 
 export function AgencyPage() {
@@ -71,6 +72,7 @@ export function AgencyPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [editingCode, setEditingCode] = useState<string | null>(null)
+  const [handlesDesignatedVehicles, setHandlesDesignatedVehicles] = useState(false)
   const [selectedDeleteCode, setSelectedDeleteCode] = useState<string | null>(null)
   const queryClient = useQueryClient()
 
@@ -98,6 +100,13 @@ export function AgencyPage() {
     },
   })
 
+  const handlersQuery = useQuery({
+    queryKey: ['master-designated-vehicle-handlers'],
+    queryFn: fetchDesignatedVehicleHandlers,
+  })
+
+  const designatedVehicleHandlers = handlersQuery.data ?? []
+
   const normalizedRows = useMemo(
     () =>
       (listQuery.data?.rows ?? []).map((row) => {
@@ -109,6 +118,7 @@ export function AgencyPage() {
         normalized.name = row.name ?? ''
         normalized.id = row.id ?? ''
         normalized.active = row.active ?? true
+        normalized.handlesDesignatedVehicles = Boolean(row.handlesDesignatedVehicles)
         return normalized
       }),
     [listQuery.data?.rows],
@@ -149,6 +159,7 @@ export function AgencyPage() {
     onSuccess: () => {
       showSuccessToast('Agency updated successfully')
       queryClient.invalidateQueries({ queryKey: ['master-agencies'] })
+      queryClient.invalidateQueries({ queryKey: ['master-designated-vehicle-handlers'] })
     },
     onError: (error) => {
       showErrorToast(error instanceof Error ? error.message : 'Failed to update agency')
@@ -172,6 +183,9 @@ export function AgencyPage() {
     onSuccess: async () => {
       showSuccessToast('Agency hierarchy synced successfully.')
       await queryClient.invalidateQueries({ queryKey: ['master-agencies'] })
+      await queryClient.invalidateQueries({
+        queryKey: ['master-designated-vehicle-handlers'],
+      })
     },
     onError: (error) => {
       showErrorToast(
@@ -190,12 +204,14 @@ export function AgencyPage() {
   const closeDialog = () => {
     setDialogOpen(false)
     setEditingCode(null)
+    setHandlesDesignatedVehicles(false)
     reset(emptyHierarchyFormValues(AGENCY_FORM_FIELDS))
   }
 
   const onCreateOpen = () => {
     if (!canCreate) return
     setEditingCode(null)
+    setHandlesDesignatedVehicles(false)
     reset(emptyHierarchyFormValues(AGENCY_FORM_FIELDS))
     setDialogOpen(true)
   }
@@ -208,6 +224,7 @@ export function AgencyPage() {
       return
     }
     setEditingCode(code)
+    setHandlesDesignatedVehicles(Boolean(row.handlesDesignatedVehicles))
     const values = emptyHierarchyFormValues(AGENCY_FORM_FIELDS)
     values.code = toText(row.code)
     values.name = toText(row.name)
@@ -241,7 +258,12 @@ export function AgencyPage() {
     if (editingCode && !canUpdate) return
     if (!editingCode && !canCreate) return
 
-    const payload = buildHierarchyPayload(raw)
+    const payload = buildHierarchyPayload(
+      raw,
+      undefined,
+      undefined,
+      editingCode ? handlesDesignatedVehicles : undefined,
+    )
     if (editingCode) {
       updateMutation.mutate({ code: editingCode, payload })
     } else {
@@ -306,7 +328,31 @@ export function AgencyPage() {
           </div>
         ) : null}
       </div>
-
+      <div className="flex w-full min-w-0 flex-col gap-2">
+        <p className="text-sm text-[var(--fms-text-header)]">
+          The Secretariat Vehicle are handled by the following agencies:
+        </p>
+        {handlersQuery.isLoading ? (
+          <p className="text-sm text-[var(--fms-text-subheading)]">Loading agencies...</p>
+        ) : handlersQuery.isError ? (
+          <p className="text-sm text-[var(--fms-text-subheading)]">
+            Unable to load the agencies handling Secretariat Vehicles.
+          </p>
+        ) : designatedVehicleHandlers.length === 0 ? (
+          <p className="text-sm text-[var(--fms-text-subheading)]">
+            No agency is currently handling Secretariat Vehicles.
+          </p>
+        ) : (
+          <ul className="list-disc space-y-1 pl-5 text-sm text-[var(--fms-text-subheading)]">
+            {designatedVehicleHandlers.map((handler) => (
+              <li key={`${handler.level}-${handler.id}`}>
+                {handler.name}
+                {handler.level ? ` (${handler.level})` : ''}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
       <Card className="min-w-0 rounded-xl border border-[var(--fms-strokes)] bg-white p-2 sm:p-4">
         <CardContent className="min-w-0 space-y-4 p-0">
           <div className="flex justify-end">
@@ -474,6 +520,22 @@ export function AgencyPage() {
                 </div>
               )
             })}
+
+            {editingCode ? (
+              <div className="flex items-center gap-3 pt-1">
+                <Switch
+                  id="handles-designated-vehicles"
+                  checked={handlesDesignatedVehicles}
+                  onCheckedChange={setHandlesDesignatedVehicles}
+                />
+                <Label
+                  htmlFor="handles-designated-vehicles"
+                  className="text-[var(--fms-text-subheading)]"
+                >
+                  Handles Secretariat Vehicles
+                </Label>
+              </div>
+            ) : null}
 
             <DialogFooter className="gap-2 sm:gap-0">
               <Button type="button" variant="outline" onClick={closeDialog}>

@@ -16,14 +16,17 @@ import {
   resubmitQuotaRequestMto,
   reviewQuotaRequestFinance,
   reviewQuotaRequestMto,
+  topUpQuotaRequest,
   type QuotaRequestListRow,
 } from '@/features/fuel/lib/quota-requests-api'
 import { cn } from '@/lib/utils'
+import { useUserStore } from '@/services/user-store'
 import { BackToListButton } from '@/shared/components/BackToListButton'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { DetailFieldBoxSkeleton } from '@/shared/components/detail-loading'
 import { useAccessControl } from '@/shared/hooks/useAccessControl'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
+import { canShowDesignatedFuelLogCreate } from '@/shared/lib/designated-mto-access'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
 
 function RequiredMark() {
@@ -71,6 +74,10 @@ type QuotaRequestDetailContentProps = {
   canActAsMto: boolean
   canActAsFinanceOfficer: boolean
   canResubmitAsMto: boolean
+  canMarkPaidAndToppedUp: boolean
+  canRouteAsMto: boolean
+  requireAssignedDriverName: boolean
+  showAssignedDriverName: boolean
 }
 
 function QuotaRequestDetailContent({
@@ -79,6 +86,10 @@ function QuotaRequestDetailContent({
   canActAsMto,
   canActAsFinanceOfficer,
   canResubmitAsMto,
+  canMarkPaidAndToppedUp,
+  canRouteAsMto,
+  requireAssignedDriverName,
+  showAssignedDriverName,
 }: QuotaRequestDetailContentProps) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -88,24 +99,36 @@ function QuotaRequestDetailContent({
     String(resolvePrepaymentAmount(request)),
   )
   const [remarks, setRemarks] = useState(request.remarks)
+  const [assignedDriverName, setAssignedDriverName] = useState(request.assignedDriverName)
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false)
   const [rejectRemarks, setRejectRemarks] = useState('')
 
   useEffect(() => {
     setPrepaymentAmount(String(resolvePrepaymentAmount(request)))
     setRemarks(request.remarks)
+    setAssignedDriverName(request.assignedDriverName)
     setRejectRemarks(request.remarks)
-  }, [request.id, request.financeApprovedAmount, request.mtoApprovedAmount, request.recommendedAmount, request.remarks])
+  }, [
+    request.id,
+    request.financeApprovedAmount,
+    request.mtoApprovedAmount,
+    request.recommendedAmount,
+    request.remarks,
+    request.assignedDriverName,
+  ])
 
   const currentQuota = formatNuDisplay(request.balanceAtRequest)
   const recommendedAmount = formatNuDisplay(request.recommendedAmount)
 
   const parsedPrepayment = Number(prepaymentAmount)
+  const assignedDriverNameMissing =
+    requireAssignedDriverName && assignedDriverName.trim().length === 0
   const canSubmit =
     replenishMode &&
     Number.isFinite(parsedPrepayment) &&
     parsedPrepayment > 0 &&
-    remarks.trim().length > 0
+    remarks.trim().length > 0 &&
+    !assignedDriverNameMissing
   const canRejectSubmit =
     Number.isFinite(parsedPrepayment) &&
     parsedPrepayment > 0 &&
@@ -127,8 +150,17 @@ function QuotaRequestDetailContent({
         throw new Error('Enter approved amount before submitting')
       }
       if (!effectiveRemarks) throw new Error('Remarks are required')
-      if (canActAsMto && (action === 'forward' || action === 'reject')) {
-        await reviewQuotaRequestMto(request.id, action, parsedPrepayment, effectiveRemarks)
+      if (action === 'forward' && requireAssignedDriverName && !assignedDriverName.trim()) {
+        throw new Error('Enter the driver name before submitting')
+      }
+      if ((canActAsMto || canRouteAsMto) && (action === 'forward' || action === 'reject')) {
+        await reviewQuotaRequestMto(
+          request.id,
+          action,
+          parsedPrepayment,
+          effectiveRemarks,
+          action === 'forward' && requireAssignedDriverName ? assignedDriverName : undefined,
+        )
         return
       }
       if (canActAsFinanceOfficer && (action === 'approve' || action === 'reject')) {
@@ -140,7 +172,7 @@ function QuotaRequestDetailContent({
     onSuccess: async (_, variables) => {
       const successLabel =
         variables.action === 'forward'
-          ? 'forwarded to Finance Officer'
+          ? 'forwarded'
           : variables.action === 'approve'
             ? 'approved'
             : 'rejected'
@@ -182,12 +214,44 @@ function QuotaRequestDetailContent({
     },
   })
 
+  const topUpMutation = useMutation({
+    mutationFn: async () => {
+      if (!canMarkPaidAndToppedUp) {
+        throw new Error('Only an accountant can mark this request as paid and topped up')
+      }
+      await topUpQuotaRequest(request.id)
+    },
+    onSuccess: async () => {
+      showSuccessToast('Fuel request marked as paid and topped up')
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['fuel-quota-requests'] }),
+        queryClient.invalidateQueries({ queryKey: ['fuel-quota-request', request.id] }),
+      ])
+      navigate('/fuel/quota-request-list')
+    },
+    onError: (error) => {
+      showErrorToast(error, 'Failed to mark fuel request as paid and topped up')
+    },
+  })
+
   const handleAction = (action: 'forward' | 'approve' | 'reject') => {
     if (action === 'reject') {
       setRejectDialogOpen(true)
       return
     }
     if (!canSubmit) {
+      if (
+        !Number.isFinite(parsedPrepayment) ||
+        parsedPrepayment <= 0 ||
+        remarks.trim().length === 0
+      ) {
+        showErrorToast('Enter approved amount and remarks before submitting')
+        return
+      }
+      if (assignedDriverNameMissing) {
+        showErrorToast('Enter the driver name before submitting')
+        return
+      }
       showErrorToast('Enter approved amount and remarks before submitting')
       return
     }
@@ -273,20 +337,42 @@ function QuotaRequestDetailContent({
                 className="sm:col-span-2"
               />
             )}
+
+            {requireAssignedDriverName ? (
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="assigned-driver-name">
+                  Driver Name <RequiredMark />
+                </Label>
+                <Input
+                  id="assigned-driver-name"
+                  value={assignedDriverName}
+                  onChange={(event) => setAssignedDriverName(event.target.value)}
+                  placeholder="Enter driver name"
+                  className="font-semibold text-[var(--fms-text-header)]"
+                  required
+                />
+              </div>
+            ) : showAssignedDriverName ? (
+              <DetailFieldBox
+                label="Driver Name"
+                value={request.assignedDriverName}
+                className="sm:col-span-2"
+              />
+            ) : null}
           </div>
         </CardContent>
       </Card>
 
-      {replenishMode && (canActAsMto || canActAsFinanceOfficer || canResubmitAsMto) ? (
+      {replenishMode && (canActAsMto || canActAsFinanceOfficer || canResubmitAsMto || canRouteAsMto) ? (
         <div className="flex flex-wrap gap-3">
-          {canActAsMto ? (
+          {canActAsMto || canRouteAsMto ? (
             <Button
               type="button"
               className="bg-[var(--fms-button)] hover:bg-[var(--fms-button-hover)]"
-              disabled={!canSubmit || (!crud.canUpdate && crud.isResolved) || reviewMutation.isPending}
+              //disabled={!canSubmit || (!crud.canUpdate && crud.isResolved) || reviewMutation.isPending}
               onClick={() => handleAction('forward')}
             >
-              Forward to Finance Officer
+              Forward 
             </Button>
           ) : null}
           {canActAsFinanceOfficer ? (
@@ -320,6 +406,19 @@ function QuotaRequestDetailContent({
               Reject
             </Button>
           ) : null}
+        </div>
+      ) : null}
+
+      {canMarkPaidAndToppedUp ? (
+        <div className="flex flex-wrap gap-3">
+          <Button
+            type="button"
+            className="bg-[var(--fms-button)] hover:bg-[var(--fms-button-hover)]"
+            disabled={topUpMutation.isPending}
+            onClick={() => topUpMutation.mutate()}
+          >
+            {topUpMutation.isPending ? 'Saving…' : 'Paid & Topped Up'}
+          </Button>
         </div>
       ) : null}
 
@@ -370,6 +469,7 @@ export default function QuotaRequestDetailPage() {
   const replenishMode = pathname.endsWith('/replenish')
   const crud = useRouteCrudPermissions('/fuel/quota-request-list')
   const { apiRoleName } = useAccessControl()
+  const user = useUserStore((state) => state.user)
 
   const detailQuery = useQuery({
     queryKey: ['fuel-quota-request', requestId],
@@ -386,8 +486,20 @@ export default function QuotaRequestDetailPage() {
     normalizedRole.includes('finance_officer') ||
     normalizedRole.includes('finance officer')
   const canActAsMto = canReviewAsMto && request?.status === 'PENDING'
+  const canRouteAsMto = canReviewAsMto && request?.status === 'ROUTED'
   const canActAsFinanceOfficer = canReviewAsFinanceOfficer && request?.status === 'FORWARDED'
   const canResubmitAsMto = canReviewAsMto && request?.status === 'FINANCE_REJECTED'
+  const isAccountant = normalizedRole.includes('accountant')
+  const canMarkPaidAndToppedUp =
+    isAccountant &&
+    (request?.status === 'APPROVED')
+  const secretariatPendingDesignatedMto =
+    request?.status === 'PENDING' &&
+    request.requestChannel.trim().toUpperCase() === 'SECRETARIAT' &&
+    canShowDesignatedFuelLogCreate(apiRoleName, user)
+  const requireAssignedDriverName = replenishMode && secretariatPendingDesignatedMto
+  const showAssignedDriverName =
+    !replenishMode && Boolean(request?.assignedDriverName.trim())
 
   if (crud.isResolved && !crud.canRead) {
     return (
@@ -439,7 +551,8 @@ export default function QuotaRequestDetailPage() {
   }
 
   if (
-    request.status !== 'PENDING' &&
+    request.status !== 'PENDING' && 
+    request.status !== 'ROUTED' &&
     request.status !== 'FORWARDED' &&
     request.status !== 'FINANCE_REJECTED' &&
     replenishMode
@@ -464,8 +577,12 @@ export default function QuotaRequestDetailPage() {
       request={request}
       replenishMode={replenishMode}
       canActAsMto={canActAsMto}
+      canRouteAsMto={canRouteAsMto}
       canActAsFinanceOfficer={canActAsFinanceOfficer}
       canResubmitAsMto={canResubmitAsMto}
+      canMarkPaidAndToppedUp={canMarkPaidAndToppedUp}
+      requireAssignedDriverName={requireAssignedDriverName}
+      showAssignedDriverName={showAssignedDriverName}
     />
   )
 }

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Car, CloudUpload, Eye, Plus } from 'lucide-react'
+import { Car, CloudUpload, Eye, Info, Plus } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -27,6 +27,7 @@ import {
     canWithdrawParkingLog,
     createParkingLog,
     deleteParkingLog,
+    fetchDesignatedOfficialParkingVehicles,
     fetchDriverParkingVehicles,
     fetchParkingLogsPage,
     updateParkingLog,
@@ -38,6 +39,7 @@ import {
     getParkingLogAutoDateIso,
     type ParkingLogListRow,
 } from '@/features/parking/lib/parking-logs-mock-data'
+import { DesignatedTypeListFilter } from '@/features/fuel/components/DesignatedTypeListFilter'
 import { FuelTableListToolbar } from '@/features/fuel/components/FuelTableListToolbar'
 import { formatFileSizeLabel } from '@/features/trips/lib/trip-form-utils'
 import { cn } from '@/lib/utils'
@@ -55,7 +57,12 @@ import {
     EditRowActionButton,
     rowActionsContainerClassName,
 } from '@/shared/components/TableRowActionButtons'
+import { useAccessControl } from '@/shared/hooks/useAccessControl'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
+import {
+    canShowDesignatedParkingLog,
+    userHandlesDesignatedVehicles,
+} from '@/shared/lib/designated-mto-access'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
 
 const TABLE_COLUMNS = ['Date', 'Vehicle', 'Location', 'Amount', 'Receipt', 'Status'] as const
@@ -89,6 +96,13 @@ function formValuesFromRow(row: ParkingLogListRow): ParkingLogFormValues {
         receiptFile: null,
         existingReceiptFileName: row.receiptFileName,
     }
+}
+
+function designatedParkingLogMessage(designationTypeName: string | undefined): string {
+    const typeName = designationTypeName?.trim() ?? ''
+    if (!typeName) return 'Creating a parking log for a designated vehicle.'
+    const article = /^[aeiou]/i.test(typeName) ? 'an' : 'a'
+    return `Creating a parking log for ${article} ${typeName} vehicle.`
 }
 
 function isFutureParkingLogDate(value: string): boolean {
@@ -211,8 +225,14 @@ function ViewReceiptButton({
 export default function ParkingLogs() {
     const queryClient = useQueryClient()
     const crud = useRouteCrudPermissions('/parking/expense-log')
+    const { apiRoleName } = useAccessControl()
     const user = useUserStore((state) => state.user)
+    const designatedMtoParking = canShowDesignatedParkingLog(apiRoleName, user)
+    const showDesignatedTypeFilter = userHandlesDesignatedVehicles(user)
+    const canAddParkingLog = crud.canCreate || designatedMtoParking
+    const canViewParkingLogs = designatedMtoParking || !crud.isResolved || crud.canRead
     const [search, setSearch] = useState('')
+    const [channel, setChannel] = useState('')
     const [page, setPage] = useState(1)
     const [pageSize, setPageSize] = useState(10)
     const [dialogOpen, setDialogOpen] = useState(false)
@@ -234,17 +254,32 @@ export default function ParkingLogs() {
     })()
 
     const driverVehiclesQuery = useQuery({
-        queryKey: ['parking-logs', 'driver-vehicles', driverId],
-        queryFn: () => fetchDriverParkingVehicles(driverId),
-        enabled: Boolean(driverId) && (!crud.isResolved || crud.canCreate || crud.canUpdate),
+        queryKey: designatedMtoParking
+            ? ['parking-logs', 'secretariat-vehicles']
+            : ['parking-logs', 'driver-vehicles', driverId],
+        queryFn: () =>
+            designatedMtoParking
+                ? fetchDesignatedOfficialParkingVehicles()
+                : fetchDriverParkingVehicles(driverId),
+        enabled: designatedMtoParking
+            ? canAddParkingLog || crud.canUpdate
+            : Boolean(driverId) && (!crud.isResolved || crud.canCreate || crud.canUpdate),
         staleTime: 60_000,
     })
     const vehicleOptions = driverVehiclesQuery.data ?? []
 
+    const channelParam = showDesignatedTypeFilter ? channel.trim() : ''
+
     const listQuery = useQuery({
-        queryKey: ['parking-logs', search, page, pageSize],
-        queryFn: () => fetchParkingLogsPage(search, page, pageSize),
-        enabled: !crud.isResolved || crud.canRead,
+        queryKey: ['parking-logs', search, page, pageSize, channelParam],
+        queryFn: () =>
+            fetchParkingLogsPage(
+                search,
+                page,
+                pageSize,
+                channelParam || undefined,
+            ),
+        enabled: canViewParkingLogs,
         staleTime: 30_000,
     })
 
@@ -328,10 +363,12 @@ export default function ParkingLogs() {
     }, [page, totalPages])
 
     useEffect(() => {
+        if (designatedMtoParking) return
         if (form.vehicleId || vehicleOptions.length === 0) return
         setForm((current) => ({ ...current, vehicleId: vehicleOptions[0]!.value }))
-    }, [form.vehicleId, vehicleOptions])
+    }, [designatedMtoParking, form.vehicleId, vehicleOptions])
 
+    const selectedVehicle = vehicleOptions.find((option) => option.value === form.vehicleId)
     const parsedAmount = Number(form.amount)
     const expenseDate = form.date.trim()
     const hasValidDate =
@@ -444,7 +481,7 @@ export default function ParkingLogs() {
                         <h1 className="text-xl font-semibold text-[var(--fms-text-header)] sm:text-2xl">
                             My Parking Logs
                         </h1>
-                        {crud.canCreate ? (
+                        {canAddParkingLog ? (
                             <Button
                                 type="button"
                                 onClick={onOpenCreate}
@@ -464,6 +501,17 @@ export default function ParkingLogs() {
                         }}
                         searchPlaceholder="Search logs"
                         searchAriaLabel="Search parking logs"
+                        leading={
+                            showDesignatedTypeFilter ? (
+                                <DesignatedTypeListFilter
+                                    value={channel}
+                                    onChange={(next) => {
+                                        setChannel(next)
+                                        setPage(1)
+                                    }}
+                                />
+                            ) : null
+                        }
                     />
 
                     <div className="hidden w-full min-w-0 overflow-x-auto rounded-lg border border-[var(--fms-strokes)] md:block">
@@ -482,7 +530,7 @@ export default function ParkingLogs() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {crud.isResolved && !crud.canRead ? (
+                                {crud.isResolved && !crud.canRead && !designatedMtoParking ? (
                                     <tr className="border-t border-[var(--fms-strokes)]">
                                         <td
                                             colSpan={TABLE_COLUMNS.length + 1}
@@ -517,8 +565,8 @@ export default function ParkingLogs() {
                                             colSpan={TABLE_COLUMNS.length + 1}
                                             className="px-4 py-6 text-center text-[var(--fms-text-subheading)]"
                                         >
-                                            {search.trim()
-                                                ? 'No parking logs match your search.'
+                                            {search.trim() || channelParam
+                                                ? 'No parking logs match your filters.'
                                                 : 'No parking logs found.'}
                                         </td>
                                     </tr>
@@ -599,7 +647,7 @@ export default function ParkingLogs() {
                     </div>
 
                     <div className="space-y-3 md:hidden">
-                        {crud.isResolved && !crud.canRead ? (
+                        {crud.isResolved && !crud.canRead && !designatedMtoParking ? (
                             <ListPanelMessage>
                                 You do not have permission to view parking logs.
                             </ListPanelMessage>
@@ -613,8 +661,8 @@ export default function ParkingLogs() {
                             </ListPanelMessage>
                         ) : rows.length === 0 ? (
                             <ListPanelMessage>
-                                {search.trim()
-                                    ? 'No parking logs match your search.'
+                                {search.trim() || channelParam
+                                    ? 'No parking logs match your filters.'
                                     : 'No parking logs found.'}
                             </ListPanelMessage>
                         ) : (
@@ -708,7 +756,7 @@ export default function ParkingLogs() {
                     else setDialogOpen(true)
                 }}
             >
-                <DialogContent className="max-w-lg">
+                <DialogContent className="sm:max-w-2xl">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
                             <Car className="h-5 w-5 text-[var(--fms-primary)]" />
@@ -717,6 +765,24 @@ export default function ParkingLogs() {
                     </DialogHeader>
 
                     <form className="space-y-4" onSubmit={onSubmit} noValidate>
+                        {designatedMtoParking && !isEditing ? (
+                            <div className="flex items-start gap-3 rounded-xl border border-[#bfdbfe] bg-[#eff6ff] px-4 py-3 text-sm text-[#1e40af]">
+                                <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                                <div className="min-w-0 space-y-1">
+                                    <p className="font-medium">
+                                        {designatedParkingLogMessage(selectedVehicle?.designationTypeName)}
+                                    </p>
+                                    {selectedVehicle?.label || selectedVehicle?.officialName ? (
+                                        <p className="text-[#1e3a8a]">
+                                            {[selectedVehicle?.label, selectedVehicle?.officialName]
+                                                .filter(Boolean)
+                                                .join(' · ')}
+                                        </p>
+                                    ) : null}
+                                </div>
+                            </div>
+                        ) : null}
+
                         <div className="space-y-2">
                             <Label htmlFor="parking-log-date">Date</Label>
                             <Input
@@ -735,7 +801,7 @@ export default function ParkingLogs() {
                         <div className="space-y-2">
                             <Label htmlFor="parking-log-vehicle">Vehicle</Label>
                             <Select
-                                value={form.vehicleId}
+                                value={form.vehicleId || undefined}
                                 onValueChange={(value) =>
                                     setForm((current) => ({ ...current, vehicleId: value }))
                                 }

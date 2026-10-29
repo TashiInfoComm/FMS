@@ -7,12 +7,14 @@ export type QuotaRequestStatus =
   | 'REJECTED'
   | 'MTO_REJECTED'
   | 'FINANCE_REJECTED'
+  | 'ROUTED'
 
 export const QUOTA_REQUEST_STATUS_OPTIONS = [
   { value: 'all', label: 'All statuses' },
   { value: 'PENDING', label: 'Pending' },
   { value: 'FORWARDED', label: 'Forwarded' },
   { value: 'APPROVED', label: 'Approved' },
+  { value: 'ROUTED', label: 'Routed' },
   { value: 'COMPLETED', label: 'Completed' },
   { value: 'TOPPED_UP', label: 'Topped Up' },
   { value: 'MTO_REJECTED', label: 'MTO Rejected' },

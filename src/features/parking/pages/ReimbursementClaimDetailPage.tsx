@@ -26,6 +26,7 @@ import {
   formatParkingLogDate,
   type ParkingLogListRow,
 } from '@/features/parking/lib/parking-logs-mock-data'
+import { useUserStore } from '@/services/user-store'
 import { BackToListButton } from '@/shared/components/BackToListButton'
 import {
   ListPanelMessage,
@@ -40,6 +41,7 @@ import {
 import { TablePagination } from '@/shared/components/TablePagination'
 import { useAccessControl } from '@/shared/hooks/useAccessControl'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
+import { userHandlesDesignatedVehicles } from '@/shared/lib/designated-mto-access'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
 import { cn } from '@/lib/utils'
 
@@ -120,6 +122,7 @@ export default function ReimbursementClaimDetailPage() {
   const queryClient = useQueryClient()
   const crud = useRouteCrudPermissions('/parking/reimbursement-claims')
   const { role } = useAccessControl()
+  const user = useUserStore((state) => state.user)
   const reviewerRole = resolveClaimReviewerRole(role)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
@@ -159,7 +162,6 @@ export default function ReimbursementClaimDetailPage() {
   )
 
   const canApproveLineItems = crud.isResolved && crud.canApprove
-  const canPayClaim = crud.isResolved && crud.hasAction('pay')
   const isMtoCurrentLevel = selectedClaim?.currentLevelCode?.trim().toUpperCase() === 'MTO'
   const hasLineItems = detailRows.length > 0
   const allLineItemsApproved =
@@ -180,11 +182,29 @@ export default function ReimbursementClaimDetailPage() {
     allLineItemsApproved
   const showMtoReject =
     canActAtCurrentLevel && reviewerRole === 'mto' && crud.isResolved && crud.canReject
-  const showFinanceForward =
-    canActAtCurrentLevel && reviewerRole === 'finance' && crud.isResolved && crud.canApprove
-  const showFinanceReject =
-    canActAtCurrentLevel && reviewerRole === 'finance' && crud.isResolved && crud.canReject
-  const showAccountantPay = canActAtCurrentLevel && reviewerRole === 'accountant' && canPayClaim
+  const isSecretariatClaim = selectedClaim?.channel?.trim().toUpperCase() === 'SECRETARIAT'
+  const handlesDesignatedVehicles = userHandlesDesignatedVehicles(user)
+  const showFinanceForward = isSecretariatClaim
+    ? reviewerRole === 'finance' &&
+      handlesDesignatedVehicles &&
+      claimStatus === 'PENDING_APPROVAL'
+    : reviewerRole === 'finance' &&
+      canActAtCurrentLevel &&
+      crud.isResolved &&
+      crud.canApprove &&
+      crud.canVerify
+  const showFinanceReject = isSecretariatClaim
+    ? false
+    : reviewerRole === 'finance' &&
+      canActAtCurrentLevel &&
+      crud.isResolved &&
+      crud.canReject
+  const showAccountantPay = isSecretariatClaim
+    ? reviewerRole === 'accountant' && handlesDesignatedVehicles && claimStatus === 'APPROVED'
+    : reviewerRole === 'accountant' &&
+      canActAtCurrentLevel &&
+      crud.isResolved &&
+      crud.canPay
   const showClaimDecisionActions =
     showMtoApprove ||
     showMtoReject ||
@@ -527,7 +547,7 @@ export default function ReimbursementClaimDetailPage() {
                   Paid
                 </Button>
               ) : null}
-              {/* {showMtoReject || showFinanceReject ? (
+              {showFinanceReject ? (
                 <Button
                   type="button"
                   variant="outline"
@@ -536,7 +556,7 @@ export default function ReimbursementClaimDetailPage() {
                 >
                   Reject
                 </Button>
-              ) : null} */}
+              ) : null}
             </div>
           ) : null}
         </CardContent>

@@ -46,7 +46,13 @@ export const vehicleFormSchema = z.object({
   registration_date: requiredText('Registration date'),
   registration_expiry: requiredText('Registration expiry'),
   insurance_provider_id: requiredText('Insurance provider'),
+  insurance_policy_number: requiredText('Insurance policy number'),
+  insurance_issued_date: requiredText('Insurance issued date'),
   insurance_expiry: requiredText('Insurance expiry'),
+  fitness_certificate_registered_date: requiredText('Fitness certificate registered date'),
+  fitness_certificate_expiry: requiredText('Fitness certificate expiry'),
+  emission_checked_date: requiredText('Emission checked date'),
+  emission_expiry_date: requiredText('Emission expiry date'),
   gps_device_imei: z.string(),
   fuel_quota_balance: optionalNumberText('Fuel quota balance'),
 })

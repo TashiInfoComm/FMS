@@ -1,9 +1,11 @@
 // Exposes permission-aware menu visibility and access helpers.
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { fetchUserSidebarMenus, menusEmbedSubMenuActions } from '@/features/modules/lib/menus-api'
 import { queryClient } from '@/lib/query-client'
+import { setMyActiveRole } from '@/services/active-role-api'
+import { tryRefreshAccessToken } from '@/services/apiClient'
 import { useUserStore } from '@/services/user-store'
 import { type Permission, type Role } from '@/shared/constants/access-control'
 import { buildEffectivePermissionCodes } from '@/shared/lib/nav-permission-codes'
@@ -15,6 +17,7 @@ import {
   pickPrimaryRealmRole,
   resolveActiveRealmRoleString,
 } from '@/shared/lib/realm-role-mapping'
+import { showErrorToast } from '@/shared/lib/toast'
 
 function readPinnedRoleFromStorage(): Role | null {
   if (typeof window === 'undefined') return null
@@ -31,6 +34,8 @@ export function useAccessControl() {
   const mappedApiRoles = useMemo(() => getMappedRolesFromUserProfile(userRecord), [userRecord])
 
   const [pinnedRole, setPinnedRole] = useState<Role | null>(() => readPinnedRoleFromStorage())
+  const [isSwitchingRole, setIsSwitchingRole] = useState(false)
+  const switchingRoleRef = useRef(false)
 
   // Keep every `useAccessControl` instance in sync after the header role switcher updates
   // `localStorage['fms-role']`. Without this, nested consumers (e.g. `useRolePermissionsDetail`,
@@ -102,7 +107,7 @@ export function useAccessControl() {
     menuQuery.isError,
   ])
 
-  const setRole = (nextRole: Role) => {
+  const applyLocalRole = (nextRole: Role) => {
     localStorage.setItem('fms-role', String(nextRole))
     localStorage.removeItem('fms-permissions')
     setPinnedRole(nextRole)
@@ -117,6 +122,39 @@ export function useAccessControl() {
     void queryClient.invalidateQueries({ queryKey: ['role-sidebar-menus'] })
   }
 
+  const setRole = (nextRole: Role) => {
+    if (nextRole === role || switchingRoleRef.current) return
+
+    // The header switcher is only shown for multi-role users. A single role stays local.
+    if (mappedApiRoles.length <= 1) {
+      applyLocalRole(nextRole)
+      return
+    }
+
+    const roleName = (resolveActiveRealmRoleString(userRecord, nextRole) ?? String(nextRole)).trim()
+    if (!roleName) return
+
+    switchingRoleRef.current = true
+    setIsSwitchingRole(true)
+    void (async () => {
+      try {
+        await setMyActiveRole(roleName)
+        const refreshed = await tryRefreshAccessToken()
+        applyLocalRole(nextRole)
+        // Open screens keep data for 60s; reload them under the refreshed token.
+        void queryClient.invalidateQueries()
+        if (!refreshed) {
+          showErrorToast('Role was updated, but the session could not be refreshed.')
+        }
+      } catch (error) {
+        showErrorToast(error, 'Could not switch role')
+      } finally {
+        switchingRoleRef.current = false
+        setIsSwitchingRole(false)
+      }
+    })()
+  }
+
   return {
     roles: mappedApiRoles,
     role,
@@ -125,6 +163,7 @@ export function useAccessControl() {
     sidebarMenus: menuQuery.data,
     isSidebarMenusLoading: menuQuery.isLoading,
     isSidebarMenusError: menuQuery.isError,
+    isSwitchingRole,
     setRole,
   }
 }

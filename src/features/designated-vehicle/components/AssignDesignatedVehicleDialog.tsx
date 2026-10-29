@@ -15,10 +15,13 @@ import { Label } from '@/components/ui/label'
 import {
   createDesignatedOfficial,
   fetchDesignatedVehicleByVehicleId,
-  fetchUsageTypeOptions,
   updateDesignatedOfficial,
 } from '@/features/designated-vehicle/lib/designated-vehicle-api'
-import type { AssignDesignatedVehicleFormValues } from '@/features/designated-vehicle/lib/designated-vehicle-types'
+import {
+  VEHICLE_DESIGNATED_TYPE_OPTIONS,
+  vehicleDesignatedTypeLabel,
+  type AssignDesignatedVehicleFormValues,
+} from '@/features/designated-vehicle/lib/designated-vehicle-types'
 import { fetchAllDriverVehicleAssignmentsByVehicleId } from '@/features/vehicles/lib/driver-vehicle-assignments-api'
 import { fetchVehicles } from '@/features/vehicles/lib/vehicles-api'
 import { searchUserDetailByCid } from '@/features/user/lib/users-api'
@@ -31,7 +34,7 @@ const EMPTY_FORM: AssignDesignatedVehicleFormValues = {
   officialCid: '',
   officialName: '',
   designation: '',
-  designationTypeId: '',
+  designationType: '',
   remarks: '',
 }
 
@@ -82,39 +85,24 @@ export function AssignDesignatedVehicleDialog({
     staleTime: 30_000,
   })
 
-  const usageTypesQuery = useQuery({
-    queryKey: ['designated-vehicle', 'usage-types'],
-    queryFn: fetchUsageTypeOptions,
-    enabled: open,
-    staleTime: 60_000,
-  })
-
   const usageTypeOptions = useMemo(() => {
-    const base = usageTypesQuery.data ?? []
-    const selectedId = form.designationTypeId.trim()
-    if (!selectedId || base.some((option) => option.value === selectedId)) {
-      return base
+    const selectedId = form.designationType.trim()
+    if (
+      !selectedId ||
+      VEHICLE_DESIGNATED_TYPE_OPTIONS.some((option) => option.value === selectedId)
+    ) {
+      return VEHICLE_DESIGNATED_TYPE_OPTIONS
     }
 
-    const selectedLabel =
-      editDetailQuery.data?.designationTypeId === selectedId
-        ? editDetailQuery.data?.designationTypeName?.trim() ?? ''
-        : ''
-
     return [
-      ...base,
+      ...VEHICLE_DESIGNATED_TYPE_OPTIONS,
       {
         value: selectedId,
-        label: selectedLabel || selectedId,
-        searchText: [selectedLabel, selectedId].filter(Boolean).join(' '),
+        label: vehicleDesignatedTypeLabel(selectedId),
+        searchText: selectedId,
       },
     ]
-  }, [
-    editDetailQuery.data?.designationTypeId,
-    editDetailQuery.data?.designationTypeName,
-    form.designationTypeId,
-    usageTypesQuery.data,
-  ])
+  }, [form.designationType])
 
   const vehicleOptions = useMemo(
     () =>
@@ -175,7 +163,7 @@ export function AssignDesignatedVehicleDialog({
       officialCid: detail.officialCid !== '—' ? detail.officialCid : '',
       officialName: detail.officialName !== '—' ? detail.officialName : '',
       designation: detail.designation !== '—' ? detail.designation : '',
-      designationTypeId: detail.designationTypeId ?? '',
+      designationType: detail.designationType ?? '',
       remarks: detail.remarks ?? '',
     })
     setCidInput(detail.officialCid !== '—' ? detail.officialCid : '')
@@ -231,7 +219,7 @@ export function AssignDesignatedVehicleDialog({
         cid: values.officialCid.trim(),
         full_name: values.officialName.trim(),
         designation: values.designation.trim(),
-        designation_type_id: values.designationTypeId.trim(),
+        designation_type: values.designationType.trim(),
         remarks: values.remarks.trim(),
       }
       if (isEdit) {
@@ -255,10 +243,10 @@ export function AssignDesignatedVehicleDialog({
       showErrorToast('Please select a vehicle.')
       return
     }
-    if (!isEdit && !driverDisplayName.trim()) {
-      showErrorToast('No driver is assigned to the selected vehicle.')
-      return
-    }
+    // if (!isEdit) {
+    //   showErrorToast('No driver is assigned to the selected vehicle.')
+    //   return
+    // }
     if (!form.officialCid.trim()) {
       showErrorToast('Official CID is required.')
       return
@@ -271,7 +259,7 @@ export function AssignDesignatedVehicleDialog({
       showErrorToast('Official designation could not be resolved. Search by CID first.')
       return
     }
-    if (!form.designationTypeId.trim()) {
+    if (!form.designationType.trim()) {
       showErrorToast('Please select a vehicle designated type.')
       return
     }
@@ -428,12 +416,11 @@ export function AssignDesignatedVehicleDialog({
               </Label>
               <SearchableAutocomplete
                 id="designated-vehicle-designation-type"
-                value={form.designationTypeId}
-                onChange={(designationTypeId) =>
-                  setForm((prev) => ({ ...prev, designationTypeId }))
+                value={form.designationType}
+                onChange={(designationType) =>
+                  setForm((prev) => ({ ...prev, designationType }))
                 }
                 options={usageTypeOptions}
-                loading={usageTypesQuery.isLoading}
                 placeholder="Select vehicle designated type"
                 searchPlaceholder="Search vehicle designated type…"
                 emptyMessage="No vehicle designated types found."
