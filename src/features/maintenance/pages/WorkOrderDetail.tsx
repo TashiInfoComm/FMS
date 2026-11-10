@@ -14,6 +14,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -37,40 +38,59 @@ import {
   workOrderStatusBadgeClass,
 } from '@/features/maintenance/lib/maintenance-ui'
 import { formatFuelLogDate } from '@/features/fuel/lib/fuel-log-mock-data'
+import { isSecretariatDesignationType } from '@/features/maintenance/lib/renewal-applications-api'
 import {
   approveWorkOrder,
+  assignWorkOrderDriver,
   completeWorkOrder,
   fetchWorkOrderById,
+  financeVerifyWorkOrder,
+  markWorkOrderPaid,
+  reviewWorkOrderAsAgencyMto,
+  type AgencyMtoReviewAction,
   openWorkOrderInvoice,
   rejectWorkOrder,
   updateWorkOrderServicesAndParts,
   verifyWorkOrder,
   type VerifyWorkOrderInput,
 } from '@/features/maintenance/lib/work-orders-api'
-import { fetchUserById, mapUserDetailFields } from '@/features/user/lib/users-api'
+import { fetchUsersForSelect } from '@/features/user/lib/users-api'
+import { useUserStore } from '@/services/user-store'
 import { BackToListButton } from '@/shared/components/BackToListButton'
 import { PageHeader } from '@/shared/components/PageHeader'
+import { SearchableAutocomplete } from '@/shared/components/SearchableAutocomplete'
 import {
   DetailInlineValueSkeleton,
   DetailReadOnlyFieldSkeleton,
 } from '@/shared/components/detail-loading'
 import { useAccessControl } from '@/shared/hooks/useAccessControl'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
+import {
+  canProceedRenewalApplication,
+  canShowDesignatedWorkOrderCreate,
+  canVerifyRenewalApplication,
+  roleMatches,
+  userHandlesDesignatedVehicles,
+} from '@/shared/lib/designated-mto-access'
+import { todayDateInputValue } from '@/shared/lib/date-input'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
 import { preOpenBrowserTab } from '@/shared/lib/open-in-new-tab'
 import { cn } from '@/lib/utils'
+
+/** Statuses on which an accountant can mark a work order paid, after finance verification. */
+const ACCOUNTANT_PAID_STATUSES = new Set([
+  'PENDING_PAYMENT',
+  'PENDING_PAID',
+  'VERIFIED',
+  'FINANCE_VERIFIED',
+  'FINANCE_APPROVED',
+  'APPROVED_FOR_PAYMENT',
+])
 
 function needsMaintenanceTypeLookup(detail: WorkOrderDetailData): boolean {
   if (!detail.maintenanceTypeId?.trim()) return false
   const current = detail.maintenanceType.trim()
   return current === 'Minor' || current === 'Major' || current === '—' || current === ''
-}
-
-function needsDriverLookup(detail: WorkOrderDetailData): boolean {
-  const reportedById = detail.reportedById.trim()
-  if (!reportedById) return false
-  const current = detail.driverName.trim()
-  return !current || current === '—'
 }
 
 function basenameFromObjectKey(value: string): string {
@@ -233,7 +253,8 @@ export default function WorkOrderDetail() {
   const returnTo =
     (location.state as { returnTo?: string } | null)?.returnTo ??
     '/maintenance/work-orders'
-  const { apiRoleName } = useAccessControl()
+  const { apiRoleName, role } = useAccessControl()
+  const user = useUserStore((state) => state.user)
   const crud = useRouteCrudPermissions('/maintenance/work-orders')
   const normalizedRole = apiRoleName?.trim().toLowerCase() ?? ''
   const isDriverRole = normalizedRole.includes('driver')
@@ -261,6 +282,16 @@ export default function WorkOrderDetail() {
   const [invoiceDate, setInvoiceDate] = useState('')
   const [verifyRemarks, setVerifyRemarks] = useState('')
   const [invoiceFile, setInvoiceFile] = useState<File | null>(null)
+  const [assignDriverDialogOpen, setAssignDriverDialogOpen] = useState(false)
+  const [selectedDriverId, setSelectedDriverId] = useState('')
+  const [financeDialogMode, setFinanceDialogMode] = useState<'approve' | 'return' | null>(null)
+  const [financeRemarks, setFinanceRemarks] = useState('')
+  const [agencyMtoDialogMode, setAgencyMtoDialogMode] = useState<'forward' | 'return' | null>(
+    null,
+  )
+  const [agencyMtoRemarks, setAgencyMtoRemarks] = useState('')
+  const [paidDialogOpen, setPaidDialogOpen] = useState(false)
+  const [paidRemarks, setPaidRemarks] = useState('')
   const invoiceFileInputRef = useRef<HTMLInputElement>(null)
 
   const detailQuery = useQuery({
@@ -272,7 +303,6 @@ export default function WorkOrderDetail() {
 
   const workOrder = detailQuery.data
   const resolveMaintenanceType = workOrder ? needsMaintenanceTypeLookup(workOrder) : false
-  const resolveDriver = workOrder ? needsDriverLookup(workOrder) : false
 
   const maintenanceTypeQuery = useQuery({
     queryKey: ['maintenance', 'maintenance-types'],
@@ -281,15 +311,11 @@ export default function WorkOrderDetail() {
     staleTime: 60_000,
   })
 
-  const driverQuery = useQuery({
-    queryKey: ['admin-user-detail', workOrder?.reportedById],
-    queryFn: async () => {
-      const id = workOrder?.reportedById.trim()
-      if (!id) throw new Error('Missing driver id')
-      return fetchUserById(id)
-    },
-    enabled: Boolean(workOrder) && resolveDriver,
-    staleTime: 30_000,
+  const driversQuery = useQuery({
+    queryKey: ['admin-users', 'fms-driver', 100],
+    queryFn: () => fetchUsersForSelect(100),
+    enabled: assignDriverDialogOpen,
+    staleTime: 60_000,
   })
 
   const displayMaintenanceType = useMemo(() => {
@@ -304,20 +330,27 @@ export default function WorkOrderDetail() {
 
   const displayDriverName = useMemo(() => {
     if (!workOrder) return ''
-    if (!resolveDriver) return workOrder.driverName
-    if (driverQuery.isLoading) return workOrder.driverName
-    if (!driverQuery.data) return workOrder.driverName
-    const profile = mapUserDetailFields(driverQuery.data)
-    return profile.name && profile.name !== '-' ? profile.name : workOrder.driverName
-  }, [workOrder, resolveDriver, driverQuery.data, driverQuery.isLoading])
+    const name = workOrder.driverName.trim()
+    const missing = !name || name === '—' || name === '-'
+    if (missing && isSecretariatDesignationType(workOrder.designationType)) return '----'
+    return missing ? '—' : name
+  }, [workOrder])
 
   const isMainLoading = detailQuery.isPending && !workOrder
   const isMaintenanceTypeLoading = resolveMaintenanceType && maintenanceTypeQuery.isLoading
-  const isDriverLoading = resolveDriver && driverQuery.isLoading
 
   const approveMutation = useMutation({
     mutationFn: () => {
-      if (!crud.canApprove && crud.isResolved) {
+      const designatedSpecificMto =
+        workOrder != null &&
+        workOrder.estimatedCost == null &&
+        workOrder.status.trim().toUpperCase().replace(/[\s-]+/g, '_') ===
+          'PENDING_SPECIFIC_MTO' &&
+        workOrder.designationType.trim().toUpperCase().replace(/[\s-]+/g, '_') ===
+          'MINISTER' &&
+        (canShowDesignatedWorkOrderCreate(apiRoleName, user) ||
+          canShowDesignatedWorkOrderCreate(role, user))
+      if (!designatedSpecificMto && !crud.canApprove && crud.isResolved) {
         throw new Error('You do not have permission to approve this work order.')
       }
       const servicesAndParts = lineItems
@@ -367,7 +400,16 @@ export default function WorkOrderDetail() {
 
   const rejectMutation = useMutation({
     mutationFn: () => {
-      if (!crud.canReject && crud.isResolved) {
+      const designatedSpecificMto =
+        workOrder != null &&
+        workOrder.estimatedCost == null &&
+        workOrder.status.trim().toUpperCase().replace(/[\s-]+/g, '_') ===
+          'PENDING_SPECIFIC_MTO' &&
+        workOrder.designationType.trim().toUpperCase().replace(/[\s-]+/g, '_') ===
+          'MINISTER' &&
+        (canShowDesignatedWorkOrderCreate(apiRoleName, user) ||
+          canShowDesignatedWorkOrderCreate(role, user))
+      if (!designatedSpecificMto && !crud.canReject && crud.isResolved) {
         throw new Error('You do not have permission to reject this work order.')
       }
       return rejectWorkOrder(workOrderId, { reason: rejectReason })
@@ -400,6 +442,78 @@ export default function WorkOrderDetail() {
     },
     onError: (error) => {
       showErrorToast(error, 'Failed to complete maintenance')
+    },
+  })
+
+  const financeVerifyMutation = useMutation({
+    mutationFn: (action: 'APPROVE' | 'REJECT') => {
+      if (!showFinanceVerify) {
+        throw new Error('You do not have permission to verify this work order.')
+      }
+      return financeVerifyWorkOrder(workOrderId, {
+        action,
+        remarks: financeRemarks,
+      })
+    },
+    onSuccess: (_result, action) => {
+      setFinanceDialogMode(null)
+      setFinanceRemarks('')
+      void queryClient.invalidateQueries({ queryKey: ['maintenance-work-orders'] })
+      void queryClient.invalidateQueries({ queryKey: ['maintenance-work-order', workOrderId] })
+      showSuccessToast(
+        action === 'REJECT' ? 'Work order returned.' : 'Work order verified.',
+      )
+    },
+    onError: (error) => {
+      showErrorToast(error, 'Failed to verify work order')
+    },
+  })
+
+  const agencyMtoReviewMutation = useMutation({
+    mutationFn: (action: AgencyMtoReviewAction) => {
+      if (!showMinisterAgencyMtoForward) {
+        throw new Error('You do not have permission to review this work order.')
+      }
+      if (action === 'return' && !agencyMtoRemarks.trim()) {
+        throw new Error('Enter remarks before returning this work order.')
+      }
+      return reviewWorkOrderAsAgencyMto(workOrderId, {
+        action,
+        remarks: agencyMtoRemarks,
+      })
+    },
+    onSuccess: (_result, action) => {
+      setAgencyMtoDialogMode(null)
+      setAgencyMtoRemarks('')
+      void queryClient.invalidateQueries({ queryKey: ['maintenance-work-orders'] })
+      void queryClient.invalidateQueries({ queryKey: ['maintenance-work-order', workOrderId] })
+      showSuccessToast(
+        action === 'return'
+          ? 'Work order returned.'
+          : 'Work order forwarded to DPP MTO.',
+      )
+    },
+    onError: (error) => {
+      showErrorToast(error, 'Failed to review work order')
+    },
+  })
+
+  const markPaidMutation = useMutation({
+    mutationFn: () => {
+      if (!showMarkPaid) {
+        throw new Error('You do not have permission to mark this work order paid.')
+      }
+      return markWorkOrderPaid(workOrderId, { remarks: paidRemarks })
+    },
+    onSuccess: () => {
+      setPaidDialogOpen(false)
+      setPaidRemarks('')
+      void queryClient.invalidateQueries({ queryKey: ['maintenance-work-orders'] })
+      void queryClient.invalidateQueries({ queryKey: ['maintenance-work-order', workOrderId] })
+      showSuccessToast('Work order marked as paid.')
+    },
+    onError: (error) => {
+      showErrorToast(error, 'Failed to mark work order paid')
     },
   })
 
@@ -479,12 +593,56 @@ export default function WorkOrderDetail() {
     maintenanceTypeCode,
   )
   const isMajorType = maintenanceTypeKind === 'major'
-  const normalizedStatus = workOrder?.status.trim().toUpperCase() ?? ''
+  const normalizedStatus = (workOrder?.status ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, '_')
   const isApprovedForService = normalizedStatus === 'APPROVED_FOR_SERVICE'
+  const designatedMto =
+    canShowDesignatedWorkOrderCreate(apiRoleName, user) ||
+    canShowDesignatedWorkOrderCreate(role, user)
+  const hasAssignedDriver = Boolean(workOrder?.assignedDriverId.trim())
+  const canAssignSecretariatDriver = Boolean(
+    workOrder &&
+      isApprovedForService &&
+      isSecretariatDesignationType(workOrder.designationType) &&
+      !hasAssignedDriver &&
+      designatedMto,
+  )
+  const driverOptions = useMemo(
+    () =>
+      (driversQuery.data ?? []).map((driver) => ({
+        value: driver.id,
+        label: driver.name,
+        searchText: driver.name,
+      })),
+    [driversQuery.data],
+  )
   const isInProgress = normalizedStatus === 'IN_PROGRESS'
   const isPendingMtoApproval = normalizedStatus === 'PENDING_MTO_APPROVAL'
   const isPendingAgencyApproval = normalizedStatus === 'PENDING_AGENCY_APPROVAL'
+  const isPendingAgencyMtoReview = normalizedStatus === 'PENDING_AGENCY_MTO_REVIEW'
+  const isMinisterDesignation =
+    (workOrder?.designationType ?? '').trim().toUpperCase().replace(/[\s-]+/g, '_') ===
+    'MINISTER'
+  const isFmsMtoRole = roleMatches(apiRoleName, 'fms-mto') || roleMatches(role, 'fms-mto')
+  const showMinisterAgencyMtoForward =
+    Boolean(workOrder) && isMinisterDesignation && isPendingAgencyMtoReview && isFmsMtoRole
+  const isPendingSpecificMto = normalizedStatus === 'PENDING_SPECIFIC_MTO'
   const isPendingVerification = normalizedStatus === 'PENDING_VERIFICATION'
+  const isPendingFinanceReview = normalizedStatus === 'PENDING_FINANCE_REVIEW'
+  const isAccountantPaidStatus = ACCOUNTANT_PAID_STATUSES.has(normalizedStatus)
+  const secretariatWorkOrder = Boolean(
+    workOrder && isSecretariatDesignationType(workOrder.designationType),
+  )
+  const designatedRoleAllowed = !secretariatWorkOrder || userHandlesDesignatedVehicles(user)
+  const isFinanceOfficer =
+    canVerifyRenewalApplication(apiRoleName) || canVerifyRenewalApplication(role)
+  const isAccountant =
+    canProceedRenewalApplication(apiRoleName) || canProceedRenewalApplication(role)
+  const showFinanceVerify =
+    isPendingFinanceReview && isFinanceOfficer && designatedRoleAllowed
+  const showMarkPaid = isAccountantPaidStatus && isAccountant && designatedRoleAllowed
   const isCompleted = normalizedStatus === 'COMPLETED'
   const isRejected = normalizedStatus === 'REJECTED'
   const isCancelled = normalizedStatus === 'CANCELLED'
@@ -504,14 +662,45 @@ export default function WorkOrderDetail() {
   const showApproveRejectActions =
     showMtoApproveRejectActions || showAgencyApproveRejectActions
   const showVerifyMaintenance = isMtoRole && isPendingVerification
-  const hasServiceParts = lineItems.some((row) => row.description.trim() !== '')
-  const canShowApproveButton =
+  const hasServiceParts = lineItems.some((row) => {
+    const description = row.description.trim()
+    return description !== '' && description !== '—'
+  })
+  const specificMtoThresholdAccepted =
+    !isMajorType &&
+    !shouldEscalateWorkOrderMtoApproval({
+      maintenanceTypeLabel: displayMaintenanceType,
+      maintenanceTypeCode,
+      totalAmount: total,
+    })
+  const showSpecificMtoServices = Boolean(
+    workOrder && isMinisterDesignation && isPendingSpecificMto && designatedMto,
+  )
+  const hideMinisterSpecificMtoServices = Boolean(
+    workOrder &&
+      isMinisterDesignation &&
+      isPendingSpecificMto &&
+      (isMtoRole || isFmsMtoRole) &&
+      !designatedMto,
+  )
+  const showSpecificMtoDecision =
+    showSpecificMtoServices &&
+    workOrder?.estimatedCost == null &&
     hasServiceParts &&
-    showApproveRejectActions &&
-    crud.isResolved &&
-    crud.canApprove
+    specificMtoThresholdAccepted
+  const canShowApproveButton =
+    showSpecificMtoDecision ||
+    (hasServiceParts &&
+      showApproveRejectActions &&
+      crud.isResolved &&
+      crud.canApprove)
   const canShowRejectButton =
-    showApproveRejectActions && crud.isResolved && crud.canReject && !shouldShowEscalate && !isMajorType
+    showSpecificMtoDecision ||
+    (showApproveRejectActions &&
+      crud.isResolved &&
+      crud.canReject &&
+      !shouldShowEscalate &&
+      !isMajorType)
   const canShowVerifyButton =
     showVerifyMaintenance && crud.isResolved && crud.hasAction('verify')
   const showServiceRecordDetail = Boolean(
@@ -626,9 +815,44 @@ export default function WorkOrderDetail() {
     completeMaintenanceMutation.mutate()
   }
 
+  const assignDriverMutation = useMutation({
+    mutationFn: () => {
+      if (!selectedDriverId.trim()) throw new Error('Driver is required')
+      return assignWorkOrderDriver(workOrderId, selectedDriverId)
+    },
+    onSuccess: () => {
+      setAssignDriverDialogOpen(false)
+      setSelectedDriverId('')
+      void queryClient.invalidateQueries({ queryKey: ['maintenance-work-orders'] })
+      void queryClient.invalidateQueries({ queryKey: ['maintenance-work-order', workOrderId] })
+      showSuccessToast('Driver assigned successfully.')
+    },
+    onError: (error) => {
+      showErrorToast(error, 'Failed to assign driver')
+    },
+  })
+
+  const openAssignDriverDialog = () => {
+    setSelectedDriverId(workOrder?.assignedDriverId.trim() ?? '')
+    setAssignDriverDialogOpen(true)
+  }
+
+  const closeAssignDriverDialog = () => {
+    if (assignDriverMutation.isPending) return
+    setAssignDriverDialogOpen(false)
+  }
+
+  const onSubmitAssignDriver = () => {
+    if (!selectedDriverId.trim()) {
+      showErrorToast('Please select a driver.')
+      return
+    }
+    assignDriverMutation.mutate()
+  }
+
   const openVerifyDialog = () => {
     setInvoiceNumber('')
-    setInvoiceDate('')
+    setInvoiceDate(todayDateInputValue())
     setVerifyRemarks('')
     setInvoiceFile(null)
     if (invoiceFileInputRef.current) invoiceFileInputRef.current.value = ''
@@ -705,6 +929,15 @@ export default function WorkOrderDetail() {
             </div>
           ) : null}
         </div>
+        {!isMainLoading && canAssignSecretariatDriver ? (
+          <Button
+            type="button"
+            className="w-full bg-[var(--fms-button)] text-white hover:bg-[var(--fms-button-hover)] sm:w-auto"
+            onClick={openAssignDriverDialog}
+          >
+            Assign Driver
+          </Button>
+        ) : null}
       </div>
 
       <div className="grid gap-3 md:grid-cols-3">
@@ -712,7 +945,7 @@ export default function WorkOrderDetail() {
           icon={User}
           label="Driver"
           value={displayDriverName}
-          loading={isMainLoading || isDriverLoading}
+          loading={isMainLoading}
         />
         <SummaryCard
           icon={CarFront}
@@ -829,7 +1062,9 @@ export default function WorkOrderDetail() {
         </CardContent>
       </Card>
 
-      {canShowServicesPartsTable ? (
+      {(canShowServicesPartsTable || showSpecificMtoServices) &&
+      !showMinisterAgencyMtoForward &&
+      !hideMinisterSpecificMtoServices ? (
         <Card className="border border-[var(--fms-strokes)] bg-white">
           <CardContent className="pt-5">
             {isMainLoading ? (
@@ -843,18 +1078,23 @@ export default function WorkOrderDetail() {
               title="Services & Parts Required"
               items={lineItems}
               total={total}
-              editable={canEditServicesParts}
+              editable={canEditServicesParts || showSpecificMtoServices}
               servicePartOptions={servicePartOptions}
-              onAdd={canAddLineItems ? addLineItem : undefined}
-              onItemChange={canEditServicesParts ? updateLineItem : undefined}
-              onDelete={canEditServicesParts ? removeLineItem : undefined}
+              onAdd={canAddLineItems || showSpecificMtoServices ? addLineItem : undefined}
+              onItemChange={
+                canEditServicesParts || showSpecificMtoServices ? updateLineItem : undefined
+              }
+              onDelete={
+                canEditServicesParts || showSpecificMtoServices ? removeLineItem : undefined
+              }
               isRowLocked={(row) => isApprovedForService && !row.isNew}
               isServicePartLocked={() => restrictLineItemEdits}
               isQuantityLocked={() => restrictLineItemEdits}
               isNotesLocked={() => restrictLineItemEdits}
               isDeleteHidden={() => restrictLineItemEdits}
             />
-            {canEditServicesParts && isApprovedForService && lineItems.some((row) => row.isNew) ? (
+            {((canEditServicesParts && isApprovedForService) || showSpecificMtoServices) &&
+            lineItems.some((row) => row.isNew) ? (
               <div className="mt-4 flex justify-end">
                 <Button
                   type="button"
@@ -894,6 +1134,34 @@ export default function WorkOrderDetail() {
         </Card>
       ) : null}
 
+      {!isMainLoading && workOrder && showMinisterAgencyMtoForward ? (
+        <div className="flex flex-wrap gap-3">
+          <Button
+            type="button"
+            className="bg-[var(--fms-button)] text-white hover:bg-[var(--fms-button-hover)]"
+            disabled={agencyMtoReviewMutation.isPending}
+            onClick={() => {
+              setAgencyMtoRemarks('')
+              setAgencyMtoDialogMode('forward')
+            }}
+          >
+            Forward
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="border-[var(--fms-error-border)] text-[var(--fms-error-text)]"
+            disabled={agencyMtoReviewMutation.isPending}
+            onClick={() => {
+              setAgencyMtoRemarks('')
+              setAgencyMtoDialogMode('return')
+            }}
+          >
+            Return
+          </Button>
+        </div>
+      ) : null}
+
       {!isMainLoading && workOrder && (canShowApproveButton || canShowRejectButton) ? (
         <div className="flex flex-wrap gap-3">
           {canShowApproveButton ? (
@@ -931,6 +1199,51 @@ export default function WorkOrderDetail() {
         </div>
       ) : null}
 
+      {!isMainLoading && workOrder && (showFinanceVerify || showMarkPaid) ? (
+        <div className="flex flex-wrap gap-3">
+          {showFinanceVerify ? (
+            <>
+              <Button
+                type="button"
+                className="bg-[var(--fms-button)] text-white hover:bg-[var(--fms-button-hover)]"
+                disabled={financeVerifyMutation.isPending}
+                onClick={() => {
+                  setFinanceRemarks('')
+                  setFinanceDialogMode('approve')
+                }}
+              >
+                Verify
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="border-[var(--fms-error-border)] text-[var(--fms-error-text)]"
+                disabled={financeVerifyMutation.isPending}
+                onClick={() => {
+                  setFinanceRemarks('')
+                  setFinanceDialogMode('return')
+                }}
+              >
+                Return
+              </Button>
+            </>
+          ) : null}
+          {showMarkPaid ? (
+            <Button
+              type="button"
+              className="bg-[var(--fms-button)] text-white hover:bg-[var(--fms-button-hover)]"
+              disabled={markPaidMutation.isPending}
+              onClick={() => {
+                setPaidRemarks('')
+                setPaidDialogOpen(true)
+              }}
+            >
+              Paid
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+
       {!isMainLoading && workOrder && isDriverRole && (isApprovedForService || isInProgress) ? (
         <div className="flex flex-wrap gap-3">
           <Button
@@ -942,6 +1255,281 @@ export default function WorkOrderDetail() {
           </Button>
         </div>
       ) : null}
+
+      <Dialog
+        open={assignDriverDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) closeAssignDriverDialog()
+          else setAssignDriverDialogOpen(true)
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Assign Driver</DialogTitle>
+            <DialogDescription>
+              Select a driver for this Secretariat vehicle
+              {workOrder?.vehiclePlate ? ` (${workOrder.vehiclePlate})` : ''}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="assign-work-order-driver">
+              Driver <span className="text-[var(--fms-delete)]">*</span>
+            </Label>
+            <SearchableAutocomplete
+              id="assign-work-order-driver"
+              value={selectedDriverId}
+              onChange={setSelectedDriverId}
+              options={driverOptions}
+              loading={driversQuery.isLoading}
+              disabled={assignDriverMutation.isPending || driversQuery.isLoading}
+              placeholder={
+                driversQuery.isError ? 'Could not load drivers' : 'Select driver'
+              }
+              searchPlaceholder="Search driver name…"
+              emptyMessage={
+                driversQuery.isError ? 'Could not load drivers.' : 'No drivers found.'
+              }
+              error={driversQuery.isError}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={assignDriverMutation.isPending}
+              onClick={closeAssignDriverDialog}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="bg-[var(--fms-button)] text-white hover:bg-[var(--fms-button-hover)]"
+              disabled={
+                assignDriverMutation.isPending ||
+                driversQuery.isLoading ||
+                !selectedDriverId.trim()
+              }
+              onClick={onSubmitAssignDriver}
+            >
+              {assignDriverMutation.isPending ? 'Assigning…' : 'Assign Driver'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={agencyMtoDialogMode !== null}
+        onOpenChange={(open) => {
+          if (!open && agencyMtoReviewMutation.isPending) return
+          if (!open) {
+            setAgencyMtoDialogMode(null)
+            setAgencyMtoRemarks('')
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {agencyMtoDialogMode === 'return' ? 'Return Work Order' : 'Forward Work Order'}
+            </DialogTitle>
+            <DialogDescription>
+              {agencyMtoDialogMode === 'return'
+                ? 'Send this work order back with a reason.'
+                : 'Forward this work order to the DPP MTO.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="agency-mto-review-remarks">
+              Remarks
+              {agencyMtoDialogMode === 'return' ? (
+                <span className="text-[var(--fms-delete)]"> *</span>
+              ) : null}
+            </Label>
+            <textarea
+              id="agency-mto-review-remarks"
+              value={agencyMtoRemarks}
+              onChange={(event) => setAgencyMtoRemarks(event.target.value)}
+              placeholder="Enter remarks for this action."
+              disabled={agencyMtoReviewMutation.isPending}
+              className="min-h-[88px] w-full rounded-lg border border-[var(--fms-strokes)] bg-white px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+            />
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={agencyMtoReviewMutation.isPending}
+              onClick={() => {
+                setAgencyMtoDialogMode(null)
+                setAgencyMtoRemarks('')
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className={
+                agencyMtoDialogMode === 'return'
+                  ? 'bg-[#c53030] text-white hover:bg-[#b83232]'
+                  : 'bg-[var(--fms-button)] text-white hover:bg-[var(--fms-button-hover)]'
+              }
+              disabled={
+                agencyMtoReviewMutation.isPending ||
+                (agencyMtoDialogMode === 'return' && !agencyMtoRemarks.trim())
+              }
+              onClick={() => {
+                if (agencyMtoDialogMode === 'return' && !agencyMtoRemarks.trim()) {
+                  showErrorToast('Enter remarks before returning this work order.')
+                  return
+                }
+                agencyMtoReviewMutation.mutate(
+                  agencyMtoDialogMode === 'return' ? 'return' : 'forward',
+                )
+              }}
+            >
+              {agencyMtoReviewMutation.isPending
+                ? agencyMtoDialogMode === 'return'
+                  ? 'Returning…'
+                  : 'Forwarding…'
+                : agencyMtoDialogMode === 'return'
+                  ? 'Return'
+                  : 'Forward'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={financeDialogMode !== null}
+        onOpenChange={(open) => {
+          if (!open && financeVerifyMutation.isPending) return
+          if (!open) {
+            setFinanceDialogMode(null)
+            setFinanceRemarks('')
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {financeDialogMode === 'return' ? 'Return Work Order' : 'Verify Work Order'}
+            </DialogTitle>
+            <DialogDescription>
+              {financeDialogMode === 'return'
+                ? 'Send this work order back with a reason.'
+                : 'Confirm this work order for finance review.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="finance-verify-remarks">
+              Verification remarks
+              {financeDialogMode === 'return' ? (
+                <span className="text-[var(--fms-delete)]"> *</span>
+              ) : null}
+            </Label>
+            <textarea
+              id="finance-verify-remarks"
+              value={financeRemarks}
+              onChange={(event) => setFinanceRemarks(event.target.value)}
+              placeholder="Enter remarks for this action."
+              disabled={financeVerifyMutation.isPending}
+              className="min-h-[88px] w-full rounded-lg border border-[var(--fms-strokes)] bg-white px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+            />
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={financeVerifyMutation.isPending}
+              onClick={() => {
+                setFinanceDialogMode(null)
+                setFinanceRemarks('')
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className={
+                financeDialogMode === 'return'
+                  ? 'bg-[#c53030] text-white hover:bg-[#b83232]'
+                  : 'bg-[var(--fms-button)] text-white hover:bg-[var(--fms-button-hover)]'
+              }
+              disabled={
+                financeVerifyMutation.isPending ||
+                (financeDialogMode === 'return' && !financeRemarks.trim())
+              }
+              onClick={() => {
+                if (financeDialogMode === 'return' && !financeRemarks.trim()) {
+                  showErrorToast('Enter remarks before returning this work order.')
+                  return
+                }
+                financeVerifyMutation.mutate(
+                  financeDialogMode === 'return' ? 'REJECT' : 'APPROVE',
+                )
+              }}
+            >
+              {financeVerifyMutation.isPending
+                ? financeDialogMode === 'return'
+                  ? 'Returning…'
+                  : 'Verifying…'
+                : financeDialogMode === 'return'
+                  ? 'Return'
+                  : 'Verify'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={paidDialogOpen}
+        onOpenChange={(open) => {
+          if (!open && markPaidMutation.isPending) return
+          setPaidDialogOpen(open)
+          if (!open) setPaidRemarks('')
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Mark as Paid</DialogTitle>
+            <DialogDescription>
+              Record payment for this work order.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="mark-paid-remarks">Remarks</Label>
+            <textarea
+              id="mark-paid-remarks"
+              value={paidRemarks}
+              onChange={(event) => setPaidRemarks(event.target.value)}
+              placeholder="Enter remarks for this action."
+              disabled={markPaidMutation.isPending}
+              className="min-h-[88px] w-full rounded-lg border border-[var(--fms-strokes)] bg-white px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+            />
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={markPaidMutation.isPending}
+              onClick={() => {
+                setPaidDialogOpen(false)
+                setPaidRemarks('')
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="bg-[var(--fms-button)] text-white hover:bg-[var(--fms-button-hover)]"
+              disabled={markPaidMutation.isPending}
+              onClick={() => markPaidMutation.mutate()}
+            >
+              {markPaidMutation.isPending ? 'Saving…' : 'Paid'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={approveDialogOpen} onOpenChange={setApproveDialogOpen}>
         <DialogContent>
@@ -1072,6 +1660,7 @@ export default function WorkOrderDetail() {
                 id="verify-invoice-date"
                 type="date"
                 value={invoiceDate}
+                max={todayDateInputValue()}
                 onChange={(event) => setInvoiceDate(event.target.value)}
                 disabled={verifyMaintenanceMutation.isPending}
               />

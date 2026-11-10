@@ -188,7 +188,7 @@ export function AppRoutes() {
             element={<AssignVehicleDetailPage />}
           />
           {/* Designated vehicle routes */}
-          <Route path="/vehicle/designated-officials" element={<DesignatedVehicle />} />
+          <Route path="/vehicle/designated" element={<DesignatedVehicle />} />
           {/* Admin settings routes */}
           <Route path="/admin/modules" element={<ModuleListPage />} />
           <Route path="/admin/modules/add" element={<ModuleFormPage />} />

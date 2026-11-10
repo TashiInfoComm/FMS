@@ -13,6 +13,9 @@ export const DESIGNATED_RENEWAL_ROLES = [
 /** Roles that can add a fuel log when they handle designated vehicles. */
 export const DESIGNATED_FUEL_LOG_ROLES = ['fms-mto'] as const
 
+/** Roles that can create a work order when they handle designated vehicles. */
+export const DESIGNATED_WORK_ORDER_ROLES = ['fms-mto'] as const
+
 /** Roles that see Parking Expense Logs when they handle designated vehicles. */
 export const DESIGNATED_PARKING_LOG_ROLES = ['fms-mto'] as const
 
@@ -150,6 +153,21 @@ export function canDriverOrDesignatedMtoActOnRenewal(
   if (matchesRenewalActorRole(activeRole, DRIVER_ROLE)) return true
   const profile = user === undefined ? useUserStore.getState().user : user
   return matchesRenewalActorRole(activeRole, MTO_ROLE) && userHandlesDesignatedVehicles(profile)
+}
+
+/**
+ * True when the active role is MTO and the profile has `handles_designated_vehicles`.
+ * Pass `user` from the store subscription so the check updates after `/auth/me` hydrates.
+ */
+export function canShowDesignatedWorkOrderCreate(
+  activeRole: string | null | undefined,
+  user?: unknown,
+): boolean {
+  const profile = user === undefined ? useUserStore.getState().user : user
+  return (
+    roleMatchesAny(activeRole, DESIGNATED_WORK_ORDER_ROLES) &&
+    userHandlesDesignatedVehicles(profile)
+  )
 }
 
 /**

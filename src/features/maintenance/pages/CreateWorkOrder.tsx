@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CloudUpload, Plus, Trash2 } from 'lucide-react'
+import { CloudUpload, Info, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
@@ -14,6 +14,7 @@ import {
 } from '@/features/maintenance/lib/maintenance-masters-api'
 import {
   fetchDriverAssignedVehicles,
+  fetchSecretariatWorkOrderVehicles,
   submitWorkOrder,
 } from '@/features/maintenance/lib/work-orders-api'
 import type { ApiRecord } from '@/features/user/lib/roles-api'
@@ -21,6 +22,9 @@ import { mapUserDetailFields } from '@/features/user/lib/users-api'
 import { useUserStore } from '@/services/user-store'
 import { SearchableAutocomplete } from '@/shared/components/SearchableAutocomplete'
 import { PageHeader } from '@/shared/components/PageHeader'
+import { useAccessControl } from '@/shared/hooks/useAccessControl'
+import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
+import { canShowDesignatedWorkOrderCreate } from '@/shared/lib/designated-mto-access'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
 import { cn } from '@/lib/utils'
 
@@ -33,6 +37,13 @@ type MaintenanceItemDraft = {
 
 function RequiredMark() {
   return <span className="text-[var(--fms-delete)]">*</span>
+}
+
+function designatedWorkOrderMessage(designationTypeName: string | undefined): string {
+  const typeName = designationTypeName?.trim() ?? ''
+  if (!typeName) return 'Creating a work order for a designated vehicle.'
+  const article = /^[aeiou]/i.test(typeName) ? 'an' : 'a'
+  return `Creating a work order for ${article} ${typeName} vehicle.`
 }
 
 function emptyItem(): MaintenanceItemDraft {
@@ -169,7 +180,13 @@ function MaintenanceItemCard({
 export default function CreateWorkOrder() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const crud = useRouteCrudPermissions('/maintenance/work-orders')
+  const { apiRoleName, role } = useAccessControl()
   const user = useUserStore((state) => state.user)
+  const useDesignatedVehicles =
+    canShowDesignatedWorkOrderCreate(apiRoleName, user) ||
+    canShowDesignatedWorkOrderCreate(role, user)
+  const canCreateWorkOrder = crud.canCreate || useDesignatedVehicles
   const [maintenanceTypeId, setMaintenanceTypeId] = useState('')
   const [vehicleId, setVehicleId] = useState('')
   const [items, setItems] = useState<MaintenanceItemDraft[]>([emptyItem()])
@@ -196,9 +213,16 @@ export default function CreateWorkOrder() {
   }, [profile?.id, profileRecord])
 
   const vehiclesQuery = useQuery({
-    queryKey: ['maintenance', 'driver-vehicles', driverId],
-    queryFn: () => fetchDriverAssignedVehicles(driverId),
-    enabled: Boolean(driverId),
+    queryKey: useDesignatedVehicles
+      ? ['maintenance', 'secretariat-vehicles']
+      : ['maintenance', 'driver-vehicles', driverId],
+    queryFn: () =>
+      useDesignatedVehicles
+        ? fetchSecretariatWorkOrderVehicles()
+        : fetchDriverAssignedVehicles(driverId),
+    enabled: useDesignatedVehicles
+      ? !crud.isResolved || canCreateWorkOrder
+      : Boolean(driverId) && (!crud.isResolved || canCreateWorkOrder),
     staleTime: 60_000,
   })
 
@@ -220,6 +244,14 @@ export default function CreateWorkOrder() {
 
   const vehicleOptions = vehiclesQuery.data ?? []
   const problemCategoryOptions = problemCategoriesQuery.data ?? []
+  const selectedVehicle = vehicleOptions.find((option) => option.value === vehicleId)
+  const designatedNote = useDesignatedVehicles
+    ? {
+        message: designatedWorkOrderMessage(selectedVehicle?.designationTypeName),
+        vehicleLabel: selectedVehicle?.label,
+        officialName: selectedVehicle?.officialName,
+      }
+    : null
 
   useEffect(() => {
     if (vehicleId || vehiclesQuery.isLoading) return
@@ -266,12 +298,17 @@ export default function CreateWorkOrder() {
   }
 
   const handleSubmit = () => {
-    if (!driverId) {
+    if (crud.isResolved && !canCreateWorkOrder) return
+    if (!useDesignatedVehicles && !driverId) {
       showErrorToast('Driver profile is not available.')
       return
     }
     if (!vehicleId) {
-      showErrorToast('Please select an assigned vehicle.')
+      showErrorToast(
+        useDesignatedVehicles
+          ? 'Please select a Secretariat vehicle.'
+          : 'Please select an assigned vehicle.',
+      )
       return
     }
     if (!maintenanceTypeId) {
@@ -301,6 +338,19 @@ export default function CreateWorkOrder() {
     })
   }
 
+  if (crud.isResolved && !canCreateWorkOrder) {
+    return (
+      <section className="space-y-5">
+        <PageHeader title="Maintenance Requisition" />
+        <p className="text-sm text-[var(--fms-text-subheading)]">
+          You do not have permission to create work orders.
+        </p>
+      </section>
+    )
+  }
+
+  const vehicleFieldUnavailable = !useDesignatedVehicles && !driverId
+
   return (
     <section className="space-y-5">
       <PageHeader
@@ -314,12 +364,29 @@ export default function CreateWorkOrder() {
             Maintenance Details
           </h2>
 
+          {designatedNote ? (
+            <div className="flex items-start gap-3 rounded-xl border border-[#bfdbfe] bg-[#eff6ff] px-4 py-3 text-sm text-[#1e40af]">
+              <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+              <div className="min-w-0 space-y-1">
+                <p className="font-medium">{designatedNote.message}</p>
+                {designatedNote.vehicleLabel || designatedNote.officialName ? (
+                  <p className="text-[#1e3a8a]">
+                    {[designatedNote.vehicleLabel, designatedNote.officialName]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label>
-                Assigned Vehicle <RequiredMark />
+                {useDesignatedVehicles ? 'Vehicle Number' : 'Assigned Vehicle'}{' '}
+                <RequiredMark />
               </Label>
-              {!driverId ? (
+              {vehicleFieldUnavailable ? (
                 <Input
                   readOnly
                   value=""
@@ -344,7 +411,11 @@ export default function CreateWorkOrder() {
                 <Input
                   readOnly
                   value=""
-                  placeholder="No assigned vehicles found"
+                  placeholder={
+                    useDesignatedVehicles
+                      ? 'No Secretariat vehicles found'
+                      : 'No assigned vehicles found'
+                  }
                   className="bg-[#f8f8f9] text-[var(--fms-text-header)]"
                 />
               ) : (

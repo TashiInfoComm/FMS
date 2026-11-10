@@ -40,6 +40,7 @@ import type { ApiRecord } from '@/features/user/lib/roles-api'
 import { mapUserDetailFields } from '@/features/user/lib/users-api'
 import { formatFileSizeLabel } from '@/features/trips/lib/trip-form-utils'
 import { cn } from '@/lib/utils'
+import { todayDateInputValue } from '@/shared/lib/date-input'
 import { DetailInlineValueSkeleton } from '@/shared/components/detail-loading'
 import { useUserStore } from '@/services/user-store'
 import { SearchableAutocomplete } from '@/shared/components/SearchableAutocomplete'
@@ -458,6 +459,7 @@ function FuelLogForm({
                   id="log-date"
                   type="date"
                   value={logDate}
+                  max={todayDateInputValue()}
                   onChange={(event) => onLogDateChange?.(event.target.value)}
                   className="rounded-full"
                 />
@@ -1091,6 +1093,7 @@ function FuelLogDetailPage() {
                 id="resubmit-log-date"
                 type="date"
                 value={resubmitLogDate}
+                max={todayDateInputValue()}
                 onChange={(event) => setResubmitLogDate(event.target.value)}
                 disabled={resubmitMutation.isPending}
               />

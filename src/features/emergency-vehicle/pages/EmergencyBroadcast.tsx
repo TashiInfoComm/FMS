@@ -40,6 +40,7 @@ import {
 } from '@/shared/components/TableRowActionButtons'
 import { TablePagination } from '@/shared/components/TablePagination'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
+import { nowDatetimeLocalValue } from '@/shared/lib/date-input'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
 
 const TABLE_COLUMN_COUNT = 6
@@ -69,8 +70,10 @@ function EmergencyBroadcast() {
   const [closeTarget, setCloseTarget] = useState<ActionTarget | null>(null)
   const [closureNotes, setClosureNotes] = useState('')
   const [closeEndDatetime, setCloseEndDatetime] = useState('')
+  const [closeEndMin, setCloseEndMin] = useState('')
   const [endDateTarget, setEndDateTarget] = useState<ActionTarget | null>(null)
   const [endDateDatetime, setEndDateDatetime] = useState('')
+  const [endDateMin, setEndDateMin] = useState('')
   const [endDateRemarks, setEndDateRemarks] = useState('')
 
   const listQuery = useQuery({
@@ -123,6 +126,7 @@ function EmergencyBroadcast() {
       setCloseTarget(null)
       setClosureNotes('')
       setCloseEndDatetime('')
+      setCloseEndMin('')
     },
     onError: (error) => {
       showErrorToast(error, 'Could not close emergency incident')
@@ -144,6 +148,7 @@ function EmergencyBroadcast() {
       showSuccessToast('End date and time updated')
       setEndDateTarget(null)
       setEndDateDatetime('')
+      setEndDateMin('')
       setEndDateRemarks('')
     },
     onError: (error) => {
@@ -171,7 +176,8 @@ function EmergencyBroadcast() {
   const openCloseDialog = (row: EmergencyBroadcastRow) => {
     setCloseTarget({ id: row.id, requestId: row.requestId })
     setClosureNotes('')
-    setCloseEndDatetime(toDatetimeLocalValue(row.endDate))
+    setCloseEndMin(row.startDate ? toDatetimeLocalValue(row.startDate) : '')
+    setCloseEndDatetime(toDatetimeLocalValue(row.endDate) || nowDatetimeLocalValue())
   }
 
   const closeCloseDialog = () => {
@@ -179,10 +185,12 @@ function EmergencyBroadcast() {
     setCloseTarget(null)
     setClosureNotes('')
     setCloseEndDatetime('')
+    setCloseEndMin('')
   }
 
   const openEndDateDialog = (row: EmergencyBroadcastRow) => {
     setEndDateTarget({ id: row.id, requestId: row.requestId })
+    setEndDateMin(row.startDate ? toDatetimeLocalValue(row.startDate) : '')
     setEndDateDatetime(toDatetimeLocalValue(row.endDate))
     setEndDateRemarks('')
   }
@@ -191,6 +199,7 @@ function EmergencyBroadcast() {
     if (updateEndDateMutation.isPending) return
     setEndDateTarget(null)
     setEndDateDatetime('')
+    setEndDateMin('')
     setEndDateRemarks('')
   }
 
@@ -539,6 +548,8 @@ function EmergencyBroadcast() {
                 id="emergency-close-end-date"
                 type="datetime-local"
                 value={closeEndDatetime}
+                min={closeEndMin || undefined}
+                max={nowDatetimeLocalValue()}
                 onChange={(event) => setCloseEndDatetime(event.target.value)}
                 className="h-9"
               />
@@ -587,6 +598,7 @@ function EmergencyBroadcast() {
                 id="emergency-update-end-date"
                 type="datetime-local"
                 value={endDateDatetime}
+                min={endDateMin || undefined}
                 onChange={(event) => setEndDateDatetime(event.target.value)}
                 className="h-9"
               />

@@ -21,13 +21,16 @@ import {
   workOrderStatusBadgeClass,
 } from '@/features/maintenance/lib/maintenance-ui'
 import { fetchWorkOrdersPage } from '@/features/maintenance/lib/work-orders-api'
+import { useUserStore } from '@/services/user-store'
 import { PageHeader } from '@/shared/components/PageHeader'
 import {
   DetailRowActionButton,
   rowActionsContainerClassName,
 } from '@/shared/components/TableRowActionButtons'
 import { TablePagination } from '@/shared/components/TablePagination'
+import { useAccessControl } from '@/shared/hooks/useAccessControl'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
+import { canShowDesignatedWorkOrderCreate } from '@/shared/lib/designated-mto-access'
 
 function WorkOrderCell({ row }: { row: WorkOrderListItem }) {
   return (
@@ -45,6 +48,12 @@ function WorkOrderCell({ row }: { row: WorkOrderListItem }) {
 export default function WorkOrders() {
   const navigate = useNavigate()
   const crud = useRouteCrudPermissions('/maintenance/work-orders')
+  const { apiRoleName, role } = useAccessControl()
+  const user = useUserStore((state) => state.user)
+  const canCreateWorkOrder =
+    crud.canCreate ||
+    canShowDesignatedWorkOrderCreate(apiRoleName, user) ||
+    canShowDesignatedWorkOrderCreate(role, user)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [page, setPage] = useState(1)
@@ -84,7 +93,7 @@ export default function WorkOrders() {
           title="Maintenance Work Orders"
           subtitle="Review, approve and verify maintenance work."
         />
-        {crud.canCreate ? (
+        {canCreateWorkOrder ? (
           <Button asChild className="w-full sm:w-auto">
             <Link to="/maintenance/work-orders/create">
               <Plus className="mr-1 h-4 w-4" />

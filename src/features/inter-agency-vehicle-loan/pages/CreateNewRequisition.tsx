@@ -26,6 +26,7 @@ import { PageHeader } from '@/shared/components/PageHeader'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
 import { cn } from '@/lib/utils'
+import { todayDateInputValue } from '@/shared/lib/date-input'
 
 type RequirementRow = {
   key: string
@@ -47,7 +48,7 @@ function emptyRequirementRow(): RequirementRow {
     vehicleCategoryId: '',
     vehicleCount: '',
     reason: '',
-    startDate: '',
+    startDate: todayDateInputValue(),
     endDate: '',
     driverRequired: false,
   }
@@ -360,6 +361,11 @@ function CreateNewRequisition() {
                     id={`start-date-${row.key}`}
                     type="date"
                     value={row.startDate}
+                    min={
+                      isEditMode && row.startDate && row.startDate < todayDateInputValue()
+                        ? row.startDate
+                        : todayDateInputValue()
+                    }
                     onChange={(event) =>
                       updateRequirement(row.key, { startDate: event.target.value })
                     }
@@ -375,6 +381,7 @@ function CreateNewRequisition() {
                     id={`end-date-${row.key}`}
                     type="date"
                     value={row.endDate}
+                    min={row.startDate || todayDateInputValue()}
                     onChange={(event) =>
                       updateRequirement(row.key, { endDate: event.target.value })
                     }

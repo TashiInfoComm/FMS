@@ -55,6 +55,7 @@ import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
 import { isUuidLike } from '@/shared/lib/organogram-master-lookup'
 import { cn } from '@/lib/utils'
+import { nowDatetimeLocalValue } from '@/shared/lib/date-input'
 
 function preferFormMasterLabel(apiValue: string, formLabel: string): string {
   const trimmedFormLabel = formLabel.trim()
@@ -603,6 +604,7 @@ function CreateTripRequisition() {
                 label="Journey Start Date & Time"
                 required
                 type="datetime-local"
+                minValue={nowDatetimeLocalValue()}
                 value={tripForm.journeyStartDatetime}
                 onChange={(value) =>
                   setTripForm((prev) => ({ ...prev, journeyStartDatetime: value }))
@@ -612,6 +614,7 @@ function CreateTripRequisition() {
                 label="Journey End Date & Time"
                 required
                 type="datetime-local"
+                minValue={tripForm.journeyStartDatetime || nowDatetimeLocalValue()}
                 value={tripForm.journeyEndDatetime}
                 onChange={(value) =>
                   setTripForm((prev) => ({ ...prev, journeyEndDatetime: value }))
@@ -868,6 +871,8 @@ function FormInput({
   type = 'text',
   placeholder,
   min,
+  minValue,
+  maxValue,
   disabled,
 }: {
   label: string
@@ -877,6 +882,8 @@ function FormInput({
   type?: string
   placeholder?: string
   min?: number
+  minValue?: string
+  maxValue?: string
   disabled?: boolean
 }) {
   return (
@@ -886,7 +893,8 @@ function FormInput({
       </Label>
       <Input
         type={type}
-        min={min}
+        min={minValue ?? min}
+        max={maxValue}
         value={value}
         placeholder={placeholder}
         disabled={disabled}

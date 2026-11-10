@@ -27,6 +27,7 @@ import { cn } from '@/lib/utils'
 import { BackToListButton } from '@/shared/components/BackToListButton'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { SearchableMultiAutocomplete } from '@/shared/components/SearchableMultiAutocomplete'
+import { nowDatetimeLocalValue } from '@/shared/lib/date-input'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
 
 function RequiredMark() {
@@ -416,6 +417,7 @@ function CreateEmergencyBroadcast() {
                     <Input
                       type="datetime-local"
                       value={incident.startDatetime}
+                      max={incident.endDatetime || undefined}
                       onChange={(event) =>
                         updateIncident(incident.key, { startDatetime: event.target.value })
                       }
@@ -430,6 +432,7 @@ function CreateEmergencyBroadcast() {
                     <Input
                       type="datetime-local"
                       value={incident.endDatetime}
+                      min={incident.startDatetime || nowDatetimeLocalValue()}
                       onChange={(event) =>
                         updateIncident(incident.key, { endDatetime: event.target.value })
                       }

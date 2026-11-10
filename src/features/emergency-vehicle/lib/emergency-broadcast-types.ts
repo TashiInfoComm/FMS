@@ -1,3 +1,5 @@
+import { nowDatetimeLocalValue } from '@/shared/lib/date-input'
+
 export type EmergencyBroadcastStatus =
   | 'broadcasted'
   | 'active'
@@ -179,7 +181,7 @@ export function createEmptyEmergencyIncidentRow(): EmergencyIncidentRow {
     location: '',
     latitude: null,
     longitude: null,
-    startDatetime: '',
+    startDatetime: nowDatetimeLocalValue(),
     endDatetime: '',
     description: '',
   }

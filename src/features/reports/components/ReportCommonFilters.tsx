@@ -11,6 +11,7 @@ import {
 } from '@/features/vehicles/lib/vehicle-agency-assignment-api'
 import { SearchableAutocomplete } from '@/shared/components/SearchableAutocomplete'
 import { cn } from '@/lib/utils'
+import { todayDateInputValue } from '@/shared/lib/date-input'
 
 export type ReportDateRangeFiltersProps = {
   fromDate: string
@@ -60,6 +61,8 @@ export function ReportDateRangeFilters({
   fromDateId = 'report-from-date',
   toDateId = 'report-to-date',
 }: ReportDateRangeFiltersProps) {
+  const today = todayDateInputValue()
+  const fromMax = toDate && toDate < today ? toDate : today
   return (
     <div
       className={cn(
@@ -78,7 +81,7 @@ export function ReportDateRangeFilters({
           id={fromDateId}
           type="date"
           value={fromDate}
-          max={toDate || undefined}
+          max={fromMax}
           onChange={(event) => onFromDateChange(event.target.value)}
           className="h-8 w-full sm:w-[150px]"
           aria-label="From date"
@@ -97,6 +100,7 @@ export function ReportDateRangeFilters({
           type="date"
           value={toDate}
           min={fromDate || undefined}
+          max={today}
           onChange={(event) => onToDateChange(event.target.value)}
           className="h-8 w-full sm:w-[150px]"
           aria-label="To date"

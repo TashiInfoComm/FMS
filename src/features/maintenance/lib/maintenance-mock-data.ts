@@ -79,6 +79,10 @@ export type WorkOrderListItem = {
 
 export type WorkOrderDetail = WorkOrderListItem & {
   reportedById: string
+  /** Assigned driver from `driver_detail`, when the work order has one. */
+  assignedDriverId: string
+  /** Vehicle designated type, for example `SECRETARIAT`. */
+  designationType: string
   maintenanceTypeId?: string
   driverName: string
   vehicleModel: string
@@ -90,6 +94,8 @@ export type WorkOrderDetail = WorkOrderListItem & {
   proof?: MaintenanceProofFile
   problemReports: WorkOrderProblemReport[]
   lineItems: MaintenanceLineItem[]
+  /** `estimated_cost` from the work order. `null` when the API has not set one. */
+  estimatedCost: number | null
   maintenanceRequestStatus?: string
   vehicleReadyStatus?: string
   lastServiceDate?: string

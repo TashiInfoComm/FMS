@@ -1,3 +1,4 @@
+import { fetchDesignatedOfficialVehicleOptions } from '@/features/fuel/lib/fuel-logs-api'
 import type { ApiRecord } from '@/features/user/lib/roles-api'
 import { toText } from '@/features/user/lib/users-api'
 import { fetchVehicleById, mapVehicleRecordToListRow } from '@/features/vehicles/lib/vehicles-api'
@@ -73,8 +74,50 @@ function pickVehicleBlock(record: ApiRecord): ApiRecord {
   )
 }
 
+function pickAssignedDriverRecord(record: ApiRecord): ApiRecord | null {
+  return pickNestedRecord(record, [
+    'driver_detail',
+    'driverDetail',
+    'assigned_driver',
+    'assignedDriver',
+    'driver',
+  ])
+}
+
 function pickDriverBlock(record: ApiRecord): ApiRecord {
-  return pickNestedRecord(record, ['driver', 'assigned_driver', 'assignedDriver']) ?? record
+  return pickAssignedDriverRecord(record) ?? record
+}
+
+function pickAssignedDriverId(record: ApiRecord): string {
+  const explicit = pickScalar(record, ['assigned_driver_id', 'assignedDriverId'])
+  if (explicit) return explicit
+  const driver = pickNestedRecord(record, [
+    'driver_detail',
+    'driverDetail',
+    'assigned_driver',
+    'assignedDriver',
+  ])
+  if (!driver) return ''
+  return pickScalar(driver, ['id', 'user_id', 'userId', 'driver_id', 'driverId', 'uuid'])
+}
+
+function pickEstimatedCost(record: ApiRecord): number | null {
+  for (const key of ['estimated_cost', 'estimatedCost']) {
+    if (!(key in record)) continue
+    const value = record[key]
+    if (value === null || value === undefined || value === '') return null
+    const amount = typeof value === 'number' ? value : Number(value)
+    return Number.isFinite(amount) ? amount : null
+  }
+  return null
+}
+
+function pickDesignationType(record: ApiRecord): string {
+  const direct = pickScalar(record, ['designation_type', 'designationType'])
+  if (direct) return direct
+  const vehicle = pickVehicleBlock(record)
+  if (vehicle === record) return ''
+  return pickScalar(vehicle, ['designation_type', 'designationType'])
 }
 
 function pickVehiclePlate(record: ApiRecord): string {
@@ -409,6 +452,8 @@ export function mapWorkOrderDetail(record: ApiRecord): WorkOrderDetail | null {
     maintenanceType:
       maintenanceTypeLabel !== '—' ? maintenanceTypeLabel : listRow.maintenanceType,
     reportedById: pickScalar(record, ['reported_by', 'reportedBy']),
+    assignedDriverId: pickAssignedDriverId(record),
+    designationType: pickDesignationType(record),
     maintenanceTypeId: pickScalar(record, ['maintenance_type_id', 'maintenanceTypeId']) || undefined,
     driverName: pickDriverName(record),
     vehicleModel: vehicleModel !== '—' ? vehicleModel : listRow.vehiclePlate,
@@ -435,6 +480,7 @@ export function mapWorkOrderDetail(record: ApiRecord): WorkOrderDetail | null {
       : mapProofFile(record),
     problemReports,
     lineItems,
+    estimatedCost: pickEstimatedCost(record),
     maintenanceRequestStatus:
       pickScalar(record, [
         'maintenance_request_status',
@@ -555,6 +601,8 @@ export type DriverAssignedVehicleOption = {
   value: string
   label: string
   searchText?: string
+  designationTypeName?: string
+  officialName?: string
 }
 
 function extractDriverVehicleIds(payload: unknown): string[] {
@@ -672,6 +720,20 @@ function mapVehicleDetailToAssignedOption(
   }
 }
 
+/** Secretariat vehicles for an MTO who handles designated vehicles. */
+export async function fetchSecretariatWorkOrderVehicles(): Promise<
+  DriverAssignedVehicleOption[]
+> {
+  const options = await fetchDesignatedOfficialVehicleOptions()
+  return options.map((option) => ({
+    value: option.value,
+    label: option.label,
+    searchText: option.searchText,
+    designationTypeName: option.designationTypeName,
+    officialName: option.officialName,
+  }))
+}
+
 export async function fetchDriverAssignedVehicles(
   driverId: string,
 ): Promise<DriverAssignedVehicleOption[]> {
@@ -729,6 +791,27 @@ function buildWorkOrderSubmitFormData(input: SubmitWorkOrderInput): FormData {
   form.append('file_problem_indices', JSON.stringify(fileProblemIndices))
 
   return form
+}
+
+export async function assignWorkOrderDriver(
+  workOrderId: string,
+  driverId: string,
+): Promise<unknown> {
+  const trimmedId = workOrderId.trim()
+  const trimmedDriverId = driverId.trim()
+  if (!trimmedId) throw new Error('Work order id is required')
+  if (!trimmedDriverId) throw new Error('Driver is required')
+
+  return apiClient<unknown>(
+    `/maintenance/work-orders/${encodeURIComponent(trimmedId)}/assign-driver`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ driver_id: trimmedDriverId }),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    },
+  )
 }
 
 export async function submitWorkOrder(input: SubmitWorkOrderInput): Promise<unknown> {
@@ -863,6 +946,78 @@ export async function completeWorkOrder(
       method: 'POST',
       body: JSON.stringify({
         final_odometer_km: input.final_odometer_km,
+      }),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    },
+  )
+}
+
+export type FinanceVerifyWorkOrderAction = 'APPROVE' | 'REJECT'
+
+export type AgencyMtoReviewAction = 'return' | 'forward'
+
+/** `POST /maintenance/work-orders/{id}/agency-mto-review` */
+export async function reviewWorkOrderAsAgencyMto(
+  workOrderId: string,
+  input: { action: AgencyMtoReviewAction; remarks: string },
+): Promise<unknown> {
+  const trimmedId = workOrderId.trim()
+  if (!trimmedId) throw new Error('Work order id is required')
+
+  return apiClient<unknown>(
+    `/maintenance/work-orders/${encodeURIComponent(trimmedId)}/agency-mto-review`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        action: input.action,
+        remarks: input.remarks.trim(),
+      }),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    },
+  )
+}
+
+/** `POST /maintenance/work-orders/{id}/finance-verify` */
+export async function financeVerifyWorkOrder(
+  workOrderId: string,
+  input: { action: FinanceVerifyWorkOrderAction; remarks: string },
+): Promise<unknown> {
+  const trimmedId = workOrderId.trim()
+  if (!trimmedId) throw new Error('Work order id is required')
+
+  return apiClient<unknown>(
+    `/maintenance/work-orders/${encodeURIComponent(trimmedId)}/finance-verify`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        action: input.action,
+        remarks: input.remarks.trim(),
+      }),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    },
+  )
+}
+
+/** `POST /maintenance/work-orders/{id}/mark-paid` */
+export async function markWorkOrderPaid(
+  workOrderId: string,
+  input: { remarks: string },
+): Promise<unknown> {
+  const trimmedId = workOrderId.trim()
+  if (!trimmedId) throw new Error('Work order id is required')
+
+  return apiClient<unknown>(
+    `/maintenance/work-orders/${encodeURIComponent(trimmedId)}/mark-paid`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        remarks: input.remarks.trim(),
       }),
       headers: {
         'Content-Type': 'application/json',

@@ -50,6 +50,7 @@ import {
     MobileListField,
 } from '@/shared/components/MobileListCard'
 import { TablePagination } from '@/shared/components/TablePagination'
+import { todayDateInputValue } from '@/shared/lib/date-input'
 import { DeleteDialog } from '@/shared/components/DeleteDialog'
 import {
     CancelRowActionButton,
@@ -789,6 +790,7 @@ export default function ParkingLogs() {
                                 id="parking-log-date"
                                 type="date"
                                 value={form.date}
+                                max={todayDateInputValue()}
                                 onChange={(event) =>
                                     setForm((current) => ({
                                         ...current,

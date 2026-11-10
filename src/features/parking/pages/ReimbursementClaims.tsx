@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { Card, CardContent } from '@/components/ui/card'
+import { DesignatedTypeListFilter } from '@/features/fuel/components/DesignatedTypeListFilter'
 import { FuelTableListToolbar } from '@/features/fuel/components/FuelTableListToolbar'
 import {
     formatParkingClaimStatusLabel,
@@ -17,6 +18,7 @@ import {
     MobileListCard,
     MobileListField,
 } from '@/shared/components/MobileListCard'
+import { useUserStore } from '@/services/user-store'
 import {
     DetailRowActionButton,
     rowActionsContainerClassName,
@@ -24,12 +26,20 @@ import {
 import { TablePagination } from '@/shared/components/TablePagination'
 import { useAccessControl } from '@/shared/hooks/useAccessControl'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
+import { canShowDesignatedParkingLog } from '@/shared/lib/designated-mto-access'
 
 const BASE_CLAIM_COLUMNS = ['Reference No.', 'Month & Year', 'Amount', 'Status'] as const
 
 function claimDriverLabel(claim: ParkingClaimRow): string {
     if (claim.channel?.trim().toUpperCase() === 'SECRETARIAT') return '(Secretariat vehicle)'
     return claim.driverName || '—'
+}
+
+function claimDesignationType(claim: ParkingClaimRow): string {
+    return (claim.designationType || claim.channel || '')
+        .trim()
+        .toUpperCase()
+        .replace(/[\s-]+/g, '_')
 }
 
 function formatCurrency(amount: number): string {
@@ -42,18 +52,24 @@ function formatCurrency(amount: number): string {
 export default function ReimbursementClaims() {
     const navigate = useNavigate()
     const crud = useRouteCrudPermissions('/parking/reimbursement-claims')
-    const { role } = useAccessControl()
+    const { apiRoleName, role } = useAccessControl()
+    const user = useUserStore((state) => state.user)
+    const showDesignatedTypeFilter =
+        canShowDesignatedParkingLog(apiRoleName, user) ||
+        canShowDesignatedParkingLog(role, user)
     const showDriverColumn = role !== 'fms-driver'
     const claimColumns = showDriverColumn
         ? (['Reference No.', 'Month', 'Driver', 'Amount', 'Status'] as const)
         : BASE_CLAIM_COLUMNS
     const [search, setSearch] = useState('')
+    const [designationType, setDesignationType] = useState('')
     const [page, setPage] = useState(1)
     const [pageSize, setPageSize] = useState(10)
+    const designationTypeParam = showDesignatedTypeFilter ? designationType.trim() : ''
 
     const logsQuery = useQuery({
-        queryKey: ['parking-reimbursement-claims-source'],
-        queryFn: fetchParkingClaims,
+        queryKey: ['parking-reimbursement-claims-source', designationTypeParam],
+        queryFn: () => fetchParkingClaims(designationTypeParam || undefined),
         enabled: !crud.isResolved || crud.canRead,
         staleTime: 30_000,
     })
@@ -62,8 +78,10 @@ export default function ReimbursementClaims() {
 
     const filteredClaims = useMemo(() => {
         const q = search.trim().toLowerCase()
-        if (!q) return monthlyClaims
+        const type = designationTypeParam.toUpperCase().replace(/[\s-]+/g, '_')
         return monthlyClaims.filter((claim) => {
+            if (type && claimDesignationType(claim) !== type) return false
+            if (!q) return true
             const statusLabel = formatParkingClaimStatusLabel(claim.status).toLowerCase()
             const driverName = claimDriverLabel(claim).toLowerCase()
             return (
@@ -73,7 +91,7 @@ export default function ReimbursementClaims() {
                 driverName.includes(q)
             )
         })
-    }, [monthlyClaims, search])
+    }, [designationTypeParam, monthlyClaims, search])
 
     const totalCount = filteredClaims.length
     const totalPages = Math.max(1, Math.ceil(totalCount / Math.max(1, pageSize)))
@@ -82,7 +100,7 @@ export default function ReimbursementClaims() {
 
     useEffect(() => {
         setPage(1)
-    }, [search, pageSize])
+    }, [search, designationTypeParam, pageSize])
 
     useEffect(() => {
         if (page > totalPages) setPage(totalPages)
@@ -106,6 +124,17 @@ export default function ReimbursementClaims() {
                         }}
                         searchPlaceholder="Search claims"
                         searchAriaLabel="Search reimbursement claims"
+                        leading={
+                            showDesignatedTypeFilter ? (
+                                <DesignatedTypeListFilter
+                                    value={designationType}
+                                    onChange={(next) => {
+                                        setDesignationType(next)
+                                        setPage(1)
+                                    }}
+                                />
+                            ) : null
+                        }
                     />
 
                     <div className="hidden w-full min-w-0 overflow-x-auto rounded-lg border border-[var(--fms-strokes)] md:block">
@@ -158,8 +187,8 @@ export default function ReimbursementClaims() {
                                             colSpan={claimColumns.length}
                                             className="px-4 py-6 text-center text-[var(--fms-text-subheading)]"
                                         >
-                                            {search.trim()
-                                                ? 'No reimbursement claims match your search.'
+                                            {search.trim() || designationTypeParam
+                                                ? 'No reimbursement claims match your filters.'
                                                 : 'No reimbursement claims found.'}
                                         </td>
                                     </tr>
@@ -216,8 +245,8 @@ export default function ReimbursementClaims() {
                             </ListPanelMessage>
                         ) : pageRows.length === 0 ? (
                             <ListPanelMessage>
-                                {search.trim()
-                                    ? 'No reimbursement claims match your search.'
+                                {search.trim() || designationTypeParam
+                                    ? 'No reimbursement claims match your filters.'
                                     : 'No reimbursement claims found.'}
                             </ListPanelMessage>
                         ) : (

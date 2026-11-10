@@ -36,6 +36,7 @@ export type ParkingClaimRow = {
   currentLevelCode?: string
   currentLevelName?: string
   channel?: string
+  designationType?: string
   driverName?: string
   agencyName?: string
   departmentName?: string
@@ -410,6 +411,8 @@ function mapParkingClaimRow(record: ApiRecord): ParkingClaimRow | null {
   const channels = pickClaimChannels(record)
   const channel =
     channels.find((value) => value.toUpperCase() === 'SECRETARIAT') ?? channels[0]
+  const designationType =
+    pickScalar(record, ['designation_type', 'designationType']) || channel || ''
 
   return {
     id: id || resolvedMonthKey,
@@ -428,6 +431,7 @@ function mapParkingClaimRow(record: ApiRecord): ParkingClaimRow | null {
     currentLevelCode: pickCurrentLevelCode(record) || undefined,
     currentLevelName: pickCurrentLevelName(record) || undefined,
     channel,
+    designationType: designationType || undefined,
     driverName: pickDriverName(record) || undefined,
     agencyName:
       pickNestedOrgLabel(record, ['agency'], ['agency_name', 'agencyName']) || undefined,
@@ -548,8 +552,12 @@ export async function fetchParkingClaimById(claimId: string): Promise<ParkingCla
   return mapParkingClaimRow(record)
 }
 
-export async function fetchParkingClaims(): Promise<ParkingClaimRow[]> {
-  const payload = await apiGet<unknown>('/parking/claims')
+export async function fetchParkingClaims(designationType?: string): Promise<ParkingClaimRow[]> {
+  const params = new URLSearchParams()
+  const type = designationType?.trim()
+  if (type) params.set('channel', type)
+  const query = params.toString()
+  const payload = await apiGet<unknown>(query ? `/parking/claims?${query}` : '/parking/claims')
   const records = extractParkingClaimsList(payload)
   return records
     .map((record) => mapParkingClaimRow(record))

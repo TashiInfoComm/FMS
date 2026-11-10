@@ -59,6 +59,16 @@ export function workOrderStatusBadgeClass(status: WorkOrderStatus): string {
       return 'border-transparent bg-[#dbeafe] text-[#1d4ed8] hover:bg-[#dbeafe]'
     case 'PENDING_VERIFICATION':
       return 'border-transparent bg-[#ede9fe] text-[#7c3aed] hover:bg-[#ede9fe]'
+    case 'PENDING_FINANCE_REVIEW':
+      return 'border-transparent bg-[#fef3c7] text-[#b45309] hover:bg-[#fef3c7]'
+    case 'PENDING_PAYMENT':
+    case 'PENDING_PAID':
+    case 'FINANCE_VERIFIED':
+    case 'FINANCE_APPROVED':
+    case 'APPROVED_FOR_PAYMENT':
+      return 'border-transparent bg-[#e0f2fe] text-[#0369a1] hover:bg-[#e0f2fe]'
+    case 'PAID':
+      return 'border-transparent bg-[#064e3b] text-[#ecfdf5] hover:bg-[#064e3b]'
     case 'COMPLETED':
       return 'border-transparent bg-[#064e3b] text-[#ecfdf5] hover:bg-[#064e3b]'
     case 'REJECTED':

@@ -19,6 +19,7 @@ import {
 } from '@/features/designated-vehicle/lib/designated-vehicle-api'
 import {
   VEHICLE_DESIGNATED_TYPE_OPTIONS,
+  normalizeVehicleDesignatedType,
   vehicleDesignatedTypeLabel,
   type AssignDesignatedVehicleFormValues,
 } from '@/features/designated-vehicle/lib/designated-vehicle-types'
@@ -243,34 +244,37 @@ export function AssignDesignatedVehicleDialog({
       showErrorToast('Please select a vehicle.')
       return
     }
-    // if (!isEdit) {
-    //   showErrorToast('No driver is assigned to the selected vehicle.')
-    //   return
-    // }
-    if (!form.officialCid.trim()) {
+    if (!form.designationType.trim()) {
+      showErrorToast('Please select a vehicle designated type.')
+      return
+    }
+    const secretariat =
+      normalizeVehicleDesignatedType(form.designationType) === 'SECRETARIAT'
+    if (!secretariat && !form.officialCid.trim()) {
       showErrorToast('Official CID is required.')
       return
     }
-    if (!form.officialName.trim()) {
+    if (!secretariat && !form.officialName.trim()) {
       showErrorToast('Official name could not be resolved. Search by CID first.')
       return
     }
-    if (!form.designation.trim()) {
+    if (!secretariat && !form.designation.trim()) {
       showErrorToast('Official designation could not be resolved. Search by CID first.')
-      return
-    }
-    if (!form.designationType.trim()) {
-      showErrorToast('Please select a vehicle designated type.')
       return
     }
     saveMutation.mutate({
       ...form,
       vehicleId,
       driverName: driverDisplayName,
+      officialCid: secretariat ? '' : form.officialCid,
+      officialName: secretariat ? '' : form.officialName,
+      designation: secretariat ? '' : form.designation,
     })
   }
 
   const isLoadingEdit = isEdit && (editDetailQuery.isLoading || !formInitialized)
+  const isSecretariat =
+    normalizeVehicleDesignatedType(form.designationType) === 'SECRETARIAT'
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && closeDialog()}>
@@ -285,6 +289,33 @@ export function AssignDesignatedVehicleDialog({
           </p>
         ) : (
           <div className="grid gap-5 md:grid-cols-2">
+            <div className="space-y-2 md:col-span-2">
+              <Label htmlFor="designated-vehicle-designation-type">
+                Vehicle Designated Type <span className="text-[var(--fms-delete)]">*</span>
+              </Label>
+              <SearchableAutocomplete
+                id="designated-vehicle-designation-type"
+                value={form.designationType}
+                onChange={(designationType) => {
+                  const secretariat =
+                    normalizeVehicleDesignatedType(designationType) === 'SECRETARIAT'
+                  if (secretariat) setCidInput('')
+                  setForm((prev) => ({
+                    ...prev,
+                    designationType,
+                    officialCid: secretariat ? '' : prev.officialCid,
+                    officialName: secretariat ? '' : prev.officialName,
+                    designation: secretariat ? '' : prev.designation,
+                  }))
+                }}
+                options={usageTypeOptions}
+                placeholder="Select vehicle designated type"
+                searchPlaceholder="Search vehicle designated type…"
+                emptyMessage="No vehicle designated types found."
+                loadingMessage="Loading vehicle designated types…"
+              />
+            </div>
+
             <div className="space-y-2">
               <Label htmlFor="designated-vehicle-select">
                 Designated Vehicle <span className="text-[var(--fms-delete)]">*</span>
@@ -336,6 +367,8 @@ export function AssignDesignatedVehicleDialog({
               />
             </div>
 
+            {isSecretariat ? null : (
+            <>
             <div className="space-y-2 md:col-span-2">
               <Label htmlFor="designated-vehicle-cid">
                 Official CID No <span className="text-[var(--fms-delete)]">*</span>
@@ -409,24 +442,8 @@ export function AssignDesignatedVehicleDialog({
                 className="bg-[#fafafa]"
               />
             </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="designated-vehicle-designation-type">
-                Vehicle Designated Type <span className="text-[var(--fms-delete)]">*</span>
-              </Label>
-              <SearchableAutocomplete
-                id="designated-vehicle-designation-type"
-                value={form.designationType}
-                onChange={(designationType) =>
-                  setForm((prev) => ({ ...prev, designationType }))
-                }
-                options={usageTypeOptions}
-                placeholder="Select vehicle designated type"
-                searchPlaceholder="Search vehicle designated type…"
-                emptyMessage="No vehicle designated types found."
-                loadingMessage="Loading vehicle designated types…"
-              />
-            </div>
+            </>
+            )}
 
             <div className="space-y-2 md:col-span-2">
               <Label htmlFor="designated-vehicle-remarks">Remarks</Label>
