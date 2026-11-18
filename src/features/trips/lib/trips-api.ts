@@ -29,9 +29,11 @@ import {
   TRIP_FEEDBACK_RATINGS,
 } from '@/features/trips/lib/trip-driver-feedback-mock-data'
 import {
+  formatExtensionStatusLabel,
   formatFileSizeLabel,
   formatTripDisplayDate,
   formatTripDisplayTime,
+  isPendingExtensionStatus,
   normalizeFeedbackLegs,
   resolvePendingPickupFeedbackLeg,
   resolvePickupDriverFeedbackStatus,
@@ -93,7 +95,11 @@ export type TripRequisitionListRow = {
   route: string
   status: string
   statusCode: string
+  extensionStatus: string
+  extensionStatusLabel: string
   hasFeedback: boolean
+  /** Applicant / creator identifiers used to limit trip extension. */
+  ownerIds: string[]
 }
 
 export type TripsPageResult<T> = {
@@ -415,12 +421,118 @@ function readApplicantEmployeeId(record: ApiRecord): string {
   )
 }
 
+function looksLikeOwnerIdentity(value: string): boolean {
+  if (value.length < 5 || /\s/.test(value)) return false
+  return /^[a-z0-9-]+$/i.test(value)
+}
+
+function addOwnerIdentity(ids: Set<string>, value: unknown) {
+  if (typeof value !== 'string' && typeof value !== 'number') return
+  const text = String(value).trim().toLowerCase()
+  if (!looksLikeOwnerIdentity(text)) return
+  ids.add(text)
+}
+
+function addOwnerIdentities(ids: Set<string>, record: ApiRecord | null, keys: string[]) {
+  if (!record) return
+  for (const key of keys) addOwnerIdentity(ids, record[key])
+}
+
+const OWNER_IDENTITY_KEYS = [
+  'id',
+  'user_id',
+  'userId',
+  'uuid',
+  'employee_id',
+  'employeeId',
+  'employee_number',
+  'employeeNumber',
+  'emp_id',
+  'cid',
+  'citizen_id',
+  'citizenId',
+]
+
+/** Ids that identify the person who created the trip requisition. */
+export function readTripOwnerIds(record: ApiRecord): string[] {
+  const source = withNestedTripFields(record)
+  const ids = new Set<string>()
+  addOwnerIdentities(ids, source, [
+    'created_by_id',
+    'createdById',
+    'applicant_user_id',
+    'applicantUserId',
+    'applicant_id',
+    'applicantId',
+    'requested_by_id',
+    'requestedById',
+    'employee_id',
+    'employeeId',
+    'employee_number',
+    'employeeNumber',
+    'user_id',
+    'userId',
+  ])
+
+  const createdByRaw = source.created_by ?? source.createdBy ?? source.requested_by ?? source.requestedBy
+  if (typeof createdByRaw === 'string' || typeof createdByRaw === 'number') {
+    addOwnerIdentity(ids, createdByRaw)
+  }
+  addOwnerIdentities(
+    ids,
+    pickNestedRecord(source, ['created_by', 'createdBy', 'creator', 'requested_by', 'requestedBy']),
+    OWNER_IDENTITY_KEYS,
+  )
+
+  const applicant = readApplicantBlock(source)
+  addOwnerIdentities(ids, applicant, OWNER_IDENTITY_KEYS)
+  const applicants = source.applicants
+  if (Array.isArray(applicants)) {
+    for (const item of applicants) {
+      if (item && typeof item === 'object' && !Array.isArray(item)) {
+        addOwnerIdentities(ids, item as ApiRecord, OWNER_IDENTITY_KEYS)
+      }
+    }
+  }
+
+  return [...ids]
+}
+
+export function readUserIdentityIds(user: unknown): string[] {
+  if (!user || typeof user !== 'object' || Array.isArray(user)) return []
+  const ids = new Set<string>()
+  addOwnerIdentities(ids, user as ApiRecord, OWNER_IDENTITY_KEYS)
+  return [...ids]
+}
+
 function readTripStatusCode(record: ApiRecord): string {
   return pickScalar(record, ['status', 'approval_status', 'trip_status'])
 }
 
 function readTripDisplayStatus(record: ApiRecord): string {
   return readTripStatusCode(record) || '—'
+}
+
+function readTripExtensionStatus(record: ApiRecord): string {
+  const direct = pickScalar(record, ['extension_status', 'extensionStatus'])
+  if (direct) return direct
+  const extensions = record.extensions
+  if (!Array.isArray(extensions)) return ''
+  let fallback = ''
+  for (const item of extensions) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue
+    const status = pickScalar(item as ApiRecord, ['status', 'extension_status', 'extensionStatus'])
+    if (!status) continue
+    if (isPendingExtensionStatus(status)) return 'PENDING_EXTENSION'
+    if (!fallback) fallback = status
+  }
+  return fallback
+}
+
+function readTripExtensionStatusLabel(record: ApiRecord, status: string): string {
+  const label = pickScalar(record, ['extension_status_label', 'extensionStatusLabel'])
+  if (label) return label
+  return status ? formatExtensionStatusLabel(status) : ''
 }
 
 export function mapTripRequisitionListRow(
@@ -449,6 +561,7 @@ export function mapTripRequisitionListRow(
   const route = readTripRoute(record)
   const statusCode = readTripStatusCode(record)
   const status = readTripDisplayStatus(record)
+  const extensionStatus = readTripExtensionStatus(record)
 
   return {
     id: id || String(serialNo),
@@ -461,7 +574,10 @@ export function mapTripRequisitionListRow(
     route,
     status,
     statusCode,
+    extensionStatus,
+    extensionStatusLabel: readTripExtensionStatusLabel(record, extensionStatus),
     hasFeedback: readHasFeedback(record),
+    ownerIds: readTripOwnerIds(record),
   }
 }
 
@@ -731,6 +847,7 @@ export function mapTripRequestListRow(
     priority: priorityRaw ? normalizeTripRequestPriority(priorityRaw) : 'Normal',
     status,
     statusCode,
+    extensionStatusLabel: readTripExtensionStatusLabel(record, readTripExtensionStatus(record)),
     hasFeedback: readHasFeedback(record),
   }
 }
@@ -812,6 +929,21 @@ export async function fetchTripRequestsPage(
   }
 }
 
+export type TripExtensionRecord = {
+  id: string
+  tripId: string
+  status: string
+  statusLabel: string
+  origin: string
+  destination: string
+  journeyStart: string
+  journeyEnd: string
+  durationLabel: string
+  justification: string
+  noteSheetName: string
+  officials: TripAccompanyingOfficial[]
+}
+
 export type TripNoteSheetFile = {
   name: string
   sizeLabel?: string
@@ -824,6 +956,8 @@ export type TripDetail = {
   applicantName: string
   applicantDepartment: string
   employeeId: string
+  /** Applicant / creator identifiers used to limit trip extension. */
+  ownerIds: string[]
   designation: string
   agency: string
   department: string
@@ -863,6 +997,10 @@ export type TripDetail = {
   priority: TripRequestPriority
   status: string
   statusCode: string
+  extensionStatus?: string
+  extensionStatusLabel?: string
+  extensions: TripExtensionRecord[]
+  pendingExtension?: TripExtensionRecord
   feedbackRating?: TripFeedbackRating
   feedbackReason?: string
   hasFeedback: boolean
@@ -1405,6 +1543,75 @@ async function enrichTripDetailAssignment(
   }
 }
 
+function readExtensionOfficials(record: ApiRecord): TripAccompanyingOfficial[] {
+  const raw = record.accompanying_officials ?? record.accompanyingOfficials ?? record.officials
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter((item): item is ApiRecord => !!item && typeof item === 'object' && !Array.isArray(item))
+    .map((item) => ({
+      employeeCid: pickScalar(item, ['cid', 'employee_cid', 'employeeCid', 'employee_id']) || '—',
+      fullName: pickScalar(item, ['full_name', 'fullName', 'name', 'employee_name']) || '—',
+    }))
+}
+
+function mapTripExtensionRecord(record: ApiRecord, fallbackTripId = ''): TripExtensionRecord | null {
+  const id = pickScalar(record, ['id', 'extension_id', 'extensionId'])
+  const tripId = pickScalar(record, ['trip_id', 'tripId']) || fallbackTripId
+  if (!id && !tripId) return null
+  const status = pickScalar(record, ['status', 'extension_status', 'extensionStatus']) || 'PENDING'
+  const startRaw = pickScalar(record, [
+    'new_journey_start_datetime',
+    'newJourneyStartDatetime',
+    'journey_start_datetime',
+    'journeyStartDatetime',
+  ])
+  const endRaw = pickScalar(record, [
+    'new_journey_end_datetime',
+    'newJourneyEndDatetime',
+    'journey_end_datetime',
+    'journeyEndDatetime',
+  ])
+  const durationDays = readOptionalInteger(record, [
+    'new_trip_duration_days',
+    'newTripDurationDays',
+    'trip_duration_days',
+    'tripDurationDays',
+  ])
+  const noteSheetPath = pickScalar(record, ['note_sheet_path', 'noteSheetPath', 'note_sheet', 'noteSheet'])
+  return {
+    id,
+    tripId,
+    status,
+    statusLabel:
+      pickScalar(record, ['status_label', 'statusLabel', 'extension_status_label', 'extensionStatusLabel']) ||
+      formatExtensionStatusLabel(status),
+    origin: pickScalar(record, ['new_origin', 'newOrigin', 'origin']) || '—',
+    destination:
+      pickScalar(record, ['new_destination', 'newDestination', 'final_destination', 'destination']) || '—',
+    journeyStart: startRaw ? formatTripDisplayDate(startRaw) : '—',
+    journeyEnd: endRaw ? formatTripDisplayDate(endRaw) : '—',
+    durationLabel: durationDays && durationDays > 0 ? `${durationDays} day${durationDays === 1 ? '' : 's'}` : '',
+    justification:
+      pickScalar(record, ['justification', 'trip_details_justification', 'tripDetailsJustification']) || '—',
+    noteSheetName: noteSheetPath ? basenameFromPath(noteSheetPath) : '',
+    officials: readExtensionOfficials(record),
+  }
+}
+
+function readTripExtensionRecords(record: ApiRecord): TripExtensionRecord[] {
+  const tripId = pickScalar(record, ['id', 'trip_id', 'tripId', 'uuid'])
+  const raw = record.extensions
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter((item): item is ApiRecord => !!item && typeof item === 'object' && !Array.isArray(item))
+    .map((item) => mapTripExtensionRecord(item, tripId))
+    .filter((item): item is TripExtensionRecord => item != null && Boolean(item.id))
+}
+
+function pickPendingExtension(extensions: TripExtensionRecord[]): TripExtensionRecord | undefined {
+  return extensions.find((item) => isPendingExtensionStatus(item.status))
+}
+
 export function mapTripDetail(
   record: ApiRecord,
   lookups?: TripDetailLookups,
@@ -1490,6 +1697,9 @@ export function mapTripDetail(
   const { suggestedVehicleBlock, suggestedDriverBlock } = readSuggestedBlocks(record)
   const { assignedVehicleBlock, assignedDriverBlock } = readAssignedBlocks(record)
   const tripFeedback = readTripFeedback(record)
+  const extensionStatus = readTripExtensionStatus(record)
+  const extensionRecords = readTripExtensionRecords(record)
+  const pendingExtension = pickPendingExtension(extensionRecords)
 
   return {
     id: id || requestId,
@@ -1497,6 +1707,7 @@ export function mapTripDetail(
     applicantName,
     applicantDepartment,
     employeeId,
+    ownerIds: readTripOwnerIds(record),
     designation,
     agency,
     department,
@@ -1543,6 +1754,12 @@ export function mapTripDetail(
     priority: priorityRaw ? normalizeTripRequestPriority(priorityRaw) : 'Normal',
     status,
     statusCode,
+    extensionStatus: extensionStatus || undefined,
+    extensionStatusLabel: extensionStatus
+      ? readTripExtensionStatusLabel(record, extensionStatus)
+      : pendingExtension?.statusLabel || undefined,
+    extensions: extensionRecords,
+    pendingExtension,
     feedbackRating: tripFeedback?.rating,
     feedbackReason: tripFeedback?.reason,
     hasFeedback: readHasFeedback(record),
@@ -1744,6 +1961,7 @@ export function mapDriverAssignmentListRow(
     journeyStartTime: formatTripDisplayTime(journeyStartRaw),
     status,
     statusCode,
+    extensionStatusLabel: readTripExtensionStatusLabel(source, readTripExtensionStatus(source)),
     hasFeedback: readHasFeedback(source),
   }
 }
@@ -1836,6 +2054,242 @@ export type OverrideTripBody = {
   assign_vehicle_id: string
   assign_driver_id: string
   remarks: string
+}
+
+export type CreateTripExtensionInput = {
+  origin: string
+  finalDestination: string
+  journeyStartDatetime: string
+  journeyEndDatetime: string
+  tripDetailsJustification: string
+  accompanyingOfficials: { cid: string }[]
+  noteSheetFile: File
+}
+
+export async function createTripExtension(
+  tripId: string,
+  input: CreateTripExtensionInput,
+): Promise<void> {
+  const trimmed = tripId.trim()
+  if (!trimmed) throw new Error('Trip ID is required')
+  if (!input.noteSheetFile) throw new Error('Approval Note sheet upload is required.')
+
+  const form = new FormData()
+  form.append('origin', input.origin.trim())
+  form.append('final_destination', input.finalDestination.trim())
+  form.append('journey_start_datetime', input.journeyStartDatetime)
+  form.append('journey_end_datetime', input.journeyEndDatetime)
+  form.append('trip_details_justification', input.tripDetailsJustification.trim())
+  form.append(
+    'accompanying_officials',
+    JSON.stringify(input.accompanyingOfficials.map((official) => ({ cid: official.cid.trim() }))),
+  )
+  form.append('note_sheet_path', input.noteSheetFile, input.noteSheetFile.name)
+
+  await apiClient<unknown>(`/trips/${encodeURIComponent(trimmed)}/extensions`, {
+    method: 'POST',
+    body: form,
+  })
+}
+
+export type PendingTripExtensionRow = {
+  extensionId: string
+  tripId: string
+  serialNo: number
+  referenceNo: string
+  applicantName: string
+  tripType: string
+  route: string
+  journeyStart: string
+  status: string
+  statusCode: string
+}
+
+export type PendingTripExtensionsPageResult = TripsPageResult<PendingTripExtensionRow>
+
+function firstRawExtension(record: ApiRecord): ApiRecord | null {
+  const raw = record.extensions
+  if (!Array.isArray(raw)) return null
+  const items = raw.filter(
+    (item): item is ApiRecord => !!item && typeof item === 'object' && !Array.isArray(item),
+  )
+  return (
+    items.find((item) =>
+      isPendingExtensionStatus(pickScalar(item, ['status', 'extension_status', 'extensionStatus'])),
+    ) ??
+    items[0] ??
+    null
+  )
+}
+
+function mapPendingTripExtensionRow(record: ApiRecord, serialNo: number): PendingTripExtensionRow {
+  const nestedTrip = pickNestedRecord(record, ['trip', 'trip_details', 'tripDetails'])
+  const hasExtensionShape = Boolean(
+    pickScalar(record, ['trip_id', 'tripId']) &&
+      pickScalar(record, [
+        'new_origin',
+        'newOrigin',
+        'new_destination',
+        'newDestination',
+        'justification',
+        'extension_id',
+        'extensionId',
+      ]),
+  )
+  const extension = hasExtensionShape ? record : firstRawExtension(record) ?? {}
+  const tripSource = hasExtensionShape ? { ...(nestedTrip ?? {}) } : record
+  const extensionId = pickScalar(extension, ['id', 'extension_id', 'extensionId'])
+  const tripId = hasExtensionShape
+    ? pickScalar(record, ['trip_id', 'tripId']) ||
+      pickScalar(nestedTrip ?? {}, ['id', 'trip_id', 'tripId'])
+    : pickScalar(record, ['id', 'trip_id', 'tripId', 'uuid'])
+  const applicant = readApplicantBlock(hasExtensionShape ? { ...tripSource, ...record } : record)
+  const applicantName =
+    pickScalar(tripSource, ['applicant_name', 'applicantName', 'employee_name', 'employeeName']) ||
+    pickScalar(record, ['applicant_name', 'applicantName', 'employee_name', 'employeeName']) ||
+    pickScalar(applicant ?? {}, ['name', 'full_name', 'fullName']) ||
+    '—'
+  const origin =
+    pickScalar(extension, ['new_origin', 'newOrigin', 'origin']) ||
+    pickScalar(tripSource, ['origin', 'origin_location']) ||
+    pickScalar(record, ['origin']) ||
+    '—'
+  const destination =
+    pickScalar(extension, ['new_destination', 'newDestination', 'final_destination', 'destination']) ||
+    (hasExtensionShape ? '—' : readDestination(record))
+  const journeyRaw =
+    pickScalar(extension, ['new_journey_start_datetime', 'newJourneyStartDatetime']) ||
+    readJourneyStartDatetime(hasExtensionShape ? tripSource : record)
+  const statusCode =
+    pickScalar(extension, ['status', 'extension_status', 'extensionStatus']) ||
+    readTripExtensionStatus(record) ||
+    'PENDING'
+  const referenceNo =
+    pickScalar(tripSource, [
+      'reference_no',
+      'referenceNo',
+      'request_id',
+      'requestId',
+      'trip_reference',
+      'reference',
+    ]) ||
+    pickScalar(record, ['reference_no', 'referenceNo', 'request_id', 'requestId']) ||
+    '—'
+
+  return {
+    extensionId: extensionId || tripId,
+    tripId: tripId || extensionId,
+    serialNo,
+    referenceNo,
+    applicantName,
+    tripType: resolveTripTypeLabel(hasExtensionShape ? tripSource : record) || '—',
+    route:
+      origin && destination && destination !== '—'
+        ? `${origin} → ${destination}`
+        : origin || destination,
+    journeyStart: journeyRaw ? formatTripDisplayDate(journeyRaw) : '—',
+    status: formatExtensionStatusLabel(statusCode) || statusCode,
+    statusCode,
+  }
+}
+
+export async function fetchPendingTripExtensions(
+  search: string,
+  page: number,
+  pageSize: number,
+): Promise<PendingTripExtensionsPageResult> {
+  const q = encodeURIComponent(search.trim())
+  const payload = await apiGet<unknown>(
+    `/trips/extensions/pending?page=${page}&page_size=${pageSize}&search=${q}`,
+  )
+  const records = toArray(payload)
+  const paged = applyPagination(payload, records, page, pageSize, {
+    page,
+    pageSize,
+    pageLength: records.length,
+  })
+  return {
+    rows: paged.rows.map((record, index) =>
+      mapPendingTripExtensionRow(record, paged.serialBase + index + 1),
+    ),
+    totalCount: paged.totalCount,
+    totalPages: paged.totalPages,
+    effectivePageSize: paged.effectivePageSize,
+    serialBase: paged.serialBase,
+  }
+}
+
+export async function approveTripExtension(
+  tripId: string,
+  extensionId: string,
+  remarks: string,
+): Promise<void> {
+  const trip = tripId.trim()
+  const extension = extensionId.trim()
+  const note = remarks.trim()
+  if (!trip) throw new Error('Trip ID is required')
+  if (!extension) throw new Error('Extension ID is required')
+  if (!note) throw new Error('Approval remarks are required')
+  await apiPost<unknown, { remarks: string }>(
+    `/trips/${encodeURIComponent(trip)}/extensions/${encodeURIComponent(extension)}/approve`,
+    { remarks: note },
+  )
+}
+
+export async function rejectTripExtension(
+  tripId: string,
+  extensionId: string,
+  remarks: string,
+): Promise<void> {
+  const trip = tripId.trim()
+  const extension = extensionId.trim()
+  const note = remarks.trim()
+  if (!trip) throw new Error('Trip ID is required')
+  if (!extension) throw new Error('Extension ID is required')
+  if (!note) throw new Error('Rejection remarks are required')
+  await apiPost<unknown, { remarks: string }>(
+    `/trips/${encodeURIComponent(trip)}/extensions/${encodeURIComponent(extension)}/reject`,
+    { remarks: note },
+  )
+}
+
+/** GET `/trips/{tripId}/extensions/{extensionId}/note-sheet` and open the file in a new tab. */
+export async function openTripExtensionNoteSheet(
+  tripId: string,
+  extensionId: string,
+  fileName = '',
+  targetWindow?: Window | null,
+): Promise<void> {
+  const trip = tripId.trim()
+  const extension = extensionId.trim()
+  if (!trip) throw new Error('Trip ID is required')
+  if (!extension) throw new Error('Extension ID is required')
+
+  try {
+    const { blob, contentType } = await apiGetBlob(
+      `/trips/${encodeURIComponent(trip)}/extensions/${encodeURIComponent(extension)}/note-sheet`,
+    )
+
+    if (contentType.includes('application/json')) {
+      const payload = JSON.parse(await blob.text()) as unknown
+      const url = pickFileUrlFromPayload(payload)
+      if (!url) throw new Error('Extension note sheet URL not found')
+      navigateBrowserTab(targetWindow, url)
+      return
+    }
+
+    const mimeType =
+      contentType && contentType !== 'application/octet-stream'
+        ? contentType
+        : guessNoteSheetMimeType(fileName)
+    const fileBlob = mimeType === blob.type ? blob : blob.slice(0, blob.size, mimeType)
+    const objectUrl = URL.createObjectURL(fileBlob)
+    navigateBrowserTab(targetWindow, objectUrl)
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000)
+  } catch (error) {
+    closeBrowserTab(targetWindow)
+    throw error
+  }
 }
 
 export async function overrideTripAssignment(
@@ -2099,6 +2553,7 @@ export function mapDriverFeedbackListRow(
     vehicleId: vehicleId || undefined,
     tripStatus: status,
     tripStatusCode: statusCode || undefined,
+    extensionStatusLabel: readTripExtensionStatusLabel(source, readTripExtensionStatus(source)),
     pickupRequired,
     feedbackLegs,
     pendingFeedbackLeg,

@@ -12,6 +12,7 @@ export type DriverAssignmentListItem = {
   journeyStartTime: string
   status: string
   statusCode: string
+  extensionStatusLabel?: string
   hasFeedback: boolean
 }
 

@@ -24,6 +24,7 @@ export type DriverFeedbackListItem = {
   vehicleId?: string
   tripStatus: string
   tripStatusCode?: string
+  extensionStatusLabel?: string
   pickupRequired?: boolean
   feedbackLegs: number[]
   pendingFeedbackLeg?: number

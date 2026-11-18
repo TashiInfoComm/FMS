@@ -92,6 +92,10 @@ import VehicleDeployment from '@/features/emergency-vehicle/pages/VehicleDeploym
 import PreventiveMaintenance from '@/features/maintenance/pages/PreventiveMaintenance'
 import RenewalApplicationDetail from '@/features/maintenance/pages/RenewalApplicationDetail'
 import RenewalApplicationViewPage from '@/features/maintenance/pages/RenewalApplicationViewPage'
+import CreateSecretariatTripRequisition from '@/features/trips/pages/CreateSecretariatTripRequisition'
+import SecretariatRequisitionDetail from '@/features/trips/pages/SecretariatRequisitionDetail'
+import SecretariatTripRequisition from '@/features/trips/pages/SecretariatTripRequisition'
+
 
 export function AppRoutes() {
   return (
@@ -218,6 +222,19 @@ export function AppRoutes() {
           <Route
             path="/trip/driver-feedback/:tripId/rate"
             element={<RateDriverPage />}
+          />
+          <Route path="/secretariat-requisitions" element={<SecretariatTripRequisition />} />
+          <Route
+            path="/secretariat-requisitions/create"
+            element={<CreateSecretariatTripRequisition />}
+          />
+          <Route
+            path="/secretariat-requisitions/:requisitionId/edit"
+            element={<CreateSecretariatTripRequisition />}
+          />
+          <Route
+            path="/secretariat-requisitions/:requisitionId"
+            element={<SecretariatRequisitionDetail />}
           />
           {/* Fuel routes */}
           <Route path="/fuel/quota-configuration" element={<QuotaConfiguration />} />

@@ -53,6 +53,7 @@ export type TripRequestListItem = {
   priority: TripRequestPriority
   status: TripRequestStatus
   statusCode: string
+  extensionStatusLabel?: string
   hasFeedback: boolean
 }
 

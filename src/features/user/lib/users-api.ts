@@ -748,6 +748,41 @@ export async function searchUserByCid(cid: string): Promise<UserCidSearchResult 
   return mapUserRecordToCidSearchResult(record)
 }
 
+/**
+ * `GET /admin/users?page=1&page_size=10&search={cid}` for the caller's agency.
+ * Returns the matched user, including the employee ID used on secretariat requisitions.
+ */
+export async function searchAgencyUserByCid(cid: string) {
+  const trimmed = cid.trim()
+  if (!trimmed) throw new Error('CID is required')
+
+  const params = new URLSearchParams({
+    page: '1',
+    page_size: '10',
+    search: trimmed,
+  })
+  const payload = await apiGet<unknown>(`/admin/users?${params.toString()}`)
+  const record = findUserRecordInList(usersListRecordsFromPayload(payload), trimmed)
+  if (!record) throw new Error('No user found for this CID in your agency.')
+
+  const detail = mapUserDetailFields(mergeNestedUserEnvelope(record))
+  const employeeId = detail.employeeId !== '-' ? detail.employeeId : ''
+  if (!employeeId) throw new Error('This user has no employee ID.')
+
+  return {
+    cid: detail.cid !== '-' ? detail.cid : trimmed,
+    employeeId,
+    name: detail.name !== '-' ? detail.name : '',
+    designation: detail.designation !== '-' ? detail.designation : '',
+    agency: detail.agency !== '-' ? detail.agency : '',
+    department: detail.department !== '-' ? detail.department : '',
+    division: detail.division !== '-' ? detail.division : '',
+    subDivision: detail.subDivision !== '-' ? detail.subDivision : '',
+    contact: detail.contact !== '-' ? detail.contact : '',
+    email: detail.email !== '-' ? detail.email : '',
+  }
+}
+
 /** Search `GET /admin/users` by CID; returns user id and profile fields for forms. */
 export async function searchUserDetailByCid(
   cid: string,

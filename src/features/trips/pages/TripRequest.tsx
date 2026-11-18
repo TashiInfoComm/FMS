@@ -2,9 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { tripStatusBadgeClass } from "@/features/trips/lib/trip-form-utils";
+import { TripStatusWithExtension } from "@/features/trips/components/TripStatusWithExtension";
 import { TripTableListToolbar } from "@/features/trips/components/TripTableListToolbar";
 import {
   formatTripDateTime,
@@ -257,13 +256,11 @@ export default function TripRequest() {
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        <Badge
-                          className={tripStatusBadgeClass(
-                            row.statusCode || row.status,
-                          )}
-                        >
-                          {row.status}
-                        </Badge>
+                        <TripStatusWithExtension
+                          status={row.status}
+                          statusCode={row.statusCode}
+                          extensionStatusLabel={row.extensionStatusLabel}
+                        />
                       </td>
                       <td
                         className="px-4 py-3 text-center"
@@ -331,18 +328,16 @@ export default function TripRequest() {
                   <MobileListField label="Journey Start">
                     {formatTripDateTime(row.dateOfJourney, row.timeOfJourney)}
                   </MobileListField>
-                  <p className="text-sm text-[var(--fms-text-subheading)]">
+                  <div className="text-sm text-[var(--fms-text-subheading)]">
                     <span className="font-medium text-[var(--fms-text-header)]">
                       Status:
                     </span>{" "}
-                    <Badge
-                      className={tripStatusBadgeClass(
-                        row.statusCode || row.status,
-                      )}
-                    >
-                      {row.status}
-                    </Badge>
-                  </p>
+                    <TripStatusWithExtension
+                      status={row.status}
+                      statusCode={row.statusCode}
+                      extensionStatusLabel={row.extensionStatusLabel}
+                    />
+                  </div>
                   <div
                     className={`mt-3 ${rowActionsContainerClassName}`}
                     onClick={(e) => e.stopPropagation()}

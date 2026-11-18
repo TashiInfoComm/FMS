@@ -3,7 +3,6 @@ import { AlertTriangle, Plus } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import {
@@ -15,16 +14,19 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
-import { canCancelTrip, tripStatusBadgeClass } from '@/features/trips/lib/trip-form-utils'
+import { TripStatusWithExtension } from '@/features/trips/components/TripStatusWithExtension'
+import { canCancelTrip, canExtendTrip } from '@/features/trips/lib/trip-form-utils'
 import { TripTableListToolbar } from '@/features/trips/components/TripTableListToolbar'
-import { cancelTrip, fetchTripRequisitionsPage } from '@/features/trips/lib/trips-api'
+import { cancelTrip, fetchTripRequisitionsPage, readUserIdentityIds } from '@/features/trips/lib/trips-api'
 import { PageHeader } from '@/shared/components/PageHeader'
 import {
   ListPanelMessage,
   MobileListCard,
   MobileListField,
 } from '@/shared/components/MobileListCard'
-import { CancelRowActionButton, DetailRowActionButton, rowActionsContainerClassName } from '@/shared/components/TableRowActionButtons'
+import { CancelRowActionButton, DetailRowActionButton, ExtendTripRowActionButton, rowActionsContainerClassName } from '@/shared/components/TableRowActionButtons'
+import { useAccessControl } from '@/shared/hooks/useAccessControl'
+import { useUserStore } from '@/services/user-store'
 import { TablePagination } from '@/shared/components/TablePagination'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
 import { showErrorToast, showSuccessToast } from '@/shared/lib/toast'
@@ -40,6 +42,9 @@ function TripRequisition() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const crud = useRouteCrudPermissions('/trip/requisition')
+  const { role } = useAccessControl()
+  const user = useUserStore((state) => state.user)
+  const userIdentityIds = useMemo(() => readUserIdentityIds(user), [user])
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
@@ -71,6 +76,21 @@ function TripRequisition() {
   const openDetail = (row: (typeof rows)[number]) => {
     navigate(`/trip/requisition/${encodeURIComponent(row.id)}`, {
       state: { hasFeedback: row.hasFeedback },
+    })
+  }
+
+  const canExtendRow = (row: (typeof rows)[number]) =>
+    canExtendTrip({
+      role,
+      status: row.statusCode || row.status,
+      extensionStatus: row.extensionStatus,
+      ownerIds: row.ownerIds,
+      userIds: userIdentityIds,
+    })
+
+  const openExtension = (row: (typeof rows)[number]) => {
+    navigate(`/trip/requisition/${encodeURIComponent(row.id)}`, {
+      state: { hasFeedback: row.hasFeedback, extendTrip: true },
     })
   }
 
@@ -213,13 +233,11 @@ function TripRequisition() {
                       <td className="px-4 py-3">{row.journeyDate}</td>
                       <td className="px-4 py-3">{row.route}</td>
                       <td className="px-4 py-3">
-                        <Badge
-                          className={tripStatusBadgeClass(
-                            row.statusCode || row.status,
-                          )}
-                        >
-                          {row.status}
-                        </Badge>
+                        <TripStatusWithExtension
+                          status={row.status}
+                          statusCode={row.statusCode}
+                          extensionStatusLabel={row.extensionStatusLabel}
+                        />
                       </td>
                       <td
                         className="px-4 py-3 text-center"
@@ -231,6 +249,12 @@ function TripRequisition() {
                           tooltip="View trip details"
                           onClick={() => openDetail(row)}
                         />
+                        {canExtendRow(row) ? (
+                          <ExtendTripRowActionButton
+                            tooltip="Extend trip"
+                            onClick={() => openExtension(row)}
+                          />
+                        ) : null}
                         {crud.canCancel ? (
                           <CancelRowActionButton
                             name={row.tripType}
@@ -280,14 +304,14 @@ function TripRequisition() {
                   <MobileListField label="Purpose">{row.purpose}</MobileListField>
                   <MobileListField label="Journey Start">{row.journeyDate}</MobileListField>
                   <MobileListField label="Route">{row.route}</MobileListField>
-                  <p className="text-sm text-[var(--fms-text-subheading)]">
+                  <div className="text-sm text-[var(--fms-text-subheading)]">
                     <span className="font-medium text-[var(--fms-text-header)]">Status:</span>{' '}
-                    <Badge
-                      className={tripStatusBadgeClass(row.statusCode || row.status)}
-                    >
-                      {row.status}
-                    </Badge>
-                  </p>
+                    <TripStatusWithExtension
+                      status={row.status}
+                      statusCode={row.statusCode}
+                      extensionStatusLabel={row.extensionStatusLabel}
+                    />
+                  </div>
                   <div
                     className={`mt-3 ${rowActionsContainerClassName}`}
                     onClick={(e) => e.stopPropagation()}
@@ -298,6 +322,12 @@ function TripRequisition() {
                       tooltip="View trip details"
                       onClick={() => openDetail(row)}
                     />
+                    {canExtendRow(row) ? (
+                      <ExtendTripRowActionButton
+                        tooltip="Extend trip"
+                        onClick={() => openExtension(row)}
+                      />
+                    ) : null}
                     {crud.canCancel ? (
                       <CancelRowActionButton
                         name={row.tripType}

@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
+import { TripStatusWithExtension } from '@/features/trips/components/TripStatusWithExtension'
 import { TripTableListToolbar } from '@/features/trips/components/TripTableListToolbar'
 import {
   formatFeedbackRoute,
@@ -23,7 +24,7 @@ import {
 } from '@/shared/components/TableRowActionButtons'
 import { TablePagination } from '@/shared/components/TablePagination'
 import { useRouteCrudPermissions } from '@/shared/hooks/useRouteCrudPermissions'
-import { formatTripStatusLabel, tripStatusBadgeClass } from '@/features/trips/lib/trip-form-utils'
+import { formatTripStatusLabel } from '@/features/trips/lib/trip-form-utils'
 import { cn } from '@/lib/utils'
 
 const TABLE_COLUMN_COUNT = 8
@@ -171,13 +172,11 @@ export default function DriverFeedback() {
                         {formatFeedbackRoute(row.origin, row.destination)}
                       </td>
                       <td className="px-4 py-3">
-                        <Badge
-                          className={tripStatusBadgeClass(
-                            row.tripStatusCode || row.tripStatus,
-                          )}
-                        >
-                          {formatTripStatusLabel(row.tripStatusCode || row.tripStatus)}
-                        </Badge>
+                        <TripStatusWithExtension
+                          status={formatTripStatusLabel(row.tripStatusCode || row.tripStatus)}
+                          statusCode={row.tripStatusCode || row.tripStatus}
+                          extensionStatusLabel={row.extensionStatusLabel}
+                        />
                       </td>
                       <td className="px-4 py-3">
                         <Badge className={feedbackBadgeClass(row.feedbackStatus)}>
@@ -242,13 +241,11 @@ export default function DriverFeedback() {
                   </MobileListField>
                   <MobileListField label="Driver">{row.driverName}</MobileListField>
                   <MobileListField label="Trip Status">
-                    <Badge
-                      className={tripStatusBadgeClass(
-                        row.tripStatusCode || row.tripStatus,
-                      )}
-                    >
-                      {formatTripStatusLabel(row.tripStatusCode || row.tripStatus)}
-                    </Badge>
+                    <TripStatusWithExtension
+                      status={formatTripStatusLabel(row.tripStatusCode || row.tripStatus)}
+                      statusCode={row.tripStatusCode || row.tripStatus}
+                      extensionStatusLabel={row.extensionStatusLabel}
+                    />
                   </MobileListField>
                   <MobileListField label="Feedback">
                     <Badge className={feedbackBadgeClass(row.feedbackStatus)}>

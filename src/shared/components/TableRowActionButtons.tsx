@@ -1,5 +1,5 @@
 /** Outlined row actions using :root --fms-* tokens (index.css / globals.css). */
-import { Pencil, Trash2, BookmarkX, CheckCircle, Undo2, EyeIcon, CalendarX2Icon, Send } from 'lucide-react'
+import { Pencil, Trash2, BookmarkX, CheckCircle, Undo2, EyeIcon, CalendarPlus, CalendarX2Icon, Send } from 'lucide-react'
 import type { ComponentProps, ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -102,6 +102,29 @@ export function CancelRowActionButton({
       </Tooltip>
     )
   }
+
+export function ExtendTripRowActionButton({
+  className,
+  tooltip = 'Extend trip',
+  ...props
+}: RowActionButtonProps & RowActionTooltipProps) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className={cn(editRowActionButtonClassName, className)}
+          {...props}
+        >
+          <CalendarPlus aria-hidden />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{tooltip}</TooltipContent>
+    </Tooltip>
+  )
+}
 
 export function CloseRowActionButton({
   className,

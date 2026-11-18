@@ -18,7 +18,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { formatSuggestedVehicleMakeModel } from '@/features/trips/lib/trip-request-mock-data'
 import {
+  canExtendTrip,
+  formatExtensionStatusLabel,
   isLocalOrPickDropTrip,
+  isPendingExtensionStatus,
   isLongTrip,
   isTripPlanned,
   resolveTripDurationDisplay,
@@ -28,17 +31,22 @@ import type {
   TripSuggestedDriver,
   TripSuggestedVehicle,
 } from '@/features/trips/lib/trip-request-mock-data'
+import { TripExtensionForm } from '@/features/trips/components/TripExtensionForm'
 import { TripFeedbackSections } from '@/features/trips/components/TripFeedbackSections'
 import {
   approveTripAssign,
+  approveTripExtension,
   callTripPickup,
   fetchTripFeedback,
   filterTripFeedbackByPickup,
   filterTripFeedbackForCurrentUser,
+  openTripExtensionNoteSheet,
   openTripGeneratedMovementOrder,
   openTripNoteSheet,
   overrideTripAssignment,
+  readUserIdentityIds,
   rejectTrip,
+  rejectTripExtension,
   type TripDetail,
   type TripNoteSheetFile,
 } from '@/features/trips/lib/trips-api'
@@ -254,6 +262,7 @@ const emptyOverrideForm = (): OverrideFormState => ({
 
 type TripDetailLocationState = {
   hasFeedback?: boolean
+  extendTrip?: boolean
 }
 
 export type TripDetailContentProps = {
@@ -274,6 +283,8 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false)
   const [rejectRemarks, setRejectRemarks] = useState('')
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false)
+  const [extensionDecision, setExtensionDecision] = useState<'approve' | 'reject' | null>(null)
+  const [extensionRemarks, setExtensionRemarks] = useState('')
 
   const showDriverRatingButton =
     trip.hasFeedback || locationState?.hasFeedback === true
@@ -293,6 +304,26 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
     const profile = user as ApiRecord
     return toText(profile.id) || toText(profile.user_id) || toText(profile.userId) || toText(profile.uuid)
   }, [user])
+  const userIdentityIds = useMemo(() => readUserIdentityIds(user), [user])
+  const showExtensionForm =
+    mode === 'requisition' &&
+    locationState?.extendTrip === true &&
+    canExtendTrip({
+      role,
+      status: trip.statusCode || trip.status,
+      extensionStatus: trip.extensionStatus,
+      ownerIds: trip.ownerIds,
+      userIds: userIdentityIds,
+    })
+  const tripExtensions = trip.extensions ?? []
+  const pendingExtension = trip.pendingExtension
+  const extensionStatusText =
+    trip.extensionStatusLabel ||
+    (trip.extensionStatus ? formatExtensionStatusLabel(trip.extensionStatus) : '')
+  const showExtensionReviewActions =
+    role === 'fms-mto' &&
+    Boolean(pendingExtension?.id) &&
+    isPendingExtensionStatus(pendingExtension?.status || trip.extensionStatus || '')
   const isDriverRole = role === 'fms-driver'
 
   const visibleTripFeedback = useMemo(() => {
@@ -319,8 +350,12 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
     mode === 'request' && crud.isResolved && isPlanned
   const showApproveButton = canReviewPlannedTrip && crud.canApprove
   const showRejectButton = canReviewPlannedTrip && crud.canReject
+  const hasSystemSuggestedAssignment = Boolean(
+    trip.systemSuggestedDriverId || trip.systemSuggestedVehicleId,
+  )
   const showOverrideButton =
     canReviewPlannedTrip &&
+    !hasSystemSuggestedAssignment &&
     (crud.canApprove || crud.canAssign || crud.canUpdate)
   const canApproveTrip = showApproveButton
   const canRejectTrip = showRejectButton
@@ -535,17 +570,27 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
   const displayDriver = hasAssignedDriverData ? trip.assignedDriver : trip.suggestedDriver
   const vehicleCardTitle = hasAssignedVehicleData ? 'Assigned vehicle' : 'Suggested Vehicle'
   const driverCardTitle = hasAssignedDriverData ? 'Assigned Driver' : 'Suggested Driver'
+  const showRequestAssignedVehicle =
+    mode === 'request' && (hasAssignedVehicleData || Boolean(trip.assignedVehicleId))
+  const showRequestAssignedDriver =
+    mode === 'request' && (hasAssignedDriverData || Boolean(trip.assignedDriverId))
   const showVehicleCard =
-    mode === 'requisition' && (
+    (mode === 'requisition' && (
        hasAssignedVehicleData || Boolean(trip.assignedVehicleId)
-      || hasSuggestedVehicleData || Boolean(trip.systemSuggestedVehicleId))
+      || hasSuggestedVehicleData || Boolean(trip.systemSuggestedVehicleId))) ||
+    showRequestAssignedVehicle
   const showDriverCard =
-    mode === 'requisition' && 
+    (mode === 'requisition' && 
       (hasAssignedDriverData || Boolean(trip.assignedDriverId)
-      || hasSuggestedDriverData || Boolean(trip.systemSuggestedDriverId))
+      || hasSuggestedDriverData || Boolean(trip.systemSuggestedDriverId))) ||
+    showRequestAssignedDriver
 
   const showVehicleDriverSection =
-    mode === 'requisition' && (showRequisitionVehicleDriver  || hasSuggestedAssignment || showReviewActions)
+    (mode === 'requisition' &&
+      (showRequisitionVehicleDriver || hasSuggestedAssignment || showReviewActions)) ||
+    showOverrideButton ||
+    showRequestAssignedDriver ||
+    showRequestAssignedVehicle
 
   const handleApprove = () => {
     if (!canApproveTrip || approveMutation.isPending) return
@@ -609,11 +654,81 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
     pickupMutation.mutate()
   }
 
+  const extensionDecisionMutation = useMutation({
+    mutationFn: async () => {
+      if (!pendingExtension?.id || !extensionDecision) {
+        throw new Error('Trip extension is not available.')
+      }
+      const remarks = extensionRemarks.trim()
+      if (!remarks) throw new Error('Remarks are required.')
+      if (extensionDecision === 'approve') {
+        await approveTripExtension(trip.id, pendingExtension.id, remarks)
+        return
+      }
+      await rejectTripExtension(trip.id, pendingExtension.id, remarks)
+    },
+    onSuccess: async () => {
+      showSuccessToast(
+        extensionDecision === 'approve' ? 'Trip extension approved.' : 'Trip extension rejected.',
+      )
+      setExtensionDecision(null)
+      setExtensionRemarks('')
+      await queryClient.invalidateQueries({ queryKey: ['trips'] })
+      await queryClient.invalidateQueries({ queryKey: ['trips', 'detail', trip.id] })
+      await queryClient.invalidateQueries({ queryKey: ['trips', 'extensions', 'pending'] })
+    },
+    onError: (error) => {
+      showErrorToast(
+        error,
+        extensionDecision === 'approve'
+          ? 'Failed to approve trip extension.'
+          : 'Failed to reject trip extension.',
+      )
+    },
+  })
+
+  const extensionNoteSheetMutation = useMutation({
+    mutationFn: ({
+      extensionId,
+      fileName,
+      targetWindow,
+    }: {
+      extensionId: string
+      fileName: string
+      targetWindow: Window | null
+    }) => openTripExtensionNoteSheet(trip.id, extensionId, fileName, targetWindow),
+    onError: (error, variables) => {
+      if (variables.targetWindow && !variables.targetWindow.closed) variables.targetWindow.close()
+      showErrorToast(error, 'Could not open extension note sheet')
+    },
+  })
+
+  const openExtensionDecision = (decision: 'approve' | 'reject') => {
+    if (!showExtensionReviewActions || extensionDecisionMutation.isPending) return
+    setExtensionDecision(decision)
+    setExtensionRemarks(decision === 'approve' ? 'Approved' : '')
+  }
+
+  const closeExtensionDecision = () => {
+    if (extensionDecisionMutation.isPending) return
+    setExtensionDecision(null)
+    setExtensionRemarks('')
+  }
+
+  const confirmExtensionDecision = () => {
+    if (!extensionRemarks.trim()) {
+      showErrorToast('Remarks are required.')
+      return
+    }
+    extensionDecisionMutation.mutate()
+  }
+
   const reviewActionBusy =
     approveMutation.isPending ||
     rejectMutation.isPending ||
     overrideMutation.isPending ||
-    pickupMutation.isPending
+    pickupMutation.isPending ||
+    extensionDecisionMutation.isPending
 
   return (
     <section className="space-y-5">
@@ -627,6 +742,11 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
               <Badge className={tripStatusBadgeClass(trip.statusCode || trip.status)}>
                 {trip.status}
               </Badge>
+              {extensionStatusText ? (
+                <span className="text-sm text-[var(--fms-text-subheading)]">
+                  ({extensionStatusText})
+                </span>
+              ) : null}
             </span>
           }
         />
@@ -733,6 +853,97 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
         </CardContent>
       </Card>
 
+      {tripExtensions.length > 0 ? (
+        <Card className="border border-[var(--fms-strokes)] bg-white">
+          <CardContent className="space-y-5 pt-5">
+            <SectionHeader
+              icon={Car}
+              title="Trip Extensions"
+              subtitle="Extension requests recorded for this trip."
+            />
+            {tripExtensions.map((extension, extensionIndex) => (
+              <div
+                key={extension.id || extensionIndex}
+                className="space-y-4 border-t border-[var(--fms-strokes)] pt-4 first:border-t-0 first:pt-0"
+              >
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  <FieldReadOnly label="Origin" value={extension.origin} />
+                  <FieldReadOnly label="Final Destination" value={extension.destination} />
+                  <FieldReadOnly label="Date of Journey" value={extension.journeyStart} />
+                  <FieldReadOnly label="Date of Return" value={extension.journeyEnd} />
+                  {extension.durationLabel ? (
+                    <FieldReadOnly label="Trip Duration" value={extension.durationLabel} />
+                  ) : null}
+                  <FieldReadOnly
+                    label="Status"
+                    value={extension.statusLabel || extensionStatusText}
+                  />
+                </div>
+                <FieldReadOnly
+                  label="Trip details justification"
+                  value={extension.justification}
+                  className="w-full"
+                />
+                {extension.noteSheetName ? (
+                  <div className="space-y-2">
+                    <Label>Approval Note sheet</Label>
+                    <TripAttachmentChip
+                      file={{ name: extension.noteSheetName }}
+                      loading={
+                        extensionNoteSheetMutation.isPending &&
+                        extensionNoteSheetMutation.variables?.extensionId === extension.id
+                      }
+                      openingLabel="Opening extension note sheet…"
+                      onClick={() =>
+                        extensionNoteSheetMutation.mutate({
+                          extensionId: extension.id,
+                          fileName: extension.noteSheetName,
+                          targetWindow: preOpenBrowserTab(),
+                        })
+                      }
+                    />
+                  </div>
+                ) : null}
+                {extension.officials.length > 0 ? (
+                  <div className="overflow-hidden rounded-lg border border-[var(--fms-strokes)]">
+                    <table className="w-full text-sm">
+                      <thead className="bg-[#f6f6f7] text-[var(--fms-text-header)]">
+                        <tr>
+                          <th className="w-16 px-4 py-3 text-left font-semibold">Sl.No</th>
+                          <th className="px-4 py-3 text-left font-semibold">Employee CID</th>
+                          <th className="px-4 py-3 text-left font-semibold">Full Name</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {extension.officials.map((official, index) => (
+                          <tr
+                            key={`${extension.id}-${official.employeeCid}-${index}`}
+                            className="border-t border-[var(--fms-strokes)]"
+                          >
+                            <td className="px-4 py-3 tabular-nums text-[var(--fms-text-subheading)]">
+                              {index + 1}
+                            </td>
+                            <td className="px-4 py-3">{official.employeeCid}</td>
+                            <td className="px-4 py-3">{official.fullName}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {showExtensionForm ? (
+        <TripExtensionForm
+          trip={trip}
+          onCancel={() => navigate(backPath)}
+          onSubmitted={() => navigate(backPath)}
+        />
+      ) : (
       <Card className="border border-[var(--fms-strokes)] bg-white">
         <CardContent className="space-y-4 pt-5">
           <SectionHeader
@@ -773,6 +984,7 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
           )}
         </CardContent>
       </Card>
+      )}
 
       {showVehicleDriverSection ? (
         <Card className="border border-[var(--fms-strokes)] bg-white">
@@ -814,6 +1026,28 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
         </Card>
       ) : null}
 
+      {showExtensionReviewActions ? (
+        <div className="flex flex-wrap gap-3 border-t border-[var(--fms-strokes)] pt-2">
+          <Button
+            type="button"
+            className="bg-[var(--fms-success-text)] text-white hover:bg-[var(--fms-success-text)]/90"
+            disabled={reviewActionBusy}
+            onClick={() => openExtensionDecision('approve')}
+          >
+            Approve Extension
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="border-[#ed8936] text-[#c05621]"
+            disabled={reviewActionBusy}
+            onClick={() => openExtensionDecision('reject')}
+          >
+            Reject Extension
+          </Button>
+        </div>
+      ) : null}
+
       {showReviewActions ? (
         <div className="flex flex-wrap gap-3 border-t border-[var(--fms-strokes)] pt-2">
           {showApproveButton ? (
@@ -850,6 +1084,85 @@ export function TripDetailContent({ trip, mode, backPath }: TripDetailContentPro
           </Button>
         </div>
       ) : null}
+
+      <Dialog
+        open={extensionDecision !== null}
+        onOpenChange={(open) => !open && closeExtensionDecision()}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader className="items-center text-center">
+            <div
+              className={
+                extensionDecision === 'reject'
+                  ? 'mb-2 rounded-full bg-[var(--fms-error-fill)] p-2.5'
+                  : 'mb-2 rounded-full bg-[#d7f8e8] p-2.5'
+              }
+            >
+              <AlertTriangle
+                className={
+                  extensionDecision === 'reject'
+                    ? 'h-5 w-5 text-[var(--fms-delete)]'
+                    : 'h-5 w-5 text-[var(--fms-success-text)]'
+                }
+              />
+            </div>
+            <DialogTitle>
+              {extensionDecision === 'reject' ? 'Reject Trip Extension' : 'Approve Trip Extension'}
+            </DialogTitle>
+            <DialogDescription>
+              {extensionDecision === 'reject'
+                ? `Reject the trip extension for ${trip.applicantName}.`
+                : `Approve the trip extension for ${trip.applicantName}.`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="extension-decision-remarks">
+              Remarks <span className="text-[var(--fms-delete)]">*</span>
+            </Label>
+            <textarea
+              id="extension-decision-remarks"
+              value={extensionRemarks}
+              onChange={(event) => setExtensionRemarks(event.target.value)}
+              placeholder={
+                extensionDecision === 'reject'
+                  ? 'Vehicle required for another trip'
+                  : 'Approved'
+              }
+              rows={4}
+              disabled={extensionDecisionMutation.isPending}
+              className="min-h-[96px] w-full rounded-lg border border-[var(--fms-strokes)] bg-transparent px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+            />
+          </div>
+          <DialogFooter className="justify-center gap-2 sm:justify-center">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={extensionDecisionMutation.isPending}
+              onClick={closeExtensionDecision}
+            >
+              Close
+            </Button>
+            <Button
+              type="button"
+              className={
+                extensionDecision === 'reject'
+                  ? 'bg-[var(--fms-delete)] text-white hover:bg-[#c70009]'
+                  : 'bg-[var(--fms-success-text)] text-white hover:bg-[var(--fms-success-text)]/90'
+              }
+              disabled={extensionDecisionMutation.isPending}
+              onClick={confirmExtensionDecision}
+            >
+              {extensionDecisionMutation.isPending
+                ? extensionDecision === 'reject'
+                  ? 'Rejecting…'
+                  : 'Approving…'
+                : extensionDecision === 'reject'
+                  ? 'Confirm Reject'
+                  : 'Confirm Approve'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={rejectDialogOpen} onOpenChange={(open) => !open && closeRejectDialog()}>
         <DialogContent className="max-w-md">

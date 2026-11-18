@@ -206,6 +206,51 @@ export function isTripPlanned(statusCode: string): boolean {
   return normalizeTripStatusCode(statusCode) === 'PLANNED'
 }
 
+export function isTripInProgress(statusCode: string): boolean {
+  return normalizeTripStatusCode(statusCode) === 'IN_PROGRESS'
+}
+
+export function normalizeExtensionStatus(status: string): string {
+  return status.trim().toUpperCase().replace(/[\s-]+/g, '_')
+}
+
+export function isPendingExtensionStatus(status: string): boolean {
+  const code = normalizeExtensionStatus(status)
+  return code === 'PENDING_EXTENSION' || code === 'PENDING'
+}
+
+export function blocksNewTripExtension(status: string): boolean {
+  const code = normalizeExtensionStatus(status)
+  return code === 'EXTENDED' || isPendingExtensionStatus(status)
+}
+
+export function formatExtensionStatusLabel(status: string): string {
+  const trimmed = status.trim()
+  if (!trimmed) return ''
+  return trimmed
+    .replace(/[_-]+/g, ' ')
+    .toLowerCase()
+    .replace(/\b\w/g, (char) => char.toUpperCase())
+}
+
+/** Applicant who created the requisition, and only while the trip is in progress. */
+export function canExtendTrip(options: {
+  role: string
+  status: string
+  extensionStatus?: string
+  ownerIds: string[]
+  userIds: string[]
+}): boolean {
+  if (options.role !== 'fms-applicant') return false
+  if (!isTripInProgress(options.status)) return false
+  if (blocksNewTripExtension(options.extensionStatus ?? '')) return false
+  if (options.ownerIds.length === 0) return true
+  const owners = new Set(
+    options.ownerIds.map((id) => id.trim().toLowerCase()).filter(Boolean),
+  )
+  return options.userIds.some((id) => owners.has(id.trim().toLowerCase()))
+}
+
 export function isTripCompleted(statusCode: string): boolean {
   return normalizeTripStatusCode(statusCode) === 'COMPLETED'
 }

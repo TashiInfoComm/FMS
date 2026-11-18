@@ -39,7 +39,11 @@ function isTruthyFlag(value: unknown): boolean {
 /** `handles_designated_vehicles` on the profile saved from `/auth/me` into the user store. */
 export function userHandlesDesignatedVehicles(user: unknown): boolean {
   if (!user || typeof user !== 'object' || Array.isArray(user)) return false
-  return isTruthyFlag((user as Record<string, unknown>).handles_designated_vehicles)
+  const record = user as Record<string, unknown>
+  return (
+    isTruthyFlag(record.handles_designated_vehicles) ||
+    isTruthyFlag(record.handles_designated_vehicle)
+  )
 }
 
 /** True when the active role matches `slug`, including legacy labels mapped to realm slugs. */

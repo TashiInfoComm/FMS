@@ -2,11 +2,11 @@ import { useQuery } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
+import { TripStatusWithExtension } from '@/features/trips/components/TripStatusWithExtension'
 import { TripTableListToolbar } from '@/features/trips/components/TripTableListToolbar'
 import { formatDriverRoute } from '@/features/trips/lib/trip-assignment-mock-data'
-import { formatApplicantOrgLine, tripStatusBadgeClass } from '@/features/trips/lib/trip-form-utils'
+import { formatApplicantOrgLine } from '@/features/trips/lib/trip-form-utils'
 import { formatTripDateTime } from '@/features/trips/lib/trip-request-mock-data'
 import { fetchDriverAssignmentsPage } from '@/features/trips/lib/trips-api'
 import {
@@ -173,13 +173,11 @@ export default function MyAssignments() {
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        <Badge
-                          className={tripStatusBadgeClass(
-                            row.statusCode || row.status,
-                          )}
-                        >
-                          {row.status}
-                        </Badge>
+                        <TripStatusWithExtension
+                          status={row.status}
+                          statusCode={row.statusCode}
+                          extensionStatusLabel={row.extensionStatusLabel}
+                        />
                       </td>
                       <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                         <DetailRowActionButton
@@ -244,18 +242,16 @@ export default function MyAssignments() {
                   <MobileListField label="Journey Start">
                     {formatTripDateTime(row.journeyStartDate, row.journeyStartTime)}
                   </MobileListField>
-                  <p className="text-sm text-[var(--fms-text-subheading)]">
+                  <div className="text-sm text-[var(--fms-text-subheading)]">
                     <span className="font-medium text-[var(--fms-text-header)]">
                       Status:
                     </span>{' '}
-                    <Badge
-                      className={tripStatusBadgeClass(
-                        row.statusCode || row.status,
-                      )}
-                    >
-                      {row.status}
-                    </Badge>
-                  </p>
+                    <TripStatusWithExtension
+                      status={row.status}
+                      statusCode={row.statusCode}
+                      extensionStatusLabel={row.extensionStatusLabel}
+                    />
+                  </div>
                   <div
                     className={`mt-3 ${rowActionsContainerClassName}`}
                     onClick={(e) => e.stopPropagation()}
